@@ -1,0 +1,3 @@
+[submodule "modules/dodeedum"]
+	path = modules/dodeedum
+	url = git@github.com:SpehleonLP/dodeedum.git

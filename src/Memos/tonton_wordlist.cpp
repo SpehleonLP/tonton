@@ -1,0 +1,685 @@
+#include "../../include/tonton_wordlist.h"
+#include <algorithm>
+#include <cstring>
+#include <string>
+#include <cassert>
+#include <array>
+
+namespace TonTon
+{
+struct WordDef
+{
+	Word word;
+	const char * string;
+};
+
+constexpr std::array<WordDef, (int)Word::TOTAL_WORDS+3> word_strings = [] {
+    std::array<WordDef, (int)Word::TOTAL_WORDS+3> arr = {
+		WordDef{ Word::left, "left"},
+		{ Word::right, "right"},
+		{ Word::left, "l"},
+		{ Word::right, "r"},
+		{ Word::front, "front"},
+		{ Word::fore, "fore"},
+		{ Word::anterior, "anterior"},
+		{ Word::hind, "hind"},
+		{ Word::rear, "rear"},
+		{ Word::back, "back"},
+		{ Word::posterior, "posterior"},
+		{ Word::upper, "upper"},
+		{ Word::lower, "lower"},
+		{ Word::mid, "mid"},
+		{ Word::middle, "middle"},
+		{ Word::inner, "inner"},
+		{ Word::outer, "outer"},
+		{ Word::medial, "medial"},
+		{ Word::lateral, "lateral"},
+		{ Word::proximal, "proximal"},
+		{ Word::distal, "distal"},
+		{ Word::tip, "tip"},
+		{ Word::end, "end"},
+		{ Word::base, "base"},
+		{ Word::root, "root"},
+		{ Word::top, "top"},
+		{ Word::bottom, "bottom"},
+		{ Word::flank, "flank"},
+		{ Word::loin, "loin"},
+		{ Word::rump, "rump"},
+		{ Word::haunch, "haunch"},
+		{ Word::withers, "withers"},
+		{ Word::croup, "croup"},
+		{ Word::breast, "breast"},
+		{ Word::brisket, "brisket"},
+		{ Word::dewlap, "dewlap"},
+		{ Word::pouch, "pouch"},
+		{ Word::crop, "crop"},
+		{ Word::gizzard, "gizzard"},
+		{ Word::butt, "butt"},
+		{ Word::fang, "fang"},
+		{ Word::tooth, "tooth"},
+		{ Word::teeth, "teeth"},
+		{ Word::incisor, "incisor"},
+		{ Word::canine, "canine"},
+		{ Word::molar, "molar"},
+		{ Word::trunk, "trunk"},
+		{ Word::rostrum, "rostrum"},
+		{ Word::barbel, "barbel"},
+		{ Word::snoot, "snoot"},
+		{ Word::jowl, "jowl"},
+		{ Word::head, "head"},
+		{ Word::skull, "skull"},
+		{ Word::cranium, "cranium"},
+		{ Word::jaw, "jaw"},
+		{ Word::mandible, "mandible"},
+		{ Word::maxilla, "maxilla"},
+		{ Word::chin, "chin"},
+		{ Word::mouth, "mouth"},
+		{ Word::muzzle, "muzzle"},
+		{ Word::snout, "snout"},
+		{ Word::beak, "beak"},
+		{ Word::bill, "bill"},
+		{ Word::proboscis, "proboscis"},
+		{ Word::nose, "nose"},
+		{ Word::nostril, "nostril"},
+		{ Word::nare, "nare"},
+		{ Word::eye, "eye"},
+		{ Word::orbit, "orbit"},
+		{ Word::ear, "ear"},
+		{ Word::lobe, "lobe"},
+		{ Word::pinna, "pinna"},
+		{ Word::horn, "horn"},
+		{ Word::antler, "antler"},
+		{ Word::tusk, "tusk"},
+		{ Word::crest, "crest"},
+		{ Word::crown, "crown"},
+		{ Word::comb, "comb"},
+		{ Word::wattle, "wattle"},
+		{ Word::whisker, "whisker"},
+		{ Word::vibrissa, "vibrissa"},
+		{ Word::tongue, "tongue"},
+		{ Word::throat, "throat"},
+		{ Word::gullet, "gullet"},
+		{ Word::cheek, "cheek"},
+		{ Word::maw, "maw"},
+		{ Word::trap, "trap"},
+		{ Word::face, "face"},
+		{ Word::vertebra, "vertebra"},
+		{ Word::vertebrae, "vertebrae"},
+		{ Word::neck, "neck"},
+		{ Word::cervical, "cervical"},
+		{ Word::chest, "chest"},
+		{ Word::sternum, "sternum"},
+		{ Word::rib, "rib"},
+		{ Word::ribcage, "ribcage"},
+		{ Word::belly, "belly"},
+		{ Word::abdomen, "abdomen"},
+		{ Word::ventral, "ventral"},
+		{ Word::stomach, "stomach"},
+		{ Word::pelvis, "pelvis"},
+		{ Word::hip, "hip"},
+		{ Word::sacrum, "sacrum"},
+		{ Word::tail, "tail"},
+		{ Word::coccyx, "coccyx"},
+		{ Word::dock, "dock"},
+		{ Word::brush, "brush"},
+		{ Word::bob, "bob"},
+		{ Word::scut, "scut"},
+		{ Word::fan, "fan"},
+		{ Word::plume, "plume"},
+		{ Word::tuft, "tuft"},
+		{ Word::paw, "paw"},
+		{ Word::dewclaw, "dewclaw"},
+		{ Word::fetlock, "fetlock"},
+		{ Word::pastern, "pastern"},
+		{ Word::cannon, "cannon"},
+		{ Word::coronet, "coronet"},
+		{ Word::frog, "frog"},
+		{ Word::stifle, "stifle"},
+		{ Word::gaskin, "gaskin"},
+		{ Word::hock, "hock"},
+		{ Word::digit, "digit"},
+		{ Word::mitt, "mitt"},
+		{ Word::shoulder, "shoulder"},
+		{ Word::scapula, "scapula"},
+		{ Word::clavicle, "clavicle"},
+		{ Word::humerus, "humerus"},
+		{ Word::arm, "arm"},
+		{ Word::elbow, "elbow"},
+		{ Word::radius, "radius"},
+		{ Word::ulna, "ulna"},
+		{ Word::forearm, "forearm"},
+		{ Word::wrist, "wrist"},
+		{ Word::carpal, "carpal"},
+		{ Word::carpus, "carpus"},
+		{ Word::hand, "hand"},
+		{ Word::grasper, "grasper"},
+		{ Word::palm, "palm"},
+		{ Word::metacarpal, "metacarpal"},
+		{ Word::thumb, "thumb"},
+		{ Word::finger, "finger"},
+		{ Word::knuckle, "knuckle"},
+		{ Word::phalanx, "phalanx"},
+		{ Word::phalange, "phalange"},
+		{ Word::thigh, "thigh"},
+		{ Word::femur, "femur"},
+		{ Word::leg, "leg"},
+		{ Word::knee, "knee"},
+		{ Word::patella, "patella"},
+		{ Word::kneecap, "kneecap"},
+		{ Word::shin, "shin"},
+		{ Word::tibia, "tibia"},
+		{ Word::fibula, "fibula"},
+		{ Word::calf, "calf"},
+		{ Word::ankle, "ankle"},
+		{ Word::tarsal, "tarsal"},
+		{ Word::tarsus, "tarsus"},
+		{ Word::heel, "heel"},
+		{ Word::calcaneus, "calcaneus"},
+		{ Word::foot, "foot"},
+		{ Word::sole, "sole"},
+		{ Word::metatarsal, "metatarsal"},
+		{ Word::toe, "toe"},
+		{ Word::claw, "claw"},
+		{ Word::talon, "talon"},
+		{ Word::setae, "setae"},
+		{ Word::nail, "nail"},
+		{ Word::spur, "spur"},
+		{ Word::pad, "pad"},
+		{ Word::hoof, "hoof"},
+		{ Word::scale, "scale"},
+		{ Word::plate, "plate"},
+		{ Word::scute, "scute"},
+		{ Word::shell, "shell"},
+		{ Word::carapace, "carapace"},
+		{ Word::plastron, "plastron"},
+		{ Word::shield, "shield"},
+		{ Word::spike, "spike"},
+		{ Word::antenna, "antenna"},
+		{ Word::antenna, "antennae"},
+		{ Word::segment, "segment"},
+		{ Word::coxa, "coxa"},
+		{ Word::trochanter, "trochanter"},
+		{ Word::cercus, "cercus"},
+		{ Word::ovipositor, "ovipositor"},
+		{ Word::ray, "ray"},
+		{ Word::operculum, "operculum"},
+		{ Word::siphon, "siphon"},
+		{ Word::mantle, "mantle"},
+		{ Word::fin, "fin"},
+		{ Word::flipper, "flipper"},
+		{ Word::fluke, "fluke"},
+		{ Word::pectoral, "pectoral"},
+		{ Word::dorsal, "dorsal"},
+		{ Word::anal, "anal"},
+		{ Word::caudal, "caudal"},
+		{ Word::tentacle, "tentacle"},
+		{ Word::web, "web"},
+		{ Word::gill, "gill"},
+		{ Word::covert, "covert"},
+		{ Word::patagium, "patagium"},
+		{ Word::aileron, "aileron"},
+		{ Word::wing, "wing"},
+		{ Word::pinion, "pinion"},
+		{ Word::alula, "alula"},
+		{ Word::primary, "primary"},
+		{ Word::secondary, "secondary"},
+		{ Word::gland, "gland"},
+		{ Word::duct, "duct"},
+		{ Word::sac, "sac"},
+		{ Word::chamber, "chamber"},
+		{ Word::valve, "valve"},
+		{ Word::muscle, "muscle"},
+		{ Word::tendon, "tendon"},
+		{ Word::ligament, "ligament"},
+		{ Word::cartilage, "cartilage"},
+		{ Word::joint, "joint"},
+		{ Word::bone, "bone"},
+		{ Word::twist, "twist"},
+		{ Word::roll, "roll"},
+		{ Word::IK, "ik"},
+		{ Word::FK, "fk"},
+		{ Word::control, "control"},
+		{ Word::ctrl, "ctrl"},
+		{ Word::deform, "deform"},
+		{ Word::def, "def"},
+		{ Word::target, "target"},
+		{ Word::pole, "pole"},
+		{ Word::master, "master"},
+		{ Word::mstr, "mstr"},
+		{ Word::pivot, "pivot"},
+		{ Word::membrane, "membrane"},
+		{ Word::socket, "socket"},
+		{ Word::sucker, "sucker"},
+		{ Word::spine, "spine"},
+		{ Word::thorax, "thorax"},
+		{ Word::jiggle, "jiggle"},
+		{ Word::phys, "phys"},
+		{ Word::sym, "sym"},
+		{ Word::hair, "hair"},
+		{ Word::mane, "mane"},
+		{ Word::fur, "fur"},
+		{ Word::feather, "feather"},  
+		{ Word::adhesive, "adhesive"},  
+		{ Word::sensory, "senory"},  
+		{ Word::chemoreceptor, "chemoreceptor"},  
+    };
+    
+    std::sort(arr.begin(), arr.end(), [](const WordDef& a, const WordDef& b) {
+				return std::string_view(a.string) < std::string_view(b.string);
+			});
+			
+    return arr;
+}();
+
+}
+
+
+static std::string to_lower(std::string_view s)
+{
+	std::string r = std::string(s);
+	
+	for(auto & c : r)
+	{
+		c = tolower(c);
+	}
+	
+	return r;
+}
+
+
+size_t TonTon::StringToWords(std::vector<Word> & dst, std::string_view word)
+{
+	size_t old_size = dst.size();
+	auto lowa = to_lower(word);
+	
+	for(auto begin = 0u, end = 0u; begin < word.size(); begin = end)
+	{
+		for(;begin < word.size(); ++begin)
+		{
+			if(('A' <= word[begin] && word[begin] <= 'Z')
+			|| ('a' <= word[begin] && word[begin] <= 'z'))
+				break;
+		}
+	
+		bool is_lowa = false;
+		for(end = begin; end < word.size(); ++end)
+		{
+			if('a' <= word[end] && word[end] <= 'z')
+			{
+				if(!is_lowa && end > begin+1)
+					break;
+				else 
+					is_lowa = true;
+			}
+			else if('A' <= word[end] && word[end] <= 'Z')
+			{
+				if(is_lowa)
+					break;
+			}
+			else
+				break;
+		}
+		
+		if(begin == end)
+			continue;
+		
+		auto token = std::string_view(lowa).substr(begin, end-begin);
+		
+		auto itr = std::lower_bound(std::begin(word_strings), std::end(word_strings),
+				token, [](WordDef const& it, std::string_view const& value) -> bool
+				{
+					return std::string_view(it.string) < value;
+				});
+	
+		if(itr != std::end(word_strings) 
+		&& std::string_view(itr->string) == token)
+			dst.push_back(itr->word);
+	}
+
+	return dst.size() - old_size;
+}
+
+
+TonTon::SemanticFlags TonTon::GetFlags(Word word)
+{
+    using SF = SemanticFlags;
+    
+    switch(word)
+    {
+    case Word::left: return SF::LEFT;
+    case Word::right: return SF::RIGHT;
+    
+    case Word::front:
+    case Word::fore:
+    case Word::anterior: return SF::ANTERIOR;
+    
+    case Word::hind:
+    case Word::rear:
+    case Word::back:
+    case Word::posterior: return SF::POSTERIOR;
+    
+    case Word::upper:
+    case Word::proximal:
+    case Word::base:
+    case Word::root: return SF::PROXIMAL;
+    
+    case Word::lower:
+    case Word::distal:
+    case Word::tip:
+    case Word::end: return SF::DISTAL;
+    
+    case Word::mid:
+    case Word::middle:
+    case Word::inner:
+    case Word::medial: return SF::MEDIAL;
+    
+    case Word::outer:
+    case Word::lateral: return SF::LATERAL;
+    
+    case Word::top: return SF::DORSAL;
+    case Word::bottom: return SF::VENTRAL;
+    
+    case Word::dorsal: return SF::DORSAL;
+    case Word::ventral:
+    case Word::belly:
+    case Word::abdomen:
+    case Word::stomach: return SF::VENTRAL | SF::ABDOMEN;
+    
+    // Body regions
+    case Word::flank:
+    case Word::loin:
+    case Word::rump:
+    case Word::haunch:
+    case Word::butt: return SF::POSTERIOR | SF::PELVIS;
+    
+    case Word::withers:
+    case Word::croup: return SF::POSTERIOR | SF::PELVIS | SF::EQUINE;
+    
+    case Word::breast:
+    case Word::brisket:
+    case Word::chest:
+    case Word::sternum:
+    case Word::ribcage:
+    case Word::rib:
+    case Word::thorax: return SF::THORAX;
+    
+    case Word::dewlap:
+    case Word::pouch:
+    case Word::crop:
+    case Word::gizzard: return SF::VENTRAL | SF::INTERNAL | SF::AVIAN;
+    
+    // Teeth
+    case Word::fang:
+    case Word::tooth:
+    case Word::teeth:
+    case Word::incisor:
+    case Word::canine:
+    case Word::molar: return SF::HEAD | SF::FACIAL | SF::TEETH;
+    
+    // Mouth/nose structures
+    case Word::trunk: return SF::HEAD | SF::FACIAL | SF::RESPIRATORY;
+    case Word::rostrum: return SF::HEAD | SF::FACIAL | SF::MOUTH_PARTS | SF::AVIAN;
+    case Word::barbel: return SF::HEAD | SF::SENSORY | SF::AQUATIC;
+    case Word::snoot:
+    case Word::muzzle:
+    case Word::snout: return SF::HEAD | SF::FACIAL | SF::MOUTH_PARTS;
+    case Word::beak:
+    case Word::bill: return SF::HEAD | SF::FACIAL | SF::MOUTH_PARTS | SF::AVIAN;
+    case Word::proboscis: return SF::HEAD | SF::MOUTH_PARTS | SF::ARTHROPOD;
+    
+    case Word::nose:
+    case Word::nostril:
+    case Word::nare: return SF::HEAD | SF::FACIAL | SF::RESPIRATORY;
+    
+    case Word::jowl:
+    case Word::chin:
+    case Word::cheek: return SF::HEAD | SF::FACIAL;
+    
+    case Word::mouth:
+    case Word::maw:
+    case Word::jaw:
+    case Word::trap: return SF::HEAD | SF::FACIAL | SF::MOUTH_PARTS;
+    
+    case Word::mandible:
+    case Word::maxilla: return SF::HEAD | SF::MOUTH_PARTS;
+    
+    case Word::head:
+    case Word::skull:
+    case Word::cranium:
+    case Word::face: return SF::HEAD;
+    
+    case Word::eye:
+    case Word::orbit: return SF::HEAD | SF::FACIAL | SF::VISION;
+    
+    case Word::ear:
+    case Word::lobe:
+    case Word::pinna: return SF::HEAD | SF::FACIAL | SF::HEARING;
+    
+    case Word::horn:
+    case Word::antler:
+    case Word::tusk:
+    case Word::crest:
+    case Word::crown: return SF::HEAD | SF::HORN_ANTLER;
+    
+    case Word::comb:
+    case Word::wattle: return SF::HEAD | SF::AVIAN;
+    
+    case Word::whisker:
+    case Word::vibrissa: return SF::HEAD | SF::FACIAL | SF::SENSORY;
+    
+    case Word::tongue:
+    case Word::throat:
+    case Word::gullet: return SF::HEAD | SF::INTERNAL;
+    
+    // Spine/Neck/Tail
+    case Word::vertebra:
+    case Word::vertebrae:
+    case Word::spine: return SF::SPINE;
+    
+    case Word::neck:
+    case Word::cervical: return SF::NECK;
+    
+    case Word::pelvis:
+    case Word::hip:
+    case Word::sacrum: return SF::PELVIS;
+    
+    case Word::tail:
+    case Word::coccyx:
+    case Word::caudal:
+    case Word::dock:
+    case Word::brush:
+    case Word::bob:
+    case Word::scut:
+    case Word::fan:
+    case Word::plume:
+    case Word::tuft: return SF::TAIL;
+    
+    // Forelimb - upper
+    case Word::shoulder:
+    case Word::scapula:
+    case Word::clavicle:
+    case Word::humerus: return SF::FORELIMB | SF::UPPER_LIMB;
+    
+    case Word::arm: return SF::FORELIMB;
+    
+    // Forelimb - mid
+    case Word::elbow: return SF::FORELIMB | SF::MID_LIMB;
+    case Word::radius:
+    case Word::ulna:
+    case Word::forearm: return SF::FORELIMB | SF::MID_LIMB;
+    
+    // Forelimb - lower
+    case Word::wrist: return SF::FORELIMB | SF::LOWER_LIMB;
+    case Word::carpal:
+    case Word::carpus: return SF::FORELIMB | SF::LOWER_LIMB;
+    
+    // Forelimb - terminal
+    case Word::hand:
+    case Word::palm:		return SF::FORELIMB | SF::TERMINAL | SF::GRASPER;
+    case Word::metacarpal: return SF::FORELIMB | SF::TERMINAL;
+    
+    case Word::grasper: return SF::GRASPER;
+    
+    case Word::thumb:
+    case Word::finger: return SF::FORELIMB | SF::DIGIT;
+    
+    case Word::knuckle: return SF::FORELIMB | SF::DIGIT;
+    
+    case Word::phalanx:
+    case Word::phalange: return SF::DIGIT;
+    
+    // Hindlimb - upper
+    case Word::thigh:
+    case Word::femur: return SF::HINDLIMB | SF::UPPER_LIMB;
+    
+    case Word::leg: return SF::HINDLIMB;
+    
+    // Hindlimb - mid
+    case Word::knee:
+    case Word::patella:
+    case Word::kneecap: return SF::HINDLIMB | SF::MID_LIMB;
+    
+    case Word::shin:
+    case Word::tibia:
+    case Word::fibula:
+    case Word::calf:
+    case Word::gaskin: return SF::HINDLIMB | SF::MID_LIMB;
+    
+    // Hindlimb - lower
+    case Word::ankle: return SF::HINDLIMB | SF::LOWER_LIMB;
+    case Word::tarsal:
+    case Word::tarsus:
+    case Word::hock: return SF::HINDLIMB | SF::LOWER_LIMB;
+    
+    case Word::heel:
+    case Word::calcaneus: return SF::HINDLIMB | SF::LOWER_LIMB;
+    
+    // Hindlimb - terminal
+    case Word::foot:
+    case Word::sole:
+    case Word::metatarsal:
+    case Word::paw:
+    case Word::mitt: return SF::HINDLIMB | SF::TERMINAL;
+    
+    case Word::toe: return SF::HINDLIMB | SF::DIGIT;
+    
+    // Terminal structures (could be fore or hind)
+    case Word::digit: return SF::DIGIT;
+    
+    case Word::claw:
+    case Word::talon: return SF::WEAPON | SF::AVIAN | SF::NAIL;
+    case Word::nail: return SF::WEAPON | SF::NAIL;
+    case Word::spur: return SF::WEAPON | SF::AVIAN;
+    case Word::hoof: return SF::NAIL | SF::EQUINE;
+    
+    case Word::pad: return SF::TERMINAL;
+    
+    // Equine-specific lower leg
+    case Word::dewclaw: return SF::LOWER_LIMB |  SF::NAIL;
+    case Word::fetlock:
+    case Word::pastern:
+    case Word::cannon:
+    case Word::coronet:
+    case Word::frog: return SF::LOWER_LIMB | SF::EQUINE;
+    
+    case Word::stifle: return SF::HINDLIMB | SF::EQUINE;
+    
+    // Armor/Scales
+    case Word::scale:
+    case Word::plate:
+    case Word::scute:
+    case Word::spike: return SF::ARMOR | SF::AQUATIC; // Could be reptile too
+    case Word::shell:
+    case Word::carapace:
+    case Word::plastron:
+    case Word::shield: return SF::ARMOR;
+    
+    // Arthropod
+    case Word::antenna: return SF::HEAD | SF::SENSORY | SF::ARTHROPOD;
+    case Word::segment: return SF::ARTHROPOD;
+    case Word::coxa:
+    case Word::trochanter: return SF::UPPER_LIMB | SF::ARTHROPOD;
+    case Word::cercus:
+    case Word::ovipositor: return SF::ABDOMEN | SF::ARTHROPOD;
+    
+    // Aquatic
+    case Word::ray: return SF::FIN | SF::AQUATIC;
+    case Word::operculum: return SF::HEAD | SF::RESPIRATORY | SF::AQUATIC;
+    case Word::siphon:
+    case Word::mantle: return SF::INTERNAL | SF::AQUATIC;
+    case Word::gill: return SF::RESPIRATORY | SF::AQUATIC;
+    
+    case Word::fin:
+    case Word::flipper:
+    case Word::fluke: return SF::FIN | SF::AQUATIC;
+    
+    case Word::pectoral: return SF::FIN | SF::AQUATIC | SF::FORELIMB;
+    case Word::anal: return SF::FIN | SF::AQUATIC | SF::VENTRAL;
+    
+    case Word::tentacle: return SF::TENTACLE | SF::AQUATIC;
+    case Word::web: return SF::TERMINAL | SF::AQUATIC; // webbed feet
+    case Word::sucker: return SF::TENTACLE | SF::AQUATIC;
+    
+    // Wings & feathers
+    case Word::covert:
+    case Word::primary:
+    case Word::secondary: return SF::WING | SF::ALPHA_CARD | SF::AVIAN;
+    
+    case Word::patagium:
+    case Word::aileron: return SF::WING | SF::FORELIMB;
+    
+    case Word::wing:
+    case Word::pinion:
+    case Word::alula: return SF::WING | SF::FORELIMB | SF::AVIAN;
+    
+    // Soft tissue / Internal
+    case Word::gland:
+    case Word::duct:
+    case Word::sac:
+    case Word::chamber:
+    case Word::valve: return SF::INTERNAL;
+    
+    case Word::muscle:
+    case Word::tendon:
+    case Word::ligament:
+    case Word::cartilage: return SF::INTERNAL;
+    
+    case Word::membrane: return SF::AQUATIC | SF::AVIAN | SF::MEMBRANE; // Could be either (webbed feet or wing membranes)
+    
+    // Generic - don't flag
+    case Word::joint:
+    case Word::socket:
+    case Word::pivot:
+    case Word::bone: return (SF)0;
+    
+    // Rigging controls
+    case Word::IK:
+    case Word::FK:
+    case Word::control:
+    case Word::ctrl:
+    case Word::target:
+    case Word::pole:
+    case Word::master:
+    case Word::mstr: return SF::RIGGING_CONTROL;
+    
+    case Word::deform:
+    case Word::def: return SF::DEFORMER;
+    
+    case Word::twist:
+    case Word::roll: return SF::TWIST_ROLL;
+    
+    case Word::jiggle:
+    case Word::phys:
+    case Word::sym:  return SF::ALPHA_CARD;	 
+    case Word::hair:
+    case Word::mane:
+    case Word::fur:
+    case Word::feather: return SF::ALPHA_CARD | SF::JIGGLE_BONE;	 
+    case Word::TOTAL_WORDS: return SF::NONE;
+	case Word::setae:
+	case Word::adhesive:
+		break;
+	}
+	
+	return (SF)0;
+}
