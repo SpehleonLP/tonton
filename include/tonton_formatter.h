@@ -46,9 +46,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Manipulator& manip);
 std::ostream& operator<<(std::ostream& os, const Output_Brachiation::Arm& arm);
 std::ostream& operator<<(std::ostream& os, const Output_Brachiation& br);
 
-std::ostream& operator<<(std::ostream& os, const Output_Tail::Branch& branch);
 std::ostream& operator<<(std::ostream& os, const Output_Tail& tail);
-std::ostream& operator<<(std::ostream& os, const Output_Antenna& ant);
 std::ostream& operator<<(std::ostream& os, const Output::Appendages& app);
 
 std::ostream& operator<<(std::ostream& os, const Output& output);

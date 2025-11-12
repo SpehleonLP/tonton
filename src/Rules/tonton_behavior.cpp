@@ -5,10 +5,10 @@
 #include "../../include/tonton_input.h"
 #include "../../include/tonton_output.h"
 #include "Memos/tonton_armaturememo.h"
+#include "Rules/tonton_scratch.h"
 #include <cmath>
 
 namespace TonTon {
-
 // ============================================================================
 // HELPER FUNCTIONS - Semantic Analysis
 // ============================================================================
@@ -28,7 +28,7 @@ struct SemanticAnalysis {
     bool has_forward_eyes = false;
 };
 
-static SemanticAnalysis AnalyzeSemantics(Input const& in, Output const& scratch) {
+static SemanticAnalysis AnalyzeSemantics(Input const& in, Scratch const& scratch) {
     SemanticAnalysis result;
     
     auto semantic_flags = in.armature->armature->memo()->GetSemanticFlags();
@@ -127,7 +127,7 @@ static float TemperatureScaling_Q10(float temp_K, float ref_temp_K = 303.15f) {
 // ENDOTHERMY DETECTION
 // ============================================================================
 
-static bool InferEndothermy(Output const& scratch, SemanticAnalysis const& sem) {
+static bool InferEndothermy(Scratch const& scratch, SemanticAnalysis const& sem) {
     // Birds: powered flight with feathers
     if (scratch.aerial && scratch.aerial->wingbeat_frequency_Hz > 0) {
         // Check for avian characteristics
@@ -156,11 +156,13 @@ static bool InferEndothermy(Output const& scratch, SemanticAnalysis const& sem) 
     return false;
 }
 
+}
+
 // ============================================================================
 // METABOLIC INFERENCE
 // ============================================================================
 
-Output_Metabolic ComputeMetabolic(Input const& in, Output const& scratch) {
+TonTon::Output_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & scratch) {
     Output_Metabolic result;
     
     SemanticAnalysis sem = AnalyzeSemantics(in, scratch);
@@ -337,7 +339,7 @@ Output_Metabolic ComputeMetabolic(Input const& in, Output const& scratch) {
 // BEHAVIORAL INFERENCE
 // ============================================================================
 
-Output_Behavior ComputeBehavior(Input const& in, Output const& scratch) {
+TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scratch) {
     Output_Behavior result;
     
     SemanticAnalysis sem = AnalyzeSemantics(in, scratch);
@@ -783,5 +785,3 @@ Output_Behavior ComputeBehavior(Input const& in, Output const& scratch) {
     
     return result;
 }
-
-} // namespace TonTon

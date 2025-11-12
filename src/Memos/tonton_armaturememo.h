@@ -1,6 +1,6 @@
 #ifndef TONTON_ARMATURE_MEMO_H
 #define TONTON_ARMATURE_MEMO_H
-#include "Support/shared_array.hpp"
+#include "tonton_shared_array.hpp"
 #include "../../include/tonton_wordlist.h"
 #include <cstdint>
 #include <mutex>

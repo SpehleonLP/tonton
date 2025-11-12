@@ -1,7 +1,7 @@
 #ifndef TONTON_OUTPUT_H
 #define TONTON_OUTPUT_H
-#include "Support/counted_ptr.hpp"
-#include "Support/shared_array.hpp"
+#include "tonton_counted_ptr.hpp"
+#include "tonton_shared_array.hpp"
 #include "tonton_optional.hpp"
 #include "tonton_wordlist.h"
 #include <atomic>

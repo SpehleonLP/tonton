@@ -1,6 +1,6 @@
 #ifndef TONTON_MESH_MEMO_H
 #define TONTON_MESH_MEMO_H
-#include "Support/shared_array.hpp"
+#include "tonton_shared_array.hpp"
 #include <cstdint>
 #include <glm/mat4x4.hpp>
 #include <mutex>
@@ -28,7 +28,7 @@ struct MeshMemo
 
 	int GetVertexOverlap(int a, int b);
 	float GetVertexOverlapPercent(int a, int b);
-	float GetTubiness(int parent, int vertex, std::span<const uint16_t> children);
+	float GetTubiness(int parent, int node, std::span<const uint16_t> children);
 
 private:
 	std::map<immutable_array<uint16_t>, uint32_t, std::less<>> _span_indices;

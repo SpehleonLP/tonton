@@ -1,7 +1,7 @@
 #ifndef TONTON_INPUT_H
 #define TONTON_INPUT_H
-#include "Support/shared_array.hpp"
-#include "Support/counted_ptr.hpp"
+#include "tonton_shared_array.hpp"
+#include "tonton_counted_ptr.hpp"
 #include "tonton_wordlist.h"
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>

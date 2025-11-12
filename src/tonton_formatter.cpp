@@ -96,11 +96,6 @@ std::ostream& operator<<(std::ostream& os, const Output::Sensory& s) {
            << "  olfaction.detection_range_m: " << s.olfaction->detection_range_m << "\n";
     }
 
-    if (s.has_echolocation) os << "  has_echolocation: true\n";
-    if (s.has_electroreception) os << "  has_electroreception: true\n";
-    if (s.has_lateral_line) os << "  has_lateral_line: true\n";
-    if (s.has_pit_organs) os << "  has_pit_organs: true\n";
-
     return os;
 }
 
@@ -418,18 +413,11 @@ std::ostream& operator<<(std::ostream& os, const Output_Brachiation& br) {
     return os;
 }
 
-// Appendages::Tail::Branch
-std::ostream& operator<<(std::ostream& os, const Output::Appendages::Tail::Branch& branch) {
-    os << "      Branch(from:" << static_cast<int>(branch.branch_point_joint)
-       << " to:" << static_cast<int>(branch.tip_joint) << ")";
-    return os;
-}
-
 // Appendages::Tail
 std::ostream& operator<<(std::ostream& os, const Output::Appendages::Tail& tail) {
     os << "    Tail(root:" << static_cast<int>(tail.root)
        << " tip:" << static_cast<int>(tail.tip)
-       << " len:" << tail.length_m << "m";
+       << " len:" << tail.stretched_length_m << "m";
     if (tail.used_for & Output::Appendages::Tail::Balance) os << " BALANCE";
     if (tail.used_for & Output::Appendages::Tail::Propulsion) os << " PROPULSION";
     if (tail.used_for & Output::Appendages::Tail::Grapsing) os << " GRASPING";
@@ -441,16 +429,6 @@ std::ostream& operator<<(std::ostream& os, const Output::Appendages::Tail& tail)
             os << branch << "\n";
         }
     }
-    return os;
-}
-
-// Appendages::Antenna
-std::ostream& operator<<(std::ostream& os, const Output_Antenna& ant) {
-    os << "    Antenna(root:" << static_cast<int>(ant.root_joint)
-       << " tip:" << static_cast<int>(ant.tip_joint)
-       << " len:" << ant.length_m << "m"
-       << (ant.is_sensory ? " SENSORY" : "")
-       << (ant.is_articulated ? " ARTICULATED" : "") << ")";
     return os;
 }
 

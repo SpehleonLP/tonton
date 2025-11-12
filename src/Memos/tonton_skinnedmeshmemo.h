@@ -1,6 +1,5 @@
 #ifndef TONTON_SKINNED_MESH_MEMO_H
 #define TONTON_SKINNED_MESH_MEMO_H
-#include "Support/shared_array.hpp"
 #include "../include/tonton_input.h"
 #include <cstdint>
 #include <glm/gtc/quaternion.hpp>

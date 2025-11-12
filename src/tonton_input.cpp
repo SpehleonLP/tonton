@@ -1,9 +1,8 @@
-#include "../include/tonton_input.h"
 #include "dodeedum_mesh.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "Memos/tonton_meshmemo.h"
-#include "gltf_rintintin_bridge/gltf_rintintin_bridge.h"
+#include "../include/tonton.h"
 #include <cfloat>
 
 TonTon::Armature::Armature() = default;

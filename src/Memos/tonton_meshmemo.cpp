@@ -25,7 +25,6 @@ static inline bool __unused operator<(const immutable_array<uint16_t>& fk, const
 	return memcmp(fk.data(), lk.data(), fk.byteLength()) < 0;
 }
 
-// YOU NEED THIS ONE TOO (the reverse direction)
 static inline bool __unused operator<(const std::span<uint16_t>& lhs,
                              const immutable_array<uint16_t>& rhs) 
 { 
@@ -123,20 +122,20 @@ float TonTon::MeshMemo::GetVertexOverlapPercent(int a, int b)
 	return (numerator*2) / double(denominator);
 }
 
-bool TonTon::MeshMemo::isTube(int parent, int vertex, std::span<int16_t> children)
+float TonTon::MeshMemo::GetTubiness(int parent, int node, std::span<const uint16_t> children)
 {
 	BuildVertexOverlapMemos();
 	
-	int32_t count = _vertexOverlapTable[vertex*_maxJoint+vertex];
+	int32_t count = _vertexOverlapTable[node*_maxJoint+node];
 	if(parent >= 0)
-		count += _vertexOverlapTable[vertex*_maxJoint+parent];
+		count += _vertexOverlapTable[node*_maxJoint+parent];
 		
 	for(auto child : children)
 	{
-		count += _vertexOverlapTable[vertex*_maxJoint+child];	
+		count += _vertexOverlapTable[node*_maxJoint+child];	
 	}
 	
-	return (count == _totalVertsAffected[vertex]);
+	return (count / double(_totalVertsAffected[node]));
 }
 	
 void TonTon::MeshMemo::BuildVertexOverlapMemos()
