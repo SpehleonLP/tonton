@@ -4,6 +4,8 @@ TonTon is a procedural creature analysis library that generates physically-groun
 
 **The core idea:** Instead of hand-tuning hundreds of parameters for each creature, provide an anatomically-structured skeleton and let physics and biology determine what's possible.
 
+Inspired by the principled BSDF the input configuration is all normalized ranges from 0 to 1, constrained by what is possible for real animals. 
+
 ## Overview
 
 TonTon answers questions like:
@@ -14,6 +16,32 @@ TonTon answers questions like:
 - How maneuverable is it in the air/water/land?
 
 The system parses bone names semantically (e.g., "left_wing", "right_hind_leg", "tail_tip"), measures geometric properties from the 3D mesh, and applies biomechanical models to compute physically-realistic capabilities.
+
+## Example Output:
+
+    DRAGONFLY.glb
+
+    body_mass_kg: 0.00194157
+    body_length_m: 0.0241147
+    tail_length_m: 0.0362214
+    wingbeat_frequency_Hz: 79.7041
+    speeds (min/cruise/max): 3.20421 / 9.09497 / 13.6425 m/s
+    cost (flap/glide/soar/hover): 8.25367 / 1.48141 / 1.03699 / 11.0826 W/N
+
+and these are actually plausible results for a dragonfly!
+
+but what about a dragonfly with a 50cm wingspan?
+
+    body_mass_kg: 1.94157
+    wingbeat_frequency_Hz: 59.7907
+    speeds (min/cruise/max): 10.1374 / 68.2267 / 102.34 m/s
+    cost (flap/glide/soar/hover): 20317.6 / 11.1025 / 7.77174 / 24374.7 W/N
+
+or a 5m wingspan on Saturn's moon titan ?
+
+    wingbeat_frequency_Hz: 10.5567
+    speeds (min/cruise/max): 1.77609 / 12.0462 / 18.0692 m/s
+    cost (flap/glide/soar/hover): 821.821 / 1.96026 / 1.37218 / 985.058 W/N
 
 ## Features
 
@@ -202,7 +230,7 @@ The geometric measurement pipeline is entirely hand-coded:
 - Data structure management and memoization
 
 ### Rules Engine (AI-Assisted + Research-Based)
-The biomechanical rules in `src/Rules/` were developed using **Claude Sonnet 4.5** for deep research queries. This approach was necessary because:
+The biomechanical rules in `src/Rules/` were developed using **Claude Sonnet 4.5** vai deep research queries. This approach was necessary because:
 
 1. **Domain Expertise**: The rules encode specialized knowledge from biomechanics, zoology, comparative physiology, and animal behavior - domains outside my expertise
 2. **Literature Synthesis**: Each rule is based on peer-reviewed research (see [bibliography.md](bibliography.md))
@@ -231,7 +259,7 @@ Alternatively, if you have the attention span to read through the papers in the 
 
 ## Building
 
-TonTon is a C++17 library. See [CMakeLists.txt](CMakeLists.txt) for build configuration.
+TonTon is a C++20 library. See [CMakeLists.txt](CMakeLists.txt) for build configuration.
 
 ### Dependencies
 - **GLM**: Vector/matrix math
@@ -267,4 +295,4 @@ See [LICENSE](LICENSE) for full details.
 
 ## Why "TonTon"?
 
-Because it figures out how creatures should move based on their skeleton structure - like a marionette with autonomous behavior. (Also it's fun to say.)
+Why not?

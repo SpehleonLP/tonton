@@ -98,7 +98,8 @@ immutable_array<immutable_array<uint16_t>> TonTon::ArmatureMemo::GetDirectedGrap
 	
 	for(auto i = 0u; i < _noJoints; ++i)
 	{
-		children[i].push_back(in.parents[i]);
+		if(in.parents[i] >= 0)
+			children[i].push_back(in.parents[i]);
 	}	
 	
 	return (this->directed_graph = shared_array<immutable_array<uint16_t>>::Build(_noJoints, [&](int i) 
