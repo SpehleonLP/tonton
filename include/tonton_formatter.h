@@ -23,8 +23,6 @@ std::ostream& operator<<(std::ostream& os, const Output_Diagnostics& d);
 
 std::ostream& operator<<(std::ostream& os, const Output_BodyWave& bw);
 
-std::ostream& operator<<(std::ostream& os, const Output_Terrestrial::Leg& leg);
-std::ostream& operator<<(std::ostream& os, const Output_Terrestrial::Gait& gait);
 std::ostream& operator<<(std::ostream& os, const Output_Serpentine& serp);
 std::ostream& operator<<(std::ostream& os, const Output_Terrestrial& t);
 
@@ -36,7 +34,6 @@ std::ostream& operator<<(std::ostream& os, const Output_Aquatic::CStartResponse&
 std::ostream& operator<<(std::ostream& os, const Output_Aquatic::JetPropulsion& jet);
 std::ostream& operator<<(std::ostream& os, const Output_Aquatic& aq);
 
-std::ostream& operator<<(std::ostream& os, const Output_Climbing::Climber& limb);
 std::ostream& operator<<(std::ostream& os, const Output_Climbing& c);
 
 std::ostream& operator<<(std::ostream& os, const Output_Jumping& j);

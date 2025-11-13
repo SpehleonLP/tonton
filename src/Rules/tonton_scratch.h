@@ -43,6 +43,14 @@ std::vector<Output_Chain> GetChainsFromRoot(Input const& in, std::span<Word> wor
 std::vector<Output_Chain> GetChainsFromTip(Input const& in, SemanticFlags include_flags, SemanticFlags exclude_flags);
 std::vector<Output_Appendage> GetAppendages(Input const& in, std::vector<Output_Chain> && chains);
 
+std::vector<glm::vec3> GetGaitGroupCenters(Input const& in, Output_Appendage * data, size_t size, size_t stride);
+
+template<typename T>
+inline std::vector<glm::vec3> GetGaitGroupCenters(Input const& input, std::span<T> const& in)
+{
+	return GetGaitGroupCenters(input, static_cast<Output_Appendage*>(in.data()), in.size(), sizeof(T));
+}
+
 }
 
 #endif // TONTON_SCRATCH_H

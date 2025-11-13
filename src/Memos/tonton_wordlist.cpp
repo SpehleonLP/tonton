@@ -223,6 +223,7 @@ constexpr std::array<WordDef, (int)Word::TOTAL_WORDS+3> word_strings = [] {
 		{ Word::alula, "alula"},
 		{ Word::primary, "primary"},
 		{ Word::secondary, "secondary"},
+		{ Word::compound, "compound"},
 		{ Word::gland, "gland"},
 		{ Word::duct, "duct"},
 		{ Word::sac, "sac"},
@@ -260,7 +261,7 @@ constexpr std::array<WordDef, (int)Word::TOTAL_WORDS+3> word_strings = [] {
 		{ Word::fur, "fur"},
 		{ Word::feather, "feather"},  
 		{ Word::adhesive, "adhesive"},  
-		{ Word::sensory, "senory"},  
+		{ Word::sensory, "sensory"},  
 		{ Word::chemoreceptor, "chemoreceptor"},  
     };
     
@@ -340,7 +341,7 @@ size_t TonTon::StringToWords(std::vector<Word> & dst, std::string_view word)
 }
 
 
-TonTon::SemanticFlags TonTon::GetFlags(Word word)
+TonTon::SemanticFlags TonTon::GetSemanticFlags(Word word)
 {
     using SF = SemanticFlags;
     
@@ -559,7 +560,7 @@ TonTon::SemanticFlags TonTon::GetFlags(Word word)
     case Word::sole:
     case Word::metatarsal:
     case Word::paw:
-    case Word::mitt: return SF::HINDLIMB | SF::TERMINAL;
+    case Word::mitt: return SF::HINDLIMB | SF::TERMINAL | SF::CONTACT;
     
     case Word::toe: return SF::HINDLIMB | SF::DIGIT;
     
@@ -679,7 +680,358 @@ TonTon::SemanticFlags TonTon::GetFlags(Word word)
 	case Word::setae:
 	case Word::adhesive:
 		break;
+	case Word::sensory:
+	case Word::chemoreceptor:
+	case Word::compound:
+		break;
 	}
 	
 	return (SF)0;
+}
+
+
+TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
+{
+    using CF = CladeFlags;
+
+    switch(word)
+    {
+    // Generic directional/positional terms - no specific clade
+    case Word::left:
+    case Word::right:
+    case Word::front:
+    case Word::fore:
+    case Word::anterior:
+    case Word::hind:
+    case Word::rear:
+    case Word::back:
+    case Word::posterior:
+    case Word::upper:
+    case Word::lower:
+    case Word::mid:
+    case Word::middle:
+    case Word::inner:
+    case Word::outer:
+    case Word::medial:
+    case Word::lateral:
+    case Word::proximal:
+    case Word::distal:
+    case Word::tip:
+    case Word::end:
+    case Word::base:
+    case Word::root:
+    case Word::top:
+    case Word::primary:
+    case Word::secondary:
+    case Word::leg:
+    case Word::foot:
+    case Word::bottom: return CF::NONE;
+
+    // Body regions - general vertebrate
+    case Word::flank:
+    case Word::loin:
+    case Word::rump:
+    case Word::haunch:
+    case Word::butt: return CF::CHORDATA;
+
+    // Equine-specific body regions
+    case Word::withers:
+    case Word::croup: return CF::EQUIDAE;
+
+    case Word::breast:
+    case Word::brisket:
+    case Word::chest:
+    case Word::sternum:
+    case Word::ribcage:
+    case Word::rib: return CF::CHORDATA;
+
+    // Avian-specific
+    case Word::crop:
+    case Word::gizzard: return CF::AVES;
+
+    // Could be mammal (marsupials) or bird (pelicans), or reptile (lizards)
+    case Word::dewlap:
+    case Word::pouch: return CF::MAMMALIA | CF::AVES | CF::REPTILIA;
+
+    // Teeth - primarily mammals, some reptiles
+    case Word::tooth:
+    case Word::teeth: return CF::CHORDATA;
+    
+    case Word::fang:
+    case Word::incisor:
+    case Word::canine:
+    case Word::molar: return CF::MAMMALIA;
+
+    // Trunk is elephant-specific (mammal)
+    case Word::trunk: return CF::MAMMALIA;
+
+    // Rostrum - primarily birds, also some marine mammals
+    case Word::rostrum: return CF::NONE; // too general
+
+    // Barbel - fish
+    case Word::barbel: return CF::PISCES;
+
+    case Word::snoot:
+    case Word::jowl: return CF::MAMMALIA;
+
+    case Word::head:
+    case Word::skull:
+    case Word::cranium:
+    case Word::jaw:
+    case Word::face: return CF::CHORDATA;
+
+    // Mandible/maxilla - vertebrates, but also arthropods
+    case Word::mandible:
+    case Word::maxilla: return CF::NONE; // to general
+
+    case Word::chin:
+    case Word::mouth: return CF::CHORDATA;
+
+    case Word::muzzle:
+    case Word::snout: return CF::CHORDATA;
+
+    case Word::beak:
+    case Word::bill: return CF::AVES;
+
+    // Proboscis - insects or elephants
+    case Word::proboscis: return CF::ARTHROPODA;
+
+    case Word::eye:
+    case Word::ear: return CF::NONE; // to general
+    
+    case Word::nose:
+    case Word::nostril:
+    case Word::nare:
+    case Word::orbit:
+    case Word::lobe:
+    case Word::pinna: return CF::CHORDATA;
+
+    case Word::horn:
+    case Word::antler:
+    case Word::tusk: return CF::MAMMALIA;
+
+    case Word::crest:
+    case Word::crown: return CF::NONE; // too general
+
+    case Word::comb:
+    case Word::wattle: return CF::AVES;
+
+    case Word::whisker:
+    case Word::vibrissa: return CF::MAMMALIA;
+
+    case Word::tongue:
+    case Word::throat:
+    case Word::gullet:
+    case Word::cheek:
+    case Word::maw:
+    case Word::trap: return CF::CHORDATA;
+
+    // Spine - defining feature of chordates
+    case Word::vertebra:
+    case Word::vertebrae:
+    case Word::spine:
+    case Word::neck:
+    case Word::cervical: return CF::CHORDATA;
+
+    case Word::belly:
+    case Word::abdomen:
+    case Word::ventral:
+    case Word::stomach:
+    case Word::dorsal: return CF::NONE; // directional or too general
+
+    case Word::pelvis:
+    case Word::hip:
+    case Word::sacrum:
+    case Word::tail:
+    case Word::coccyx: return CF::CHORDATA;
+
+    case Word::caudal: return CF::NONE; // directional term
+
+    // Mammalian tail types
+    case Word::dock:
+    case Word::brush:
+    case Word::bob:
+    case Word::scut: return CF::MAMMALIA;
+
+    case Word::fan:
+    case Word::plume:
+    case Word::tuft: return CF::NONE; // could be bird or mammal
+
+    // Mammal-specific limb terminals
+    case Word::paw:
+    case Word::mitt:
+    case Word::pad: return CF::MAMMALIA;
+
+    case Word::dewclaw: return CF::MAMMALIA;
+
+    // Equine-specific lower leg
+    case Word::fetlock:
+    case Word::pastern:
+    case Word::cannon:
+    case Word::coronet:
+    case Word::frog:
+    case Word::stifle:
+    case Word::gaskin:
+    case Word::hock: return CF::EQUIDAE;
+
+    case Word::digit: return CF::CHORDATA;
+
+    // General limb anatomy - vertebrate
+    case Word::shoulder:
+    case Word::scapula:
+    case Word::clavicle:
+    case Word::humerus:
+    case Word::arm:
+    case Word::elbow:
+    case Word::radius:
+    case Word::ulna:
+    case Word::forearm:
+    case Word::wrist:
+    case Word::carpal:
+    case Word::carpus:
+    case Word::hand:
+    case Word::palm:
+    case Word::metacarpal:
+    case Word::thumb:
+    case Word::finger:
+    case Word::knuckle:
+    case Word::phalanx:
+    case Word::phalange:
+    case Word::thigh:
+    case Word::femur:
+    case Word::knee:
+    case Word::patella:
+    case Word::kneecap:
+    case Word::shin:
+    case Word::tibia:
+    case Word::fibula:
+    case Word::calf:
+    case Word::ankle:
+    case Word::tarsal:
+    case Word::tarsus:
+    case Word::heel:
+    case Word::calcaneus:
+    case Word::sole:
+    case Word::metatarsal:
+    case Word::toe: return CF::CHORDATA;
+
+    case Word::grasper: return CF::NONE; // could be various clades
+
+    // Terminal structures
+    case Word::claw: return CF::CHORDATA;
+    case Word::talon: return CF::AVES;
+    case Word::nail: return CF::MAMMALIA;
+    case Word::spur: return CF::AVES;
+    case Word::hoof: return CF::UNGULATA;
+
+    // Armor/Scales
+    case Word::scale:
+    case Word::scute:
+    case Word::plate:
+    case Word::spike: return CF::REPTILIA;
+    case Word::shield: return CF::NONE;
+    case Word::shell:
+    case Word::carapace:
+    case Word::plastron: return CF::CHELONIA;
+
+    // Arthropod structures
+    case Word::antenna: return CF::ARTHROPODA;
+    case Word::segment: return CF::ARTHROPODA;
+    case Word::coxa:
+    case Word::trochanter: return CF::ARTHROPODA;
+    case Word::cercus:
+    case Word::ovipositor: return CF::INSECTA;
+    case Word::setae: return CF::ARTHROPODA;
+
+    // Aquatic - fish
+    case Word::ray: return CF::PISCES;
+    case Word::operculum:
+    case Word::gill: return CF::PISCES;
+
+    // Mollusks
+    case Word::siphon:
+    case Word::mantle: return CF::MOLLUSCA;
+
+    // Fins - fish and cetaceans
+    case Word::fin:
+    case Word::pectoral:
+    case Word::anal: return CF::PISCES;
+
+    // Marine mammals
+    case Word::flipper:
+    case Word::fluke: return CF::CETACEA;
+
+    // Cephalopods
+    case Word::tentacle:
+    case Word::sucker: return CF::CEPHALOPODA;
+
+    // Webbed feet - amphibians primarily
+    case Word::web: return CF::AMPHIBIA;
+
+    // Wings & feathers
+    case Word::covert:
+    case Word::feather: return CF::AVES;
+
+    // Wing membrane - bats (mammals)
+    case Word::patagium: return CF::MAMMALIA;
+    case Word::aileron: return CF::NONE; // rigging term
+
+    case Word::wing:
+    case Word::pinion:
+    case Word::alula: return CF::AVES;
+
+    // Soft tissue / Internal - too general
+    case Word::gland:
+    case Word::duct:
+    case Word::sac:
+    case Word::chamber:
+    case Word::valve:
+    case Word::muscle:
+    case Word::tendon:
+    case Word::ligament:
+    case Word::cartilage:
+    case Word::joint:
+    case Word::bone:
+    case Word::socket:
+    case Word::pivot: return CF::NONE;
+
+    // Membrane - too general (wings, webbing, etc.)
+    case Word::membrane: return CF::NONE;
+
+    // Arthropod body section
+    case Word::thorax: return CF::ARTHROPODA;
+
+    // Rigging controls - not biological
+    case Word::twist:
+    case Word::roll:
+    case Word::IK:
+    case Word::FK:
+    case Word::control:
+    case Word::ctrl:
+    case Word::deform:
+    case Word::def:
+    case Word::target:
+    case Word::pole:
+    case Word::master:
+    case Word::mstr:
+    case Word::jiggle:
+    case Word::phys:
+    case Word::sym: return CF::NONE;
+
+    // Mammalian integument
+    case Word::hair:
+    case Word::mane:
+    case Word::fur: return CF::MAMMALIA;
+
+    // Adhesive - could be gecko (reptile), frog (amphibian), or arthropod
+    case Word::adhesive: return CF::NONE; // too general
+
+    case Word::sensory:
+    case Word::chemoreceptor: return CF::NONE;
+
+	case Word::compound:
+    case Word::TOTAL_WORDS: return CF::NONE;
+    }
+
+    return CF::NONE;
 }

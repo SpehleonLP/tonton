@@ -107,7 +107,7 @@ struct SkinnedMesh
 	inline SkinnedMeshMemo & operator*() const { return *memo(); }
 	
 	counted_ptr<const Mesh>		mesh;
-	counted_ptr<const Armature>  armature;
+	counted_ptr<const Armature>  skin;
 	
 	immutable_array<Cube>		aabb; 
 	immutable_array<float>		surfaceArea;
@@ -169,7 +169,7 @@ struct Environment
 
 struct Input 
 {
-	counted_ptr<const SkinnedMesh> armature;
+	counted_ptr<const SkinnedMesh> skinnedMesh;
 	Environment environment;
 	
 	
@@ -205,7 +205,8 @@ struct Input
 	float scaling_strategy = 0.5f;       // how aggressively to combat size penalties
 	float climbing_ability = 0.5;        // 0=none, 1=vertical surfaces
 	
-	inline glm::vec3 position(int index) const { return armature? armature->armature->position[index] * behavior.scale : glm::vec3(0); };
+	inline glm::vec3 position(int index) const { return skinnedMesh? skinnedMesh->skin->position[index] * behavior.scale : glm::vec3(0); };
+	inline float body_density() const { return glm::mix(700.0, 1050.0, average_density); }
 	 
 };
 

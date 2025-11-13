@@ -46,8 +46,38 @@ struct Output_Venom {
 	float injection_volume_ml{};
 	float strike_speed_m_s{};
 };
+		
+// ============================================================================
+// MANIPULATION - limb end point: trunks, tentacles, hands
+// ============================================================================
+struct Output_Manipulator : public Output_Appendage {
 	
+	SemanticFlags subtree_flags{}; // TENTACLE, DIGIT, etc.
 	
+	float max_lift_force_N{};
+	float max_grip_force_N{};
+	float max_adhesion_force_N{};
+	
+	float surface_area_m2{};
+	glm::vec3 surface_normal{}; // sign undefined
+	
+	bool has_suckers : 1;
+	bool has_setae : 1;
+	bool has_claws : 1;
+	bool has_thumb : 1;
+	bool has_wet_grip : 1; // frog!	
+	
+	bool has_friction_pads() const
+	{
+		return
+				has_suckers == false
+			&& has_suckers == false
+			&& has_setae == false
+			&& has_wet_grip == false
+			&& has_thumb == true;
+	}
+};
+
 // ============================================================================
 // CORE PHYSICAL PROPERTIES (always present)
 // ============================================================================
@@ -64,6 +94,7 @@ struct Output_Physical {
 	
 	int16_t		spine_root{};
 	bool		upright{};
+	CladeFlags  clade{CladeFlags::NONE};
 	
 	std::array<float, 6>  covariance_restPose{1.f, 1.f, 1.f, 0.f, 0.f, 0.f};
 	inline glm::mat3 inertia_restPose() const 
@@ -114,48 +145,15 @@ struct Output_BodyWave : public Output_Chain {
 // TERRESTRIAL LOCOMOTION (optional)
 // ============================================================================
 struct Output_Terrestrial {
-	enum class PostureType : uint8_t {
-		ERECT,        // Upright legs (mammals, birds)
-		SPRAWLING,    // Splayed legs (lizards, salamanders)
-		SEMI_ERECT,   // Intermediate (crocodiles)
-		SERPENTINE    // Legless (snakes)
-	};
-	PostureType posture{};
-
-	// CRITICAL: Sprawling posture limits running - can't breathe while running
-	bool can_breathe_while_running{};  // false for sprawling posture
-
-	struct Leg : public Output_Appendage {
-		float max_force_N{};
-		bool  laterality{};  // LEFT or RIGHT for pairing logic
-	};
-	immutable_array<Leg> legs{};
+	immutable_array<Output_Manipulator> legs{};
+	
+	// 0 upright -> 1 sprawling
+	float posture{};
 
 	// Speed capabilities
 	float max_sprint_speed_m_s{};
 	float max_sustainable_speed_m_s{};  // aerobic limit
 	float optimal_speed_m_s{};          // minimum cost of transport
-
-	// Gait parameters
-	struct Gait {
-		enum class Type { WALK, TROT, PACE, GALLOP, BOUND, HOP, CRAWL, SLITHER };
-		Type type{};
-
-		float min_speed_m_s{};
-		float max_speed_m_s{};
-		float stride_length_m{};
-		float stride_frequency_Hz{};
-		float duty_factor{};         // stance_time / stride_time
-
-		// Froude number at gait transitions
-		float transition_froude_number{-1};
-
-		// Leg coordination pattern for this gait
-		// Maps leg index -> phase offset (0-1 in gait cycle)
-		// e.g. Trot: {0: 0.0, 1: 0.5, 2: 0.5, 3: 0.0} for diagonal pairs
-		float leg_phase_offsets{};
-	};
-	immutable_array<Gait> gaits{};
 
 	// Maneuverability
 	float min_turning_radius_m{};
@@ -164,7 +162,6 @@ struct Output_Terrestrial {
 	// Endurance limits (especially important for sprawling posture)
 	float max_sprint_duration_s{-1};  // before exhaustion
 	float recovery_time_s{-1};        // after sprint
-
 };
 
 // Serpentine locomotion (for SERPENTINE posture)
@@ -300,8 +297,8 @@ struct Output_Aerial {
 		float beat_amplitude_rad{};    // stroke angle
 		float stroke_plane_angle_rad{}; // relative to body
 		
-		float mass_kg;
-		float inertia_kgm2;
+		float mass_kg{};
+		float inertia_kgm2{};
 		
 		float wing_tip_velocity(float wingbeat_frequency_Hz) const { 
 			return 3.14159265 * wingbeat_frequency_Hz * beat_amplitude_rad * span_m; };
@@ -423,20 +420,7 @@ struct Output_Aquatic  {
 // CLIMBING (optional)
 // ============================================================================
 struct Output_Climbing {
-	enum class AttachmentMode {
-		CLAWS,           // Penetrating grip
-		ADHESION_DRY,    // Van der Waals (geckos)
-		ADHESION_WET,    // Capillary/suction (tree frogs)
-		FRICTION_GRIP,   // Hairless pads (primates)
-		HOOKED_SETAE     // Insect tarsi
-	};
-
-	struct Climber  : public Output_Appendage {
-		AttachmentMode mode{};
-		float max_grip_force_N{};
-		float contact_area_m2{};
-	};
-	immutable_array<Climber> limbs{};
+	immutable_array<Output_Manipulator> limbs{};
 
 	float max_climb_speed_m_s{};
 	float max_climb_angle_rad{};        // from horizontal
@@ -493,37 +477,6 @@ struct Output_Jumping {
 };
 
 // ============================================================================
-// MANIPULATION (optional) - trunks, tentacles, hands
-// ============================================================================
-struct Output_Manipulator : public Output_Appendage {
-	
-	SemanticFlags subtree_flags{}; // TENTACLE, DIGIT, etc.
-	
-	float max_lift_force_N{};
-	float max_grip_force_N{};
-	float max_adhesion_force_N{};
-	
-	float surface_area_m2{};
-	glm::vec3 surface_normal{}; // sign undefined
-	
-	bool has_suckers : 1;
-	bool has_setae : 1;
-	bool has_claws : 1;
-	bool has_thumb : 1;
-	bool has_wet_grip : 1; // what word do i look for for a treefrog?		
-	
-	bool has_friction_pads() const
-	{
-		return
-				has_suckers == false
-			&& has_suckers == false
-			&& has_setae == false
-			&& has_wet_grip == false
-			&& has_thumb == true;
-	}
-};
-
-// ============================================================================
 // SPECIALIZED BEHAVIORS
 // ============================================================================
 // Burrowing/fossorial
@@ -552,14 +505,13 @@ struct  Output_Tail : public Output_Appendage // or tips for branching
 
 	// Animation
 	float natural_sway_frequency_Hz{};
-	float max_tip_speed_m_s{};
 	
 	enum Flags : uint8_t
 	{
-		Balance = 1 << 0,
-		Propulsion = 1 << 2,
-		Grapsing = 1 << 3,
-		Display = 1 << 4,
+	//	Balance = 1 << 0,		// seems to be a catch all for "we don't know what this does"
+	//	Propulsion = 1 << 2,   // not determinable at the point in time we compute the tail. 
+		Grasping = 1 << 3,
+	//	Display = 1 << 4,		// unsure how to detect right now
 		Combat = 1 << 5,
 	};
 
@@ -567,7 +519,7 @@ struct  Output_Tail : public Output_Appendage // or tips for branching
 	
 	// Branching support (for mythological creatures!)
 	immutable_array<Output_Tail> branches{};  // empty for single tail
-	std::optional<Output_Venom> venom{};
+    std::optional<Output_Venom> venom{}; // how?
 };
 
 // ============================================================================

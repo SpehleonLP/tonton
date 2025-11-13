@@ -1,22 +1,16 @@
 #ifndef TONTON_AERIAL_H
 #define TONTON_AERIAL_H
-#include "../../include/tonton_output.h"
-#include <span>
+#include <optional>
 
 namespace TonTon {
 
 struct Scratch;
+struct Output_Appendage;
+struct Output_Aerial;
+struct Input;
 
 std::optional<Output_Aerial>  ComputeAerial(Input const& in, Scratch &out);
 
-
-std::vector<glm::vec3> GetGaitGroupCenters(Input const& in, Output_Appendage * data, size_t size, size_t stride);
-
-template<typename T>
-inline std::vector<glm::vec3> GetGaitGroupCenters(Input const& input, std::span<T> const& in)
-{
-	return GetGaitGroupCenters(input, static_cast<Output_Appendage*>(in.data()), in.size(), sizeof(T));
-}
 
 } // namespace TonTon
 

@@ -22,13 +22,13 @@ struct EyeInfo {
 static std::vector<EyeInfo> FindEyes(Input const& in, Scratch const&) {
 	using SF = SemanticFlags;
 	
-    auto & sk = *in.armature;
-    auto parents = sk.armature->parents.data();
-    auto semantic_flags = sk.armature->memo()->GetSemanticFlags();
+    auto & sk = *in.skinnedMesh;
+    auto parents = sk.skin->parents.data();
+    auto semantic_flags = sk.skin->memo()->GetSemanticFlags();
     
     std::vector<EyeInfo> eyes;
     
-    for(uint32_t i = 0; i < sk.armature->names.size(); ++i) 
+    for(uint32_t i = 0; i < sk.skin->names.size(); ++i) 
     {      
         if(!HasFlag(semantic_flags[i], SF::VISION)) continue;
         
@@ -79,7 +79,7 @@ static std::vector<EyeInfo> FindEyes(Input const& in, Scratch const&) {
             
             // Eye points radially + respects local rotation
             glm::vec3 radial = glm::normalize(eye.position - eye.base_position);
-            glm::quat local_rot = sk.armature->rotation[i];
+            glm::quat local_rot = sk.skin->rotation[i];
             glm::vec3 local_forward = local_rot * glm::vec3(0, 0, 1);
             
             eye.pointing_direction = glm::normalize(radial * 0.3f + local_forward * 0.7f);
@@ -96,8 +96,8 @@ static std::vector<EyeInfo> FindEyes(Input const& in, Scratch const&) {
 static Output_Vision ComputeVision(Input const& in, Scratch const& s) {
     Output_Vision vision{};
     
-    auto gcr_table = in.armature->armature->memo()->GetGcrTable();
-    auto N = in.armature->armature->names.size();
+    auto gcr_table = in.skinnedMesh->skin->memo()->GetGcrTable();
+    auto N = in.skinnedMesh->skin->names.size();
     auto eyes = FindEyes(in, s);
     
     if(eyes.empty()) {
@@ -249,11 +249,11 @@ static std::optional<Output_Hearing> ComputeHearing(Input const& in, Scratch con
     float ear_surface_area = 0.0f;
     bool has_external_ears = false;
     
-    for(uint32_t i = 0; i < in.armature->armature->names.size(); ++i) {
-        for(auto word : in.armature->armature->tags[i]) {
+    for(uint32_t i = 0; i < in.skinnedMesh->skin->names.size(); ++i) {
+        for(auto word : in.skinnedMesh->skin->tags[i]) {
             if(word == Word::ear || word == Word::pinna) {
                 has_external_ears = true;
-                ear_surface_area += in.armature->surfaceArea[i] * in.behavior.area_scale();
+                ear_surface_area += in.skinnedMesh->surfaceArea[i] * in.behavior.area_scale();
                 break;
             }
         }
@@ -305,11 +305,11 @@ static std::optional<Output_Olfaction> ComputeOlfaction(
     float nasal_surface_area = 0.0f;
     bool has_snout = false;
     
-    auto & sk = *in.armature;
+    auto & sk = *in.skinnedMesh;
     
     // Scan for vertebrate olfactory structures
-    for(uint32_t i = 0; i < sk.armature->names.size(); ++i) {
-        for(auto word : sk.armature->tags[i]) {
+    for(uint32_t i = 0; i < sk.skin->names.size(); ++i) {
+        for(auto word : sk.skin->tags[i]) {
             if(word == Word::snout || word == Word::nose || word == Word::nostril) {
                 has_snout = true;
                 nasal_surface_area += sk.surfaceArea[i] * in.behavior.area_scale();
@@ -325,12 +325,12 @@ static std::optional<Output_Olfaction> ComputeOlfaction(
     if(!antennae.empty()) {
         for(auto const& antenna : antennae) {
             // Get all joints in the antenna chain
-            auto relevant_joints = sk.armature->memo()->GetAllChildrenOfRoot(antenna.root);
+            auto relevant_joints = sk.skin->memo()->GetAllChildrenOfRoot(antenna.root);
             
             // Check if antenna is tagged as sensory
             bool is_sensory = false;
             for(auto joint : relevant_joints) {
-                for(auto word : sk.armature->tags[joint]) {
+                for(auto word : sk.skin->tags[joint]) {
                     if(word == Word::sensory || word == Word::chemoreceptor) {
                         is_sensory = true;
                         break;

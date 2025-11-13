@@ -49,9 +49,10 @@ enum class Word : uint16_t
 	fin, flipper, fluke, pectoral, dorsal, anal, caudal, tentacle, web, gill,
 //Wings/Flight:
 	covert, patagium, aileron, 
-	wing, pinion, alula, primary, secondary,
+	wing, pinion, alula, 
 //Other:
 	gland, duct, sac, chamber, valve, muscle, tendon, ligament, cartilage, sensory, chemoreceptor,
+	primary, secondary, compound,
 	
 //Technical/Rigging:
 	joint, bone, twist, roll, IK, FK, control, ctrl, deform, def, target, pole, master, mstr, pivot,
@@ -137,6 +138,7 @@ enum class SemanticFlags : uint64_t
     
     HEARING = 1ULL << 43,
     VISION = 1ULL << 44,
+    CONTACT = 1ULL << 45,
     
     FORELIMB   = LIMB | ANTERIOR,
     HINDLIMB   = LIMB | POSTERIOR,
@@ -149,9 +151,43 @@ enum class SemanticFlags : uint64_t
     POSITION_MASK = LEFT|RIGHT|ANTERIOR|POSTERIOR|DORSAL|VENTRAL,
 };
 
+enum class CladeFlags : uint32_t
+{
+	NONE = 0,
+
+	// Vertebrates
+	CHORDATA    = 1ULL << 0,  // Vertebrates (has spine/vertebrae)
+
+	// Tetrapods
+	AMPHIBIA    = 1ULL << 1,  // Amphibians
+
+	// Amniotes
+	REPTILIA    = 1ULL << 2,  // Reptiles
+	CHELONIA    = 1ULL << 3,  // Turtles/tortoises
+	AVES        = 1ULL << 4,  // Birds
+	MAMMALIA    = 1ULL << 5,  // Mammals
+
+	// Mammal subgroups
+	UNGULATA    = 1ULL << 6,  // Hoofed mammals
+	EQUIDAE     = 1ULL << 7,  // Horses, zebras, donkeys
+	CETACEA     = 1ULL << 8,  // Whales, dolphins, porpoises
+
+	// Fish
+	PISCES      = 1ULL << 9,  // Fish (general)
+
+	// Invertebrates
+	ARTHROPODA  = 1ULL << 10, // Arthropods (general)
+	INSECTA     = 1ULL << 11, // Insects
+	ARACHNIDA   = 1ULL << 12, // Spiders, scorpions
+	CRUSTACEA   = 1ULL << 13, // Crustaceans
+
+	MOLLUSCA    = 1ULL << 14, // Mollusks (general)
+	CEPHALOPODA = 1ULL << 15, // Octopuses, squids, cuttlefish
+};
 
 size_t StringToWords(std::vector<Word> & dst, std::string_view word);
-SemanticFlags GetFlags(Word word);
+SemanticFlags GetSemanticFlags(Word word);
+CladeFlags GetCladeFlags(Word word);
 
 inline SemanticFlags operator|(SemanticFlags a, SemanticFlags b) 
 {
@@ -179,6 +215,36 @@ inline bool HasFlag(SemanticFlags a, SemanticFlags b)
 }
 
 inline bool ExactMatch(SemanticFlags a, SemanticFlags b)
+{
+	return ((uint64_t)a & (uint64_t)b) == (uint64_t)b;
+}
+
+inline CladeFlags operator|(CladeFlags a, CladeFlags b)
+{
+	return CladeFlags((uint64_t)a | (uint64_t)b);
+}
+
+inline void operator|=(CladeFlags & a, CladeFlags b)
+{
+	a = TonTon::CladeFlags((uint64_t)a | (uint64_t)b);
+}
+
+inline CladeFlags operator&(TonTon::CladeFlags a, TonTon::CladeFlags b)
+{
+	return TonTon::CladeFlags((uint64_t)a & (uint64_t)b);
+}
+
+inline void operator&=(TonTon::CladeFlags & a, TonTon::CladeFlags b)
+{
+	a = TonTon::CladeFlags((uint64_t)a & (uint64_t)b);
+}
+
+inline bool HasFlag(CladeFlags a, CladeFlags b)
+{
+	return ((uint64_t)a & (uint64_t)b) != 0;
+}
+
+inline bool ExactMatch(CladeFlags a, CladeFlags b)
 {
 	return ((uint64_t)a & (uint64_t)b) == (uint64_t)b;
 }

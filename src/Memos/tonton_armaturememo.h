@@ -19,6 +19,11 @@ struct ArmatureMemo
 		SemanticFlags child_flags;
 	};
 
+	struct CladeFlagPair
+	{
+		CladeFlags parent_flags;
+		CladeFlags child_flags;
+	};
 	
 	ArmatureMemo(Armature const* ptr);
 	ArmatureMemo(ArmatureMemo const&) = delete;
@@ -33,7 +38,9 @@ struct ArmatureMemo
 	immutable_array<std::span<const uint16_t>> GetChildren();
 	immutable_array<immutable_array<uint16_t>> GetDirectedGraph();
 	immutable_array<SemanticFlags> GetSemanticFlags();
+	immutable_array<CladeFlags> GetCladeFlags();
 	immutable_array<FlagPair> GetRelativeFlags();
+	immutable_array<CladeFlagPair> GetRelativeCladeFlags();
 	immutable_array<uint16_t> GetDfsOrdering();
 	immutable_array<uint16_t> GetLeaves();
 	immutable_array<uint16_t> GetGcrTable();
@@ -45,7 +52,9 @@ private:
 	immutable_array<std::span<const uint16_t>>	children;
 	immutable_array<immutable_array<uint16_t>> directed_graph;
 	immutable_array<SemanticFlags>             semantic_flags;
+	immutable_array<CladeFlags>                clade_flags;
 	immutable_array<FlagPair>                  relative_flags;
+	immutable_array<CladeFlagPair>             relative_clade_flags;
 	immutable_array<uint16_t>                  dfs_ordering;
 	immutable_array<uint16_t>                  leaves;
 	immutable_array<uint16_t>                  gcr_table;

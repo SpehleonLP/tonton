@@ -81,7 +81,7 @@ glm::mat4 TonTon::SkinnedMeshMemo::GetProjectionMatrix(EigenValue projection, gl
 	auto m = in.GetMetrics(joints, scale);
 	// convert inertia tensor to [rotation, eigenvectors, form]
 	auto[rotation_q, vectors] = EigenDecomposition(m.unitInertia);
-	auto position = in.armature->position.data();
+	auto position = in.skin->position.data();
 	
 	glm::mat4 matrix = ::TonTon::GetProjectionMatrix(projection, rotation_q);
 	
@@ -140,8 +140,8 @@ immutable_array<float>  TonTon::SkinnedMeshMemo::GetTubeTable()
 	if(_tubeTable != nullptr) 
 		return _tubeTable;
 	
-	auto children = in.armature->memo()->GetChildren();
-	auto parents = in.armature->parents;
+	auto children = in.skin->memo()->GetChildren();
+	auto parents = in.skin->parents;
 	
 	shared_array<float> r(parents.size(), 0);
 	
@@ -150,7 +150,7 @@ immutable_array<float>  TonTon::SkinnedMeshMemo::GetTubeTable()
 		r[i] = in.mesh->memo()->GetTubiness(parents[i], i, std::span(children[i].data(), children[i].size()));
 	}
 	
-	return _tubeTable;
+	return (_tubeTable = r);
 }
 	
 immutable_array<TonTon::SkinnedMeshMemo::Clique> TonTon::SkinnedMeshMemo::GetCliques()
@@ -158,9 +158,9 @@ immutable_array<TonTon::SkinnedMeshMemo::Clique> TonTon::SkinnedMeshMemo::GetCli
 	std::lock_guard lock(_mutex);
 	if(cliques.size()) return cliques;
 	
-	auto children = in.armature->memo()->GetChildren();
-	auto position = in.armature->position.data();
-	auto names = in.armature->names.data();
+	auto children = in.skin->memo()->GetChildren();
+	auto position = in.skin->position.data();
+	auto names = in.skin->names.data();
 	
 	std::vector<Clique> r;
 

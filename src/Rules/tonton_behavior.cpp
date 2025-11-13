@@ -31,8 +31,8 @@ struct SemanticAnalysis {
 static SemanticAnalysis AnalyzeSemantics(Input const& in, Scratch const& scratch) {
     SemanticAnalysis result;
     
-    auto semantic_flags = in.armature->armature->memo()->GetSemanticFlags();
-    auto tags = in.armature->armature->tags;
+    auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
+    auto tags = in.skinnedMesh->skin->tags;
     
     // Scan all bones for relevant semantic flags
     for (size_t i = 0; i < semantic_flags.size(); ++i) {

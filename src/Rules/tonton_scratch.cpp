@@ -3,6 +3,7 @@
 #include "Rules/tonton_aerial.h"
 #include "Rules/tonton_sensory.h"
 #include "Rules/tonton_specialized.h"
+#include "Rules/tonton_climbing.h"
 #include "Rules/tonton_serpentine.h"
 #include "../include/tonton_input.h"
 
@@ -10,7 +11,11 @@
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "Memos/tonton_meshmemo.h"
 #include "Rules/tonton_behavior.h"
+#include "Rules/tonton_aquatic.h"
+#include "Rules/tonton_terrestrial.h"
 #include "dodeedum.h"
+#include <cfloat>
+#include <functional>
 
 using Warning = TonTon::Output_Diagnostics::Warning::Severity;
 using SF = TonTon::SemanticFlags;
@@ -18,13 +23,6 @@ using SF = TonTon::SemanticFlags;
 namespace TonTon
 {
 static	Output_Physical ComputePhysical(Input const& in, Scratch & s);
-
-static	std::optional<Output_Terrestrial>  ComputeTerrestrial(Input const& in, Scratch & s);
-// ComputeSerpentine is now in tonton_serpentine.cpp
-static	std::optional<Output_Aquatic>  ComputeAquatic(Input const& in, Scratch & s);
-static	std::optional<Output_Jumping>  ComputeJumping(Input const& in, Scratch & s);
-static	std::optional<Output_Climbing>  ComputeClimbing(Input const& in, Scratch & s);
-static	std::optional<Output_Brachiation>  ComputeBrachiation(Input const& in, Scratch & s);
 
 static	std::vector<Output_Manipulator>   ComputeManipulation(Input const& in, Scratch & s);
 static	std::vector<Output_Tail>   ComputeTails(Input const& in, Scratch & s);
@@ -74,10 +72,10 @@ using namespace TonTon;
 
 static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 {
-	auto & sk = *in.armature;
-	auto * sk_memo = sk.armature->memo();
+	auto & sk = *in.skinnedMesh;
+	auto * sk_memo = sk.skin->memo();
 	
-	auto parents = sk.armature->parents.data();
+	auto parents = sk.skin->parents.data();
 	
 	float volume{};
 	float surfaceArea{};
@@ -96,7 +94,8 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 	auto dfs_ordering   = sk_memo->GetDfsOrdering();
 	auto gcr_table      = sk_memo->GetGcrTable();
 	auto leaves         = sk_memo->GetLeaves();
-	auto names			= sk.armature->names.data();
+	auto names			= sk.skin->names.data();
+	auto root = dfs_ordering[0];
 	(void)names;
 	
 	SF SPINE_FLAGS = SF::SPINE | SF::THORAX | SF::PELVIS;
@@ -165,7 +164,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 				auto children = sk_memo->GetAllChildren(joint, SPINE_FLAGS, NOT_SPINE_FLAGS);
 				children.push_back(joint);
 				
-				auto silhouette = in.armature->memo()->GetSilhouettes(
+				auto silhouette = in.skinnedMesh->memo()->GetSilhouettes(
 					Axis::Z, 
 					in.behavior.scale,
 					std::span(children.data(), children.size()),
@@ -280,8 +279,9 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 	max_body_length += tail_to_root_dist;
 	double diameter = 2.0 * (sqrt(crossSectionArea) / M_PI);	
 	
-	double body_density=glm::mix(700.0, 1050.0, in.average_density);
-	auto C = in.armature->GetCovariance(std::span<uint16_t>{}, in.behavior.scale);
+	double body_density= in.body_density();
+	auto C = in.skinnedMesh->GetCovariance(std::span<uint16_t>{}, in.behavior.scale);
+		
 	
 	return {
 		.body_mass_kg=float(volume * body_density),
@@ -294,6 +294,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 		.fineness_ratio=float(max_body_length/diameter),
 		.spine_root=static_cast<int16_t>(spine_root),
 		.upright=is_upright,		
+		.clade=(sk_memo->GetCladeFlags()[root]|sk_memo->GetRelativeCladeFlags()[root].child_flags),
 		.covariance_restPose=std::array<float, 6>{
 			float(C[0]*body_density),
 			float(C[1]*body_density),
@@ -309,10 +310,10 @@ template<typename T>
 static std::vector<Output_Chain> GetChainsFromRoot(TonTon::Input const& in, T const& function)
 {
 	std::vector<TonTon::Output_Chain> r;
-	auto & sk = *in.armature;
-	auto * sk_memo = sk.armature->memo();
+	auto & sk = *in.skinnedMesh;
+	auto * sk_memo = sk.skin->memo();
 	
-	auto parents =  in.armature->armature->parents.data();
+	auto parents =  in.skinnedMesh->skin->parents.data();
 	
 	auto dfs_ordering = sk_memo->GetDfsOrdering();
 	auto leaves       = sk_memo->GetLeaves();
@@ -330,6 +331,7 @@ static std::vector<Output_Chain> GetChainsFromRoot(TonTon::Input const& in, T co
 		
 		double max_length = -1;
 		uint32_t best_leaf = node;
+		int jointsInChain = 0;
 		
 		// for each node that uses this as a root.
 		// so we go from each finger and compute distance to shoulder.
@@ -339,6 +341,7 @@ static std::vector<Output_Chain> GetChainsFromRoot(TonTon::Input const& in, T co
 				continue;
 			
 			double length = 0;
+			int counter = 0;
 			for(int32_t j = leaf, p; j >= node; j = p)	
 			{
 				p = parents[j];
@@ -354,12 +357,14 @@ static std::vector<Output_Chain> GetChainsFromRoot(TonTon::Input const& in, T co
 			{
 				max_length = length;
 				best_leaf = leaf; 
+				jointsInChain = counter;
 			}
 		}
 		
 		r.push_back(Output_Chain{
 			.root=node,
 			.tip=uint16_t(best_leaf),
+			.noJoints=jointsInChain,
 			.stretched_length_m=float(max_length),
 			.rest_length_m=glm::distance(in.position(best_leaf), in.position(node))
 		});
@@ -371,7 +376,7 @@ static std::vector<Output_Chain> GetChainsFromRoot(TonTon::Input const& in, T co
 
 std::vector<Output_Chain> TonTon::GetChainsFromRoot(Input const& in, std::span<Word> words)
 {
-	auto tags = in.armature->armature->tags;
+	auto tags = in.skinnedMesh->skin->tags;
 	
 	return ::GetChainsFromRoot(in, [&](int node) -> bool
 	{
@@ -389,7 +394,7 @@ std::vector<Output_Chain> TonTon::GetChainsFromRoot(Input const& in, std::span<W
 
 std::vector<Output_Chain> TonTon::GetChainsFromRoot(TonTon::Input const& in, SemanticFlags flags)
 {
-	auto semantic_flags = in.armature->armature->memo()->GetSemanticFlags();
+	auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
 	
 	return ::GetChainsFromRoot(in, [&](int node) -> bool
 	{
@@ -400,11 +405,11 @@ std::vector<Output_Chain> TonTon::GetChainsFromRoot(TonTon::Input const& in, Sem
 std::vector<Output_Chain> TonTon::GetChainsFromTip(TonTon::Input const& in, SemanticFlags include_flags, SemanticFlags exclude_flags)
 {
 	std::vector<TonTon::Output_Chain> chains;
-	auto & sk = *in.armature;
-	auto * sk_memo = sk.armature->memo();
+	auto & sk = *in.skinnedMesh;
+	auto * sk_memo = sk.skin->memo();
 	
 	auto dfs_ordering = sk_memo->GetDfsOrdering();
-	auto parents       = sk.armature->parents.data();
+	auto parents       = sk.skin->parents.data();
 	auto semantic_flags = sk_memo->GetSemanticFlags();
 	auto relative_flags = sk_memo->GetRelativeFlags();
 	auto gcr			 = sk_memo->GetGcrTable();
@@ -416,6 +421,7 @@ std::vector<Output_Chain> TonTon::GetChainsFromTip(TonTon::Input const& in, Sema
 			
 		auto root = i;
 		float length = 0;
+		int counter = 0;
 		
 		for(;;)
 		{
@@ -428,11 +434,13 @@ std::vector<Output_Chain> TonTon::GetChainsFromTip(TonTon::Input const& in, Sema
 				
 			length += glm::distance(in.position(root), in.position(p));
 			root = p;
+			++counter;
 		}
 		
 		Output_Chain chain{
 			.root=uint16_t(root),
 			.tip=uint16_t(i),
+			.noJoints=counter,
 			.stretched_length_m=length,
 			.rest_length_m=glm::distance(in.position(root), in.position(i)),
 		};
@@ -445,8 +453,8 @@ std::vector<Output_Chain> TonTon::GetChainsFromTip(TonTon::Input const& in, Sema
 
 std::vector<Output_Appendage> TonTon::GetAppendages(Input const& in, std::vector<Output_Chain> && chains)
 {
-	auto & sk = *in.armature;
-	auto parents =  in.armature->armature->parents.data();
+	auto & sk = *in.skinnedMesh;
+	auto parents =  in.skinnedMesh->skin->parents.data();
 
 	auto cliques = sk.memo()->GetCliques();
 	std::vector<TonTon::Output_Appendage> r;
@@ -503,252 +511,198 @@ std::vector<Output_Appendage> TonTon::GetAppendages(Input const& in, std::vector
 	return r;
 }
 
-static	std::optional<Output_Terrestrial>  TonTon::ComputeTerrestrial(Input const& in, Scratch &out) { return {}; }
-// ComputeSerpentine is now implemented in tonton_serpentine.cpp
-static	std::optional<Output_Aquatic>  TonTon::ComputeAquatic(Input const& in, Scratch &out) { return {}; }
-static	std::optional<Output_Climbing>  TonTon::ComputeClimbing(Input const& in, Scratch &out) { return {}; }
-static	std::optional<Output_Brachiation>  TonTon::ComputeBrachiation(Input const& in, Scratch &out) { return {}; }
-static	std::optional<Output_Jumping>  TonTon::ComputeJumping(Input const& in, Scratch &out) { return {}; }
-
-static	std::vector<Output_Manipulator>   TonTon::ComputeManipulation(Input const& in, Scratch &) 
-{ 
-	// walk back parents until we get something thats not limb-ish
+std::vector<Output_Manipulator>   TonTon::ComputeManipulation(Input const& in, Scratch&)
+{// walk back parents until we get something thats not limb-ish
 	SF constexpr NOT_LIMB_FLAGS = SF(
 		int64_t(SF::HEAD)|
 		int64_t(SF::NECK)|
 		int64_t(SF::SPINE)|
 		int64_t(SF::ABDOMEN)
 	);
-		
-	auto & sk = *in.armature;
-	auto * sk_memo = sk.armature->memo();
-	auto position = sk.armature->position.data();
-	auto parents = sk.armature->parents.data();
 	
 	auto appendages = GetAppendages(in, GetChainsFromTip(in, SF::GRASPER, NOT_LIMB_FLAGS));
-	auto relative_flags = in.armature->armature->memo()->GetRelativeFlags();
-	auto semantic_flags = in.armature->armature->memo()->GetSemanticFlags();
+	return ComputeManipulation(in, appendages);
+} 
+
+
+static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in, Scratch &out) 
+{
+	auto & sk = *in.skinnedMesh;
+	auto * sk_memo = sk.skin->memo();
 	
-	std::vector<Output_Manipulator> manipulators(appendages.size());
+	auto parents        = in.skinnedMesh->skin->parents.data();
+	auto position       = in.skinnedMesh->skin->position.data();
+	auto volume         = in.skinnedMesh->volume.data();
+	auto children       = in.skinnedMesh->skin->memo()->GetChildren();
+	auto relative_flags = in.skinnedMesh->skin->memo()->GetRelativeFlags();
+	auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
+	auto dfs_ordering   = sk_memo->GetDfsOrdering();
+	auto tube_table     = in.skinnedMesh->memo()->GetTubeTable();
 	
-	for(auto i = 0u; i < appendages.size(); ++i)
+	if(HasFlag(relative_flags[dfs_ordering[0]].child_flags, SF::TAIL) == false)
+		return {};
+	
+	auto N = semantic_flags.size();
+	
+	shared_array<bool> tube_marks = shared_array<bool>(N, 0);
+	
+	for(auto i = 0u; i < N; ++i)
 	{
-		static_cast<Output_Appendage&>(	manipulators[i]) = appendages[i];
-		auto idx = manipulators[i].tip;
+	// leaves first
+		auto node = dfs_ordering[(N-1)-i];
 		
-		auto relevant_joints = sk_memo->GetAllChildrenOfRoot(manipulators[i].root);
-		// get all *excluding grasper itself* (just fingers)
-		auto which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size()-1);
-			
-		auto metrics = in.armature->GetMetrics(which, in.behavior.scale);
-		TonTon::Silhouette silhouette;
+		// children[node].empty means a cache miss, so try to short circuit. 
+		if(tube_marks[node] == false && tube_table[node] > 0.98 && children[node].empty())
+			tube_marks[node] = true;
 		
-		manipulators[i].subtree_flags = relative_flags[idx].child_flags|semantic_flags[idx];
+		auto p = parents[node];
 		
-		// it is a spike.. or trunk.. or something, no fingers!
-		// trunks have fingers but in an armature they probably don't.
-		if(metrics.volume == 0.0)
+		if(p >= 0 && tube_marks[node])
 		{
-			auto tip = manipulators[i].tip;
-		
-			manipulators[i].surface_area_m2 = sk.EstimateCrossSection(tip, in.behavior.scale, position[tip] - position[parents[tip]]);
-			manipulators[i].surface_normal  = glm::normalize(position[tip] - position[parents[tip]]);
+			tube_marks[p] = true;
 		}
-		else
+	}
+
+	std::function<Output_Tail(int)> GetTail = [&](const int root) -> Output_Tail
+	{	
+		auto node = root;
+		auto node_children = children[node].size() == 0;
+		float stretched_length = 0;
+		float total_volume = 0;
+		float min_area = FLT_MAX;
+		float max_area =-FLT_MAX;
+		int   no_links = 0;
+		
+		std::vector<Output_Tail> branches;
+		std::vector<int> stack;
+		stack.reserve(8);
+		
+		for(;;)
 		{
-		// get all *including grasper itself*
-			which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
-					
-			std::pair<glm::quat, glm::vec3> eigen_decomp;
-			auto projection = in.armature->memo()->GetProjectionMatrix(EigenValue::Small, in.behavior.scale, which, &metrics, &eigen_decomp);
-			silhouette = in.armature->memo()->GetSilhouettes(projection, in.behavior.scale, which);
-			
-			// get projection direction.
-			manipulators[i].surface_area_m2 = silhouette.area;
-			manipulators[i].surface_normal =  glm::mat3(eigen_decomp.first)[2];
-		}
-		
-		auto counter = 0;
-		float accumulator = 0;
-		float accumulator_2nd_moment = 0;
-		for(auto j = manipulators[i].tip; j != manipulators[j].root; j = parents[j])
-		{
-			auto p =  parents[j];
-			double secondMoment = 0;
-			auto area_m2 = sk.EstimateCrossSection(p, in.behavior.scale, position[j] - position[p], &secondMoment);
-		
-			accumulator += area_m2;
-			accumulator_2nd_moment += secondMoment;
-			++counter;
-		}
-		
-		if(counter)
-		{
-			float avg_area = accumulator / counter;
-			float avg_moment = accumulator_2nd_moment / counter;
-			
-			// 1. MUSCLE VOLUME ESTIMATION
-			// Assume ~40-60% of limb volume is muscle (depends on type)
-			float muscle_fraction = glm::mix(0.35f, 0.65f, in.behavior.endurance_vs_power);
-		//	double muscle_volume_m3 = metrics.volume * muscle_fraction;
-		//	double muscle_mass_kg = muscle_volume_m3 * glm::mix(700.0, 1050.0, in.average_density);
-			
-			// 2. GRIP FORCE (from finger/digit flexors)
-			// Peak muscle stress: 20-40 N/cm² (200,000-400,000 Pa)
-			// Quality affects max stress achievable
-			float muscle_stress_Pa = glm::mix(200000.0f, 400000.0f, in.muscle_quality);
-			
-			// Effective cross-sectional area (perpendicular to force direction)
-			// For grip, this is roughly the cross-section of the muscles
-			float grip_muscle_area_m2 = avg_area * muscle_fraction;
-			manipulators[i].max_grip_force_N = muscle_stress_Pa * grip_muscle_area_m2;
-			
-			// 3. LIFT FORCE (constrained by joint torque limits)
-			// Torque = Force × moment_arm
-			// Max torque ≈ muscle_PCSA × muscle_stress × moment_arm
-			float moment_arm_m = std::sqrt(avg_moment / 3.14159f); // Approximate from 2nd moment
-			float max_torque_Nm = muscle_stress_Pa * grip_muscle_area_m2 * moment_arm_m;
-			
-			// Convert torque to force at tip (lever arm = chain length)
-			float lever_arm_m = manipulators[i].stretched_length_m;
-			if(lever_arm_m > 0.001f) {
-				manipulators[i].max_lift_force_N = max_torque_Nm / lever_arm_m;
-			} else {
-				manipulators[i].max_lift_force_N = 0.0f;
-			}
-			
-			// Apply structure vs weight scaling
-			// More robust structure = can handle more force
-			float structure_bonus = glm::mix(0.7f, 1.3f, in.structure_vs_weight);
-			manipulators[i].max_lift_force_N *= structure_bonus;
-			manipulators[i].max_grip_force_N *= structure_bonus;
-		}
-		
-		// 4. ADHESION FORCE (for specialized structures)
-		manipulators[i].max_adhesion_force_N = 0.0f;
-		
-	// grab each thing in the subtree		
-		bool has_suckers = false;
-		bool has_setae = false;
-		bool has_claws = false;
-		bool has_thumb = false;
-		bool has_wet_grip = false; // what word do i look for for a treefrog?		
-		
-		for(auto node : relevant_joints)
-		{
-			for(auto word : sk.armature->tags[node])
+			glm::vec3 accumulator{0};
+			for(auto child : children[node])
 			{
-				switch(word)
+				if(tube_marks[child] && HasFlag(semantic_flags[node], SF::TAIL))
 				{
-				default: break;
-				case Word::sucker:
-					has_suckers = true;
-					break;
-				case Word::setae:
-					has_setae = true;
-					break;		
-				case Word::claw:
-				case Word::talon:
-					has_claws = true;
-					break;		
-				case Word::thumb:
-					has_thumb = true;
-					break;	
-				case Word::pad:
-				case Word::adhesive:
-					has_wet_grip = true;
-					break;
+					stack.push_back(child);
+					accumulator += position[child];
 				}
 			}
-		}
-		
-		manipulators[i].has_claws=has_claws;
-		manipulators[i].has_suckers=has_suckers;
-		manipulators[i].has_setae=has_setae;
-		manipulators[i].has_thumb=has_thumb;
-		manipulators[i].has_wet_grip=has_wet_grip;
-		
-		if(has_suckers) {
-			// Suction force: F = ΔP × Area
-			// Assume can create ~0.8 atm (80 kPa) pressure differential
-			float suction_pressure_Pa = 80000.0f;
 			
-			// Estimate sucker area from surface area
-			float sucker_coverage = 0.3f; // ~30% of surface is actual suction cups
-			float effective_sucker_area = manipulators[i].surface_area_m2 * sucker_coverage;
+			if(stack.empty()) break;
 			
-			manipulators[i].max_adhesion_force_N = suction_pressure_Pa * effective_sucker_area;
-		}
-		
-		if(has_setae) {
-			// Van der Waals adhesion (gecko-like)
-			// ~10 N/cm² for optimal setae density
-			float setae_stress_Pa = 100000.0f; // 10 N/cm²
+			accumulator /= stack.size();
 			
-			// Assume setae cover the contact surface
-			manipulators[i].max_adhesion_force_N += 
-				setae_stress_Pa * manipulators[i].surface_area_m2;
-		}
+			auto vec = position[stack[0]] - position[node];
+			total_volume += volume[node];
+			float area = in.skinnedMesh->EstimateCrossSection(node, in.behavior.scale, vec);
 			
-		if(has_wet_grip) {
-			// Tree frog adhesion: capillary forces + mucus adhesion
-			// ~1-5 N/cm² depending on surface wetness
-			// Formula: F = 2πRγ (capillary) + μ×Area (mucus)
-			float wet_adhesion_Pa = 30000.0f; // ~3 N/cm² typical
-			
-			// Pad coverage (tree frogs have ~60% of toe surface as pad)
-			float pad_coverage = 0.6f;
-			float effective_pad_area = manipulators[i].surface_area_m2 * pad_coverage;
-			
-			manipulators[i].max_adhesion_force_N = 
-				wet_adhesion_Pa * effective_pad_area;
-			
-			// Requires wet/humid surface - note this in metadata somewhere?
-		}
-		
-		if(manipulators[i].has_friction_pads()) {
-			// Primate friction grip (no true adhesion, just high friction)
-			// Not really "adhesion" but contributes to grip force
-			// Coefficient of friction ~0.5-1.5 for primate skin
-			float friction_coef = 1.0f;
-			
-			// This multiplies the normal force (which comes from grip force)
-			// So it enhances grip_force rather than being separate
-			manipulators[i].max_grip_force_N *= (1.0f + friction_coef * 0.3f);
-		}
-
-		// 5. SCALING ADJUSTMENTS
-		// Square-cube law: Force scales with cross-section (area), not volume
-		float size_scale = in.behavior.area_scale(); // Already accounts for anisotropic scaling
-		
-		// Apply conservative allometric scaling
-		// Smaller animals have relatively stronger muscles (force/mass ratio)
-		float allometric_factor = std::pow(size_scale, 0.67f); // Between area (1.0) and volume (0.67)
-		
-		manipulators[i].max_lift_force_N *= allometric_factor;
-		manipulators[i].max_grip_force_N *= allometric_factor;
-		manipulators[i].max_adhesion_force_N *= allometric_factor;
-		
-		// 6. TYPE-SPECIFIC ADJUSTMENTS
-		if(HasFlag(manipulators[i].subtree_flags, SF::TENTACLE)) {
-			// Tentacles are hydrostatic - different force characteristics
-			// Generally weaker in grip but good adhesion
-			manipulators[i].max_grip_force_N *= 0.6f;
-			if(has_suckers) {
-				manipulators[i].max_adhesion_force_N *= 1.5f; // Octopus-level suction
+			min_area = std::min(min_area, area);
+			max_area = std::max(max_area, area);
+			stretched_length += glm::length(vec);
+			++no_links;
+						
+			if(stack.size() == 1)
+			{
+				node = stack[0];
+				stack.clear();
+				continue;
 			}
+			
+			for(auto branch : stack)
+			{
+				branches.push_back(GetTail(branch));
+			}
+					
+			break;
 		}
 		
-		// trunks and monkey tails.
-		if(HasFlag(manipulators[i].subtree_flags, SF::FACIAL|SF::TAIL)) {
-			// Elephant trunks: excellent lift, moderate grip
-			manipulators[i].max_lift_force_N *= 1.4f;
-			manipulators[i].max_grip_force_N *= 0.8f;
-		}		
+		Output_Tail r;
+		
+		r.root=uint16_t(root);
+		r.tip=uint16_t(node);
+		r.noJoints=no_links;
+		
+		r.stretched_length_m=stretched_length;
+		r.rest_length_m=glm::length(position[node] - position[root]);
+		
+		r.common_ancestor=parents[root];
+		r.gait_group=0;
+		r.phase_offset=0;
+	
+		r.mass_kg = in.body_density() * total_volume;
+		r.max_cross_section_m2=max_area;
+		r.min_cross_section_m2=min_area;
+		
+		r.natural_sway_frequency_Hz = std::sqrt(in.environment.gravity_m_s2 / r.stretched_length_m) / M_PI;
+		r.branches=shared_array<Output_Tail>::FromArray(branches);
+		
+		if(HasFlag(relative_flags[root].child_flags, SF::WEAPON))
+		{
+			r.used_for = Output_Tail::Flags(int(r.used_for) | int(Output_Tail::Flags::Combat));
+		}
+		
+		if(HasFlag(relative_flags[root].child_flags, SF::GRASPER))
+		{
+			r.used_for = Output_Tail::Flags(int(r.used_for) | int(Output_Tail::Flags::Grasping));
+		}
+		
+		return r;
+	};
+	
+	std::vector<Output_Tail> r;
+// find tail roots		
+	for(auto node : dfs_ordering)
+	{
+		if(HasFlag(semantic_flags[node], SF::TAIL)
+		&& HasFlag(relative_flags[node].parent_flags, SF::TAIL) == false)
+		{
+			r.push_back(GetTail(node));
+		}
 	}
 	
-	return manipulators;
-
+	return r;
 }
 
-static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in, Scratch &out) { return {}; }
+std::vector<glm::vec3> TonTon::GetGaitGroupCenters(Input const& in, Output_Appendage * data, size_t size, size_t stride)
+{
+	std::vector<glm::vec3> positions;
+	std::vector<std::pair<int, int>> count;
+	positions.reserve(2);
+	count.reserve(2);
+	
+	for(auto i = 0u; i < size; ++i)
+	{
+		Output_Appendage * p = (Output_Appendage*)(((uint8_t*)data) + stride);
+	
+		for(auto j = 0u; j < count.size(); ++j)
+		{
+			if(count[j].first == p->gait_group)
+			{
+				positions[j] += in.position(p->root);
+				count[j].second += 1;
+				goto found;
+			}
+			
+			if(count[j].first > p->gait_group)
+			{
+				count.insert(count.begin()+j, {	int(p->gait_group),1});
+				positions.insert(positions.begin()+j, in.position(p->root));
+				goto found;
+			}
+		}
+
+		count.push_back({int(p->gait_group),1});
+		positions.push_back(in.position(p->root));
+		
+	found:
+		(void)0;
+	}
+
+	for(auto j = 0u; j < count.size(); ++j)
+	{
+		positions[j] *= 1.0 / count[j].second;
+	}
+	
+	return positions;
+}

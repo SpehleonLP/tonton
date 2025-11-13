@@ -4,6 +4,7 @@
 #include "Rules/tonton_scratch.h"
 #include "dodeedum.h"
 #include "../../include/tonton_input.h"
+#include "../../include/tonton_output.h"
 #include <iostream>
 #include <set>
 #include <cmath>
@@ -447,9 +448,9 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
 std::vector<TonTon::Output_Aerial::Wing> TonTon::GetWings(Input const& in, Scratch & out)
 {
 using SF = SemanticFlags;
-	auto & sk = *in.armature;
-	auto * sk_memo = sk.armature->memo();
-	auto position = sk.armature->position.data();
+	auto & sk = *in.skinnedMesh;
+	auto * sk_memo = sk.skin->memo();
+	auto position = sk.skin->position.data();
 	
 	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::WING));
 	std::vector<TonTon::Output_Aerial::Wing> r;
@@ -467,8 +468,8 @@ using SF = SemanticFlags;
 		
 		auto relevant_joints = sk_memo->GetAllChildrenOfRoot(r[i].root);
 		auto which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
-		auto projection = in.armature->memo()->GetProjectionMatrix(EigenValue::Small, in.behavior.scale, which, &limb_metrics, &eigen_decomposition);
-		auto metrics = in.armature->memo()->GetSilhouettes(projection, in.behavior.scale, which);
+		auto projection = in.skinnedMesh->memo()->GetProjectionMatrix(EigenValue::Small, in.behavior.scale, which, &limb_metrics, &eigen_decomposition);
+		auto metrics = in.skinnedMesh->memo()->GetSilhouettes(projection, in.behavior.scale, which);
 		
 		r[i].area_m2 = metrics.area;
 		r[i].chord_m = metrics.MeasureWidth_Segment(position[r[i].root], position[r[i].tip]).length;
@@ -486,7 +487,7 @@ using SF = SemanticFlags;
 		float wing_mass_kg = out.physical.body_mass_kg * wing_mass_fraction;
 		float wing_inertia_kg_m2 = 0.33f * wing_mass_kg * r[i].span_m * r[i].span_m * 4.0;
 		
-	// indicates feathers	
+	// indicates feathers (if its below this it must be a membrane)
 		if(wing_mass_kg < r[i].mass_kg)	
 		{
 			r[i].mass_kg = wing_mass_kg;
@@ -518,48 +519,6 @@ using SF = SemanticFlags;
 	return r;
 }
 
-std::vector<glm::vec3> TonTon::GetGaitGroupCenters(Input const& in, Output_Appendage * data, size_t size, size_t stride)
-{
-	std::vector<glm::vec3> positions;
-	std::vector<std::pair<int, int>> count;
-	positions.reserve(2);
-	count.reserve(2);
-	
-	for(auto i = 0u; i < size; ++i)
-	{
-		Output_Appendage * p = (Output_Appendage*)(((uint8_t*)data) + stride);
-	
-		for(auto j = 0u; j < count.size(); ++j)
-		{
-			if(count[j].first == p->gait_group)
-			{
-				positions[j] += in.position(p->root);
-				count[j].second += 1;
-				goto found;
-			}
-			
-			if(count[j].first > p->gait_group)
-			{
-				count.insert(count.begin()+j, {	int(p->gait_group),1});
-				positions.insert(positions.begin()+j, in.position(p->root));
-				goto found;
-			}
-		}
-
-		count.push_back({int(p->gait_group),1});
-		positions.push_back(in.position(p->root));
-		
-	found:
-		(void)0;
-	}
-
-	for(auto j = 0u; j < count.size(); ++j)
-	{
-		positions[j] *= 1.0 / count[j].second;
-	}
-	
-	return positions;
-}
 /*
 struct GaitGroupSpan
 {

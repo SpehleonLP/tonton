@@ -64,7 +64,7 @@ counted_ptr<const TonTon::SkinnedMesh> TonTon::SkinnedMesh::Factory(
 	counted_ptr<TonTon::SkinnedMesh> r = UncountedWrap(new TonTon::SkinnedMesh());
 	
 	r->mesh = std::move(mesh);
-	r->armature = std::move(armature);
+	r->skin = std::move(armature);
 	
 	r->aabb = std::move(aabb);
 	r->surfaceArea = std::move(surfaceArea);
@@ -314,9 +314,9 @@ double TonTon::SkinnedMesh::LimbMetrics::GetInertia(glm::vec3 measured_at, float
 
 bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, glm::vec3 scale) const
 {
-    auto parents = armature->parents.data();
-    auto position = armature->position.data();
-    auto children = armature->memo()->GetChildren();
+    auto parents = skin->parents.data();
+    auto position = skin->position.data();
+    auto children = skin->memo()->GetChildren();
     
     // Build the chain from tip back to root
     std::vector<int> chain;

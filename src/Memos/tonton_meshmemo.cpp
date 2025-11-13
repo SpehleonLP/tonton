@@ -151,7 +151,10 @@ void TonTon::MeshMemo::BuildVertexOverlapMemos()
 	
 	auto DocumentVertex = [&](int32_t a, int32_t b)
 	{
-		uint64_t index = (uint64_t(a) << 32) | b;
+		assert(a >= 0);
+		
+		uint64_t index = (uint64_t(a) << 32) | uint32_t(b);
+		assert(index != ~uint64_t(0));
 		memo[index] += 1;
 		
 		max_joint = std::max(max_joint, a);
@@ -181,11 +184,12 @@ void TonTon::MeshMemo::BuildVertexOverlapMemos()
 							DocumentVertex(vert.joints[i], vert.joints[j]);
 						}
 					}
+					
+					// this vertex is the only thing affecting this thing.
+					if(count1 == 1 && count2 == 0)
+						DocumentVertex(vert.joints[i], -1);
 				}
 				
-				// this vertex is the only thing affecting this thing.
-				if(count1 == 1 && count2 == 0)
-					DocumentVertex(vert.joints[i], -1);
 			}
 		
 			return false;
@@ -205,7 +209,7 @@ void TonTon::MeshMemo::BuildVertexOverlapMemos()
 		{
 			counts[b] = item.second;
 		}
-		else
+		else if(a >= 0 && b >= 0)
 		{
 			table[a*_maxJoint+b] = item.second;
 			table[b*_maxJoint+a] = item.second;

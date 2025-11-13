@@ -60,6 +60,7 @@ struct SkinnedMeshMemo
 	// tubiness is based on skinning data.
 	// verticies affected by (this AND PARENT + ONLY this + this AND children) / (this)
 	// so a tube has a tubiness of 1, while the left side of a whale fluke has low tubiness.
+	// tubiness is based on topology not geometry. 
 	immutable_array<float>  GetTubeTable();
 
 private:

@@ -43,6 +43,43 @@ immutable_array<TonTon::ArmatureMemo::FlagPair> TonTon::ArmatureMemo::GetRelativ
 	return (relative_flags = flags);
 }
 
+immutable_array<TonTon::ArmatureMemo::CladeFlagPair> TonTon::ArmatureMemo::GetRelativeCladeFlags()
+{
+	std::lock_guard lock(_mutex);
+	
+	if(relative_flags.size())
+		return relative_clade_flags;
+
+	auto dfs_ordering = GetDfsOrdering();
+	auto tags = GetCladeFlags();
+	auto children = GetChildren();
+
+	shared_array<TonTon::ArmatureMemo::CladeFlagPair> flags(dfs_ordering.size(), CladeFlagPair{CladeFlags::NONE, CladeFlags::NONE});
+		
+	for(auto i = 0u; i < dfs_ordering.size(); ++i)
+	{
+		auto j = dfs_ordering[(dfs_ordering.size()-1)-i];
+		auto p = in.parents[j];
+		
+		if(p >= 0)
+		{
+			flags[p].child_flags |= (flags[j].child_flags | tags[j]); 
+		}
+		
+		// root to leaves
+		j = dfs_ordering[i];
+		p = in.parents[j];
+		
+		if(p >= 0)
+		{
+			flags[j].parent_flags |= (flags[p].parent_flags | tags[p]); 
+		}
+	}
+	
+	return (relative_clade_flags = flags);
+}
+
+
 immutable_array<uint16_t> TonTon::ArmatureMemo::GetDfsOrdering()
 {
 	std::lock_guard lock(_mutex);
@@ -134,18 +171,77 @@ immutable_array<TonTon::SemanticFlags> TonTon::ArmatureMemo::GetSemanticFlags()
 	
 	if(semantic_flags.size()) 
 		return semantic_flags;
+	
+	auto children = GetChildren();
 		
 	shared_array<TonTon::SemanticFlags> flags(in.parents.size(), TonTon::SemanticFlags::NONE);
-	
+
+	auto HasWord = [&](int i, std::span<Word> tokens) -> bool
+	{
+		for(auto & word : in.tags[i])
+		{
+			if(std::find(tokens.begin(), tokens.end(), word) != tokens.end())
+				return true;
+		}
+		
+		return false;
+	};
+
 	for(auto i = 0u; i < in.parents.size(); ++i)
 	{
 		for(auto & word : in.tags[i])
 		{
-			flags[i] |= GetFlags(word);
+			flags[i] |= ::TonTon::GetSemanticFlags(word);
+		}
+	}
+	
+	auto leg_words = std::array<Word, 1>{Word::leg};
+	
+	for(auto i = 0u; i < in.parents.size(); ++i)
+	{
+		if(children[i].empty())
+		{
+			if(HasWord(i, leg_words))
+			{
+				flags[i] |= SemanticFlags::CONTACT;		
+			}
 		}
 	}
 	
 	return (semantic_flags = flags);
+}
+
+immutable_array<TonTon::CladeFlags> TonTon::ArmatureMemo::GetCladeFlags()
+{
+	std::lock_guard lock(_mutex);
+	
+	if(semantic_flags.size()) 
+		return clade_flags;
+	
+	auto children = GetChildren();
+		
+	shared_array<TonTon::CladeFlags> flags(in.parents.size(), TonTon::CladeFlags::NONE);
+
+	auto HasWord = [&](int i, std::span<Word> tokens) -> bool
+	{
+		for(auto & word : in.tags[i])
+		{
+			if(std::find(tokens.begin(), tokens.end(), word) != tokens.end())
+				return true;
+		}
+		
+		return false;
+	};
+
+	for(auto i = 0u; i < in.parents.size(); ++i)
+	{
+		for(auto & word : in.tags[i])
+		{
+			flags[i] |= ::TonTon::GetCladeFlags(word);
+		}
+	}
+		
+	return (clade_flags = flags);
 }
 
 immutable_array<uint16_t> TonTon::ArmatureMemo::GetLeaves()
@@ -279,7 +375,7 @@ std::vector<uint16_t>  TonTon::ArmatureMemo::GetAllChildrenOfRoot(uint32_t begin
 immutable_array<TonTon::Tensor> TonTon::GetTensors(TonTon::Armature const& in, int32_t from, int32_t to, SemanticFlags include, SemanticFlags exclude)
 {
 	auto table = in.Get(GetGcrTable);
-	auto p =  in.armature.parents;
+	auto p =  in.skinnedMesh.parents;
 	auto _noJoints = p.size();
 	
 	if(to >= 0 && table[from*_noJoints+to] != (uint32_t)to)

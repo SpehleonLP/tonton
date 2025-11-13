@@ -130,32 +130,6 @@ std::ostream& operator<<(std::ostream& os, const Output_BodyWave& bw) {
     return os;
 }
 
-// Terrestrial::Leg
-std::ostream& operator<<(std::ostream& os, const Output_Terrestrial::Leg& leg) {
-    os << "    Leg(root:" << static_cast<int>(leg.root) << " foot:" << static_cast<int>(leg.tip)
-       << " len:" << leg.stretched_length_m << "m force:" << leg.max_force_N << "N"
-       << " group:" << leg.gait_group << " phase:" << leg.phase_offset << ")";
-    return os;
-}
-
-// Terrestrial::Gait
-std::ostream& operator<<(std::ostream& os, const Output_Terrestrial::Gait& gait) {
-    os << "    Gait(";
-    switch(gait.type) {
-        case Output_Terrestrial::Gait::Type::WALK: os << "WALK"; break;
-        case Output_Terrestrial::Gait::Type::TROT: os << "TROT"; break;
-        case Output_Terrestrial::Gait::Type::PACE: os << "PACE"; break;
-        case Output_Terrestrial::Gait::Type::GALLOP: os << "GALLOP"; break;
-        case Output_Terrestrial::Gait::Type::BOUND: os << "BOUND"; break;
-        case Output_Terrestrial::Gait::Type::HOP: os << "HOP"; break;
-        case Output_Terrestrial::Gait::Type::CRAWL: os << "CRAWL"; break;
-        case Output_Terrestrial::Gait::Type::SLITHER: os << "SLITHER"; break;
-    }
-    os << " speed:" << gait.min_speed_m_s << "-" << gait.max_speed_m_s << "m/s"
-       << " freq:" << gait.stride_frequency_Hz << "Hz"
-       << " duty:" << gait.duty_factor << ")";
-    return os;
-}
 
 // Terrestrial::SerpentineLocomotion
 std::ostream& operator<<(std::ostream& os, const Output_Serpentine& serp) {
@@ -209,23 +183,12 @@ std::ostream& operator<<(std::ostream& os, const Output_Serpentine& serp) {
 // Terrestrial
 std::ostream& operator<<(std::ostream& os, const Output_Terrestrial& t) {
     os << "Terrestrial:\n"
-       << "  posture: ";
-    switch(t.posture) {
-        case Output_Terrestrial::PostureType::ERECT: os << "ERECT"; break;
-        case Output_Terrestrial::PostureType::SPRAWLING: os << "SPRAWLING"; break;
-        case Output_Terrestrial::PostureType::SEMI_ERECT: os << "SEMI_ERECT"; break;
-        case Output_Terrestrial::PostureType::SERPENTINE: os << "SERPENTINE"; break;
-    }
-    os << "\n  can_breathe_while_running: " << (t.can_breathe_while_running ? "true" : "false") << "\n";
+       << "  posture: " << t.posture;
+    os << "\n  can_breathe_while_running: " << (t.max_sprint_duration_s < 0? "true" : "false") << "\n";
 
     os << "  legs:\n";
     for (const auto& leg : t.legs) {
         os << leg << "\n";
-    }
-
-    os << "  gaits:\n";
-    for (const auto& gait : t.gaits) {
-        os << gait << "\n";
     }
 
     os << "  max_sprint_speed_m_s: " << t.max_sprint_speed_m_s << "\n"
@@ -334,13 +297,6 @@ std::ostream& operator<<(std::ostream& os, const Output_Aquatic& aq) {
     return os;
 }
 
-// Climbing::Climber
-std::ostream& operator<<(std::ostream& os, const Output_Climbing::Climber& limb) {
-    os << "    Climber(root:" << static_cast<int>(limb.root) << " tip:" << static_cast<int>(limb.tip)
-       << " grip:" << limb.max_grip_force_N << "N)";
-    return os;
-}
-
 // Climbing
 std::ostream& operator<<(std::ostream& os, const Output_Climbing& c) {
     os << "Climbing:\n"
@@ -418,9 +374,9 @@ std::ostream& operator<<(std::ostream& os, const Output::Appendages::Tail& tail)
     os << "    Tail(root:" << static_cast<int>(tail.root)
        << " tip:" << static_cast<int>(tail.tip)
        << " len:" << tail.stretched_length_m << "m";
-    if (tail.used_for & Output::Appendages::Tail::Balance) os << " BALANCE";
-    if (tail.used_for & Output::Appendages::Tail::Propulsion) os << " PROPULSION";
-    if (tail.used_for & Output::Appendages::Tail::Grapsing) os << " GRASPING";
+   // if (tail.used_for & Output::Appendages::Tail::Balance) os << " BALANCE";
+  //  if (tail.used_for & Output::Appendages::Tail::Propulsion) os << " PROPULSION";
+    if (tail.used_for & Output::Appendages::Tail::Grasping) os << " GRASPING";
     os << ")\n";
 
     if (!tail.branches.empty()) {

@@ -18,8 +18,8 @@ using SF = TonTon::SemanticFlags;
 
 std::optional<Output_Digging> TonTon::ComputeDigging(Input const& in, Scratch & s)
 {
-	auto & sk = *in.armature;
-	auto * sk_memo = sk.armature->memo();
+	auto & sk = *in.skinnedMesh;
+	auto * sk_memo = sk.skin->memo();
 	auto semantic_flags = sk_memo->GetSemanticFlags();
 
 	// Need manipulators (forelimbs) to dig
@@ -68,11 +68,11 @@ std::optional<Output_Digging> TonTon::ComputeDigging(Input const& in, Scratch & 
 	}
 
 	// Check for incisor-based digging (rodents, some fossorial mammals)
-	for(auto i = 0u; i < sk.armature->tags.size(); ++i)
+	for(auto i = 0u; i < sk.skin->tags.size(); ++i)
 	{
 		if(HasFlag(semantic_flags[i], SF::TEETH))
 		{
-			for(auto word : sk.armature->tags[i])
+			for(auto word : sk.skin->tags[i])
 			{
 				if(word == Word::incisor || word == Word::tooth)
 				{

@@ -14,6 +14,11 @@ using SF = SemanticFlags;
 // Helper to determine if creature can use serpentine locomotion
 static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 {
+	if(s.appendages.tails == nullptr)
+	{
+		return false;
+	}
+
 /*
 	// Check for tail with propulsion capability
 	bool has_propulsive_tail = false;
@@ -70,10 +75,10 @@ static Output_BodyWave CalculateLateralUndulation(Input const& in, Scratch const
 	Output_BodyWave wave{};
 
 	// Find spine chain from tail to head
-	auto & sk = *in.armature;
-	auto * memo = sk.armature->memo();
+	auto & sk = *in.skinnedMesh;
+	auto * memo = sk.skin->memo();
 	auto semantic_flags = memo->GetSemanticFlags();
-	auto parents = sk.armature->parents.data();
+	auto parents = sk.skin->parents.data();
 
 	// Find tail root and spine chain
 	int tail_tip = -1;
