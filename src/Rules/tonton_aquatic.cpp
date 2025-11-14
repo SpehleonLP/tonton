@@ -399,6 +399,94 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		jet_propulsion = jet;
 	}
 
+	// ========== CLADE-SPECIFIC REFINEMENTS ==========
+	// Applied after generic physics calculations to adjust for biological reality
+
+	using CF = CladeFlags;
+
+	// PISCES: Fish-specific swimming characteristics
+	if (HasFlag(s.physical.clade, CF::PISCES)) {
+		// Fish have specialized muscle fiber types
+		// Rome et al. (1988): Red muscle 200 W/kg sustained, white muscle 250-500 W/kg burst
+		// Wardle (1975): White muscle can produce 400 W/kg for short bursts (5-10s)
+		// Bone & Marshall (1982): Most fish have 30-70% white muscle by mass
+
+		// Burst capability depends on white muscle fraction
+		// Power-oriented fish (predators) have more white muscle
+		float white_muscle_fraction = glm::mix(0.3f, 0.7f, 1.0f - in.behavior.endurance_vs_power);
+
+		// White muscle gives 2x power output of red muscle for short bursts
+		float burst_power_multiplier = 1.0f + white_muscle_fraction; // 1.3x to 1.7x
+		burst_speed_m_s *= burst_power_multiplier;
+		burst_speed_m_s = std::min(burst_speed_m_s, cruise_speed_m_s * 3.5f); // Cap at 3.5x
+
+		// Caudal aspect ratio affects maximum speed
+		// Sambilay (1990): V = 0.59 * exp(0.42 * AR) relationship across 63 species
+		// High AR (tuna, AR~6-8) = fast cruiser, Low AR (pike, AR~1-2) = burst acceleration
+		// This refinement is already captured in generic physics, no additional adjustment needed
+	}
+
+	// CETACEA: Air-breathing marine mammals (whales, dolphins, porpoises)
+	if (HasFlag(s.physical.clade, CF::CETACEA)) {
+		// Cetaceans don't have swim bladders - they use lungs for buoyancy control
+		has_swim_bladder = false;
+		swim_bladder_adjust_time_s = -1.0f;
+
+		// Can control buoyancy via lung volume (not ballast like sharks)
+		requires_constant_motion = false;
+		neutral_buoyancy_density = body_density_kg_m3; // Can match water density
+
+		// Cetaceans can dive MUCH deeper than fish (no swim bladder compression)
+		// Sperm whales: 2000m+, beaked whales: 3000m+
+		crush_depth_m *= 5.0f; // 5x deeper than comparable fish
+		preferred_depth_max_m = std::min(preferred_depth_max_m * 3.0f, crush_depth_m * 0.5f);
+
+		// Must surface to breathe (oxygen stores in muscle myoglobin + blood)
+		// Dive duration depends on lung volume and metabolic rate
+		float lung_volume_L = body_volume_m3 * 0.05f * 1000.0f; // ~5% body volume
+		float O2_storage_L = lung_volume_L * 0.9f; // ~90% usable O2
+
+		// O2 consumption rate (Kleiber's law for mammals)
+		float O2_consumption_L_per_min = s.metabolic.max_rate_W * 0.05f; // ~0.05 L O2 per watt per minute
+
+		// Maximum dive time before must surface
+		float max_dive_time_min = O2_storage_L / O2_consumption_L_per_min;
+
+		// Cetaceans are endotherms - higher speed capability than similar-sized fish
+		cruise_speed_m_s *= 1.2f; // ~20% faster due to sustained high power
+		burst_speed_m_s *= 1.2f;
+	}
+
+	// MOLLUSCA/CEPHALOPODA: Jet propulsion swimmers (octopus, squid, nautilus)
+	// Already handled by jet_propulsion mode detection
+	// No additional refinements needed - mode captures the physics
+
+	// AMPHIBIA: Tadpoles, aquatic frogs (if somehow has fins/tail)
+	if (HasFlag(s.physical.clade, CF::AMPHIBIA)) {
+		// Amphibians have lower metabolic rates (ectotherm) → lower sustained speeds
+		// Already reflected in metabolic scaling
+		// Most use paddle limbs or body undulation (already captured)
+
+		// Amphibians must remain in specific depth ranges (skin respiration)
+		preferred_depth_max_m = std::min(preferred_depth_max_m, 20.0f); // Shallow water
+		crush_depth_m = std::min(crush_depth_m, 100.0f); // Can't handle deep pressure
+	}
+
+	// REPTILIA: Marine reptiles (sea turtles, marine iguanas, sea snakes)
+	if (HasFlag(s.physical.clade, CF::REPTILIA | CF::CHELONIA)) {
+		// Reptiles must surface to breathe but can hold breath longer than mammals
+		// Lower metabolic rate (ectotherm) → lower O2 consumption
+
+		// Turtles (CHELONIA) have excellent dive duration
+		if (HasFlag(s.physical.clade, CF::CHELONIA)) {
+			// Sea turtles can dive for hours (low metabolism + anaerobic tolerance)
+			preferred_depth_max_m = std::min(preferred_depth_max_m * 2.0f, 300.0f);
+		}
+
+		// Reptiles are ectotherms - prefer warmer surface waters
+		preferred_depth_min_m = std::max(preferred_depth_min_m, 0.0f); // Surface preference
+	}
+
 	return Output_Aquatic{
 		.propulsors = shared_array<Output_Aquatic::Fin>::FromArray(fins),
 		.body_wave = body_wave,
@@ -419,3 +507,4 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		.jet_propulsion = jet_propulsion
 	};
 }
+

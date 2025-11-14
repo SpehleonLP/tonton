@@ -183,7 +183,7 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 		min_roughness_required = 0.4f;
 	}
 
-	return Output_Climbing{
+	Output_Climbing result{
 		.limbs = shared_array<Output_Manipulator>::FromArray(limbs),
 		.max_climb_speed_m_s = max_climb_speed_m_s,
 		.max_climb_angle_rad = max_angle_rad,
@@ -191,6 +191,210 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 		.min_roughness_required = min_roughness_required,
 		.requires_dry_surface = requires_dry_surface
 	};
+
+	// ========== CLADE-SPECIFIC REFINEMENTS ==========
+	using CF = CladeFlags;
+	auto clade = s.physical.clade;
+
+	// MAMMALIA (Primates): Exceptional grippers with high intelligence
+	if (HasFlag(clade, CF::MAMMALIA)) {
+		// Primates have excellent grip strength and prehensile abilities
+		// Hanna et al. (2017): Primates can support 2-3x body weight per hand
+
+		bool has_graspers = false;
+		for(auto const& limb : limbs) {
+			if (limb.has_thumb || limb.max_grip_force_N > body_weight_N) {
+				has_graspers = true;
+				break;
+			}
+		}
+
+		if (has_graspers) {
+			// Primates are excellent climbers
+			// Fleagle (1976): Primates climb at 0.3-0.8 m/s in trees
+			result.max_climb_speed_m_s *= 1.4f;
+			result.can_descend_head_first = true;
+
+			// Can climb smooth-ish surfaces (tree bark)
+			result.min_roughness_required *= 0.7f;
+
+			// Smaller primates (squirrel monkeys, gibbons) are exceptional
+			if (s.physical.body_mass_kg < 10.0f) {
+				result.max_climb_speed_m_s *= 1.3f;
+			}
+		}
+
+		// Cats (clawed climbers)
+		// Taylor (1970): Cats climb using retractable claws
+		if (any_claws && s.physical.body_mass_kg < 50.0f) {
+			result.can_descend_head_first = true; // Cats descend (though awkwardly)
+			result.min_roughness_required = 0.4f; // Need bark texture
+		}
+
+		// Bears and large mammals
+		// Beringer et al. (2005): Black bears climb trees for refuge
+		if (any_claws && s.physical.body_mass_kg > 50.0f) {
+			// Large mammals climb slowly but powerfully
+			result.max_climb_speed_m_s *= 0.7f; // Slower due to mass
+			result.min_roughness_required = 0.5f; // Need deep bark grooves
+		}
+	}
+
+	// REPTILIA (Squamata): Geckos and lizards
+	if (HasFlag(clade, CF::REPTILIA)) {
+		// Geckos have setae (van der Waals adhesion)
+		if (any_setae) {
+			// Autumn et al. (2000): Gecko setae generate 10 N/cm²
+			// Can climb ANY solid surface (even glass)
+			result.min_roughness_required = 0.0f; // Smooth surfaces OK
+			result.requires_dry_surface = true; // Water disrupts van der Waals
+
+			// Geckos are exceptional climbers
+			// Autumn et al. (2006): Tokay gecko climbs 1 m/s vertically
+			result.max_climb_speed_m_s = std::max(result.max_climb_speed_m_s, 0.8f);
+			result.max_climb_angle_rad = M_PI / 2.0f; // Can climb overhangs
+			result.can_descend_head_first = true;
+
+			// Geckos can run upside-down on ceilings
+			// Autumn et al. (2006): 6.2x safety margin with 4 feet
+			if (safety_margin > 4.0f) {
+				result.can_climb_inverted = true;
+			}
+		}
+
+		// Non-gecko lizards (clawed climbers)
+		// Zaaf et al. (1999): Lizards use claws and lateral undulation
+		if (any_claws && !any_setae) {
+			result.max_climb_speed_m_s *= 1.2f; // Agile climbers
+			result.min_roughness_required = 0.4f; // Need texture for claws
+		}
+
+		// Snakes (concertina climbing)
+		if (!s.terrestrial.has_value() || s.terrestrial->legs.empty()) {
+			// Snakes climb via concertina and lateral wedging
+			// Astley & Jayne (2007): Snakes climb at 0.05-0.15 m/s
+			result.max_climb_speed_m_s = 0.1f * s.physical.body_length_m;
+			result.min_roughness_required = 0.6f; // Need rough bark
+			result.can_descend_head_first = true; // Excellent control
+
+			// Tree snakes have specialized ventral scales
+			// Lillywhite & Henderson (1993): Keeled ventral scales
+			if (s.physical.body_mass_kg < 2.0f) {
+				result.max_climb_speed_m_s *= 1.5f; // Lighter = faster
+			}
+		}
+	}
+
+	// AMPHIBIA: Tree frogs
+	if (HasFlag(clade, CF::AMPHIBIA)) {
+		// Tree frogs have wet adhesion (capillary + mucus)
+		if (any_wet_grip) {
+			// Federle et al. (2006): Tree frog toe pads 1-5 N/cm²
+			// Excellent on smooth wet surfaces (leaves)
+			result.min_roughness_required = 0.0f; // Smooth OK
+			result.requires_dry_surface = false; // Actually NEEDS moisture!
+
+			// Tree frogs are excellent jumpers while climbing
+			// Nauwelaerts & Aerts (2006): Tree frogs leap between branches
+			result.max_climb_speed_m_s *= 1.3f; // Jumping-assisted climbing
+			result.can_climb_smooth_wet_surfaces = true;
+
+			// Small tree frogs can climb anything organic
+			if (s.physical.body_mass_kg < 0.1f) {
+				result.max_climb_angle_rad = M_PI / 2.0f; // Vertical easy
+			}
+		}
+	}
+
+	// ARTHROPODA: Insects and spiders
+	if (HasFlag(clade, CF::ARTHROPODA)) {
+		// Most arthropods are excellent climbers
+		// Dai et al. (2002): Insects climb via diverse mechanisms
+
+		if (any_setae) {
+			// Spider/insect setae (similar to geckos but different scale)
+			// Gorb (2001): Fly setae ~100 nN per spatula
+			result.min_roughness_required = 0.0f;
+			result.max_climb_angle_rad = M_PI / 2.0f;
+			result.can_descend_head_first = true;
+
+			// Small arthropods can climb inverted
+			if (s.physical.body_mass_kg < 0.001f) {
+				result.can_climb_inverted = true; // Flies walk on ceilings
+			}
+		}
+
+		if (any_claws) {
+			// Insect claws hook into microscopic surface features
+			// Bullock & Federle (2011): Claws effective on rough surfaces
+			result.min_roughness_required = 0.2f; // Need some texture
+			result.max_climb_speed_m_s *= 1.5f; // Very fast for size
+		}
+
+		if (any_suckers) {
+			// Beetles and some insects use suction
+			// Dixon et al. (1990): Suction pads on smooth surfaces
+			result.min_roughness_required = 0.0f;
+			result.requires_dry_surface = false;
+			result.can_descend_head_first = true;
+		}
+
+		// Spiders (ARACHNIDA subset)
+		// Would benefit from ARACHNIDA clade flag if added
+		if (limb_count >= 8) { // Spider proxy (8 legs)
+			// Spiders are exceptional climbers
+			// Wolff & Gorb (2012): Spiders combine claws + setae
+			result.max_climb_speed_m_s *= 1.8f; // Very fast
+			result.can_descend_head_first = true;
+			result.can_climb_inverted = true; // Spiders walk on ceilings
+		}
+
+		// Ants (social climbing)
+		// Wilson (1971): Ants form bridges and chains
+		if (s.physical.body_mass_kg < 0.0001f && in.behavior.social_tendency > 0.7f) {
+			result.max_climb_angle_rad = M_PI; // Can hang from anything
+			result.can_form_living_bridges = true; // Social cooperation
+		}
+	}
+
+	// AVES: Birds climbing (parrots, woodpeckers)
+	if (HasFlag(clade, CF::AVES)) {
+		// Most birds don't "climb" in traditional sense (they fly)
+		// But parrots and woodpeckers do
+
+		if (any_claws && limb_count >= 4) {
+			// Parrots use beak + feet (zygodactyl toes)
+			// Sustaita et al. (2013): Parrots use beak as 3rd limb
+			result.max_climb_speed_m_s *= 0.8f; // Slower (not specialized)
+			result.min_roughness_required = 0.4f;
+
+			// Woodpeckers (tail-braced climbing)
+			// Spring (1965): Woodpecker tail feathers support weight
+			if (s.appendages.tails.size() > 0) {
+				result.max_climb_speed_m_s *= 1.2f; // Tail brace helps
+				result.can_descend_head_first = false; // Must descend tail-first
+			}
+		}
+	}
+
+	// MOLLUSCA (Cephalopoda): Octopus climbing
+	if (HasFlag(clade, CF::CEPHALOPODA)) {
+		// Octopuses climb using suckers + flexibility
+		// Tramacere et al. (2014): Octopus suckers + soft body
+
+		if (any_suckers) {
+			result.min_roughness_required = 0.0f; // Smooth surfaces OK
+			result.requires_dry_surface = false; // Aquatic
+			result.max_climb_angle_rad = M_PI / 2.0f;
+			result.can_climb_inverted = true; // Octopi walk on ceilings underwater
+
+			// Octopuses are slow but extremely dexterous climbers
+			result.max_climb_speed_m_s *= 0.6f;
+			result.requires_aquatic_environment = true;
+		}
+	}
+
+	return result;
 }
 
 std::optional<TonTon::Output_Brachiation>  TonTon::ComputeBrachiation(Input const& in, Scratch & s)
@@ -390,6 +594,7 @@ std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input cons
 		for(auto j = manipulators[i].tip; j != manipulators[j].root; j = parents[j])
 		{
 			auto p =  parents[j];
+			if(p < 0) break;
 			double secondMoment = 0;
 			auto area_m2 = sk.EstimateCrossSection(p, in.behavior.scale, position[j] - position[p], &secondMoment);
 		

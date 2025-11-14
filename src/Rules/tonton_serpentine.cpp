@@ -262,6 +262,113 @@ std::optional<Output_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
 		result.concertina = conc;
 	}
 
+	// ========== CLADE-SPECIFIC REFINEMENTS ==========
+	using CF = CladeFlags;
+	auto clade = s.physical.clade;
+
+	// REPTILIA: True snakes - specialized for terrestrial undulation
+	if (HasFlag(clade, CF::REPTILIA)) {
+		// Snakes have ventral scales optimized for friction anisotropy
+		// Gray (1946): Ventral scales catch substrate during lateral push
+		// Hu et al. (2009): Friction ratio 1.5-4.0 depending on scale morphology
+
+		result.lateral_friction_coef = std::min(result.lateral_friction_coef * 1.3f, 1.2f);
+		result.friction_anisotropy_ratio = result.lateral_friction_coef / result.forward_friction_coef;
+
+		// Snakes excel at concertina and rectilinear (specialized ribs and muscles)
+		// Jayne (1986): Specialized costal muscles for rectilinear crawling
+		if (result.rectilinear.has_value()) {
+			result.rectilinear->speed_m_s *= 1.4f; // More efficient than generic
+		}
+
+		if (result.concertina.has_value()) {
+			result.concertina->speed_m_s *= 1.3f; // Better muscle coordination
+			result.concertina->compression_ratio = 0.3f; // Can compress tighter
+		}
+
+		// Many snakes adapted for specific substrates
+		// Desert snakes (sidewinding specialists)
+		// Marvi & Hu (2012): Sidewinding optimal on granular media
+		//  && in.behavior.habitat_type == HabitatType::DESERT
+		if (result.sidewinding.has_value()) {
+			result.sidewinding->speed_m_s *= 1.5f; // Extremely efficient on sand
+		}
+
+		// Aquatic snakes (sea snakes, water snakes) have compressed tails
+		if (s.aquatic.has_value()) {
+			// Lateral undulation works well in water (anguilliform swimming)
+			result.lateral_undulation.wavelength_ratio *= 0.8f; // Shorter wavelength
+			result.lateral_undulation.amplitude_ratio *= 1.2f; // Larger amplitude
+		}
+	}
+
+	// PISCES: Eel-like fish - undulation in water
+	if (HasFlag(clade, CF::PISCES) && s.aquatic.has_value()) {
+		// Eels use anguilliform swimming (body undulation)
+		// Gillis (1998): Eel undulation wave travels at 1.5-2x swimming speed
+		// Very different mechanics than terrestrial snakes
+
+		// Friction anisotropy less important in water (viscous drag dominates)
+		result.friction_anisotropy_ratio = 1.0f; // Isotropic in water
+
+		// Eel undulation parameters
+		// Lauder & Tytell (2006): Eels use wavelength ~0.6-0.8 BL
+		result.lateral_undulation.wavelength_ratio = 0.7f;
+		result.lateral_undulation.amplitude_ratio = 0.15f; // Moderate amplitude
+
+		// Speed calculation for aquatic undulation
+		// Webb (1975): Speed = wavelength × frequency × slip_factor
+		// Slip factor ~0.7-0.9 (some backward slipping in water)
+		float frequency_Hz = 2.0f / std::pow(s.physical.body_mass_kg, 0.33f);
+		float wavelength_m = result.lateral_undulation.wavelength_ratio * body_length_m;
+		float aquatic_speed = wavelength_m * frequency_Hz * 0.8f; // 80% slip efficiency
+
+		// Eels are efficient swimmers
+		// Van Ginneken & Van Den Thillart (2000): Eels migrate 6000km
+		result.lateral_undulation_speed_m_s = aquatic_speed * 1.2f;
+
+		// Concertina and sidewinding don't work underwater
+		result.concertina = std::nullopt;
+		result.sidewinding = std::nullopt;
+		result.capable_modes = Output_Serpentine::Mode::LATERAL_UNDULATION;
+	}
+
+	// AMPHIBIA: Salamanders and caecilians
+	if (HasFlag(clade, CF::AMPHIBIA)) {
+		// Salamanders use lateral undulation with legs
+		// Frolich & Biewener (1992): Salamander walking + undulation hybrid
+
+		if (s.terrestrial.has_value() && !s.terrestrial->legs.empty()) {
+			// Legs assist undulation (not pure serpentine)
+			result.lateral_undulation_speed_m_s *= 0.7f; // Less efficient than snakes
+			result.lateral_undulation.amplitude_ratio *= 0.7f; // Reduced amplitude
+		} else {
+			// Legless caecilians (fossorial)
+			// Gans (1973): Concertina locomotion in burrows
+			if (result.concertina.has_value()) {
+				result.concertina->speed_m_s *= 1.2f; // Well-adapted for burrowing
+			}
+		}
+
+		// Amphibians excel in aquatic undulation when swimming
+		if (s.aquatic.has_value()) {
+			result.lateral_undulation_speed_m_s *= 1.3f; // Good swimmers
+		}
+	}
+
+	// ANNELIDA: Worms (if we ever add this clade)
+	// Earthworms use peristaltic waves (more like concertina)
+	// Would need ANNELIDA added to CladeFlags first
+
+	// MOLLUSCA: Gastropods with muscular feet
+	// Some sea slugs use body undulation
+	if (HasFlag(clade, CF::MOLLUSCA) && s.aquatic.has_value()) {
+		// Nudibranchs swim via lateral flexion
+		// Newcomb et al. (2012): Nudibranch swimming 0.01-0.05 m/s
+		result.lateral_undulation_speed_m_s *= 0.3f; // Very slow (muscular hydrostats)
+		result.lateral_undulation.wavelength_ratio = 0.5f; // Short wavelength
+	}
+
 	return result;
 }
 

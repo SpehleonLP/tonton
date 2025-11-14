@@ -5,6 +5,7 @@
 #include "Rules/tonton_specialized.h"
 #include "Rules/tonton_climbing.h"
 #include "Rules/tonton_serpentine.h"
+#include "Rules/tonton_metabolic.h"
 #include "../include/tonton_input.h"
 
 #include "Memos/tonton_armaturememo.h"
@@ -39,33 +40,37 @@ TonTon::Scratch::Scratch(Input const& in)
 
 	physical    = ComputePhysical(in, *this);
 	sensory     = ComputeSensory(in, *this);
-	
+
 	appendages.manipulation = shared_array<Output_Manipulator>::FromArray(ComputeManipulation(in, *this));
 	appendages.tails = shared_array<Output_Tail>::FromArray(ComputeTails(in, *this));
-	
+
+	// Metabolic rates computed early (after physical, before locomotion)
+	// Locomotion modes need metabolic budget, but metabolic needs clade flags from physical
+	// For multi-clade creatures (pegasus), metabolic blends all clade contributions
+	metabolic   = ComputeMetabolic(in, *this);
+
 	terrestrial = ComputeTerrestrial(in, *this);
 	serpentine  = ComputeSerpentine(in, *this);
 	jumping     = ComputeJumping(in, *this);
-	
+
 	aerial      = ComputeAerial(in, *this);
 	aquatic     = ComputeAquatic(in, *this);
-	
+
 	climbing    = ComputeClimbing(in, *this);
 	brachiation = ComputeBrachiation(in, *this);
-	
+
 	specialized.digging = ComputeDigging(in, *this);
 	specialized.constriction = ComputeConstriction(in, *this);
-	
-	
+
+
 	if(aerial.has_value())
 	{
 		aerial->takeoff = TakeoffAnalysis_Compute(*this);
 	}
-	
-	metabolic   = ComputeMetabolic(in, *this);
+
 	behavior =  ComputeBehavior(in, *this);
-	
-	
+
+
 };
 
 using namespace TonTon;

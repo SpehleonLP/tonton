@@ -178,7 +178,8 @@ struct Output_Serpentine {
 	float forward_friction_coef{};       // Parallel to body
 	float lateral_friction_coef{};       // Perpendicular to body
 	float friction_anisotropy_ratio{};   // lateral/forward (1.5-3.0 typical)
-
+	float lateral_undulation_speed_m_s{};
+	
 	// Lateral undulation parameters
 	Output_BodyWave lateral_undulation{};
 
@@ -300,6 +301,7 @@ struct Output_Aerial {
 		float mass_kg{};
 		float inertia_kgm2{};
 		
+		
 		float wing_tip_velocity(float wingbeat_frequency_Hz) const { 
 			return 3.14159265 * wingbeat_frequency_Hz * beat_amplitude_rad * span_m; };
 	};
@@ -335,6 +337,7 @@ struct Output_Aerial {
 	// Relative efficiency (0-1, higher = better strategy for this animal)
 	float flapping_efficiency{};
 	float hovering_efficiency{};
+	bool can_hover{};
 			
 	// Steady glide: Lift = Weight
 	float gliding_CL(float weight_N, float speed_m_s, float air_density = 1.225f) const;
@@ -425,6 +428,10 @@ struct Output_Climbing {
 	float max_climb_speed_m_s{};
 	float max_climb_angle_rad{};        // from horizontal
 	bool can_descend_head_first{};
+	bool can_climb_inverted{};
+	bool can_climb_smooth_wet_surfaces{};
+	bool can_form_living_bridges{};
+	bool requires_aquatic_environment{};
 
 	// Substrate requirements
 	float min_roughness_required{};     // for claw penetration
@@ -586,10 +593,17 @@ struct Output_Behavior {
 struct Output_Vision {
 	float acuity{};                 // 0=poor, 1=excellent
 	float binocular_overlap{};      // 0=none, 1=full overlap
-	bool has_color_vision{};
-	bool has_night_vision{};
 	float detection_range_m{};
 	float centering{}; // how centered are the eyes? -1 or +1 indicates flatfish
+	
+	float motion_sensitivity_bonus{};
+	float thermal_detection_range_m{};
+	float thermal_sensitivity_K{};
+	
+	bool has_color_vision{};
+	bool has_night_vision{};
+	bool has_thermal_vision{};
+	bool has_uv_vision{};
 };
 
 struct Output_Hearing {
@@ -597,11 +611,18 @@ struct Output_Hearing {
 	float frequency_range_Hz_min{};
 	float frequency_range_Hz_max{};
 	float detection_range_m{};
+	
+	bool has_echolocation{};
+	float echolocation_range_m{};
+	float directional_accuracy_deg{};
+	float substrate_vibration_sensitivity{};
 };
 
 struct Output_Olfaction {
 	float sensitivity{};            // 0=poor, 1=excellent
 	float detection_range_m{};
+	int odor_discrimination_count{};
+	float directional_acuity{};
 };
 		
 template<template<typename> typename OPTIONAL>

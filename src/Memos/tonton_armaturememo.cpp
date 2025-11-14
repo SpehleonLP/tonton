@@ -43,42 +43,6 @@ immutable_array<TonTon::ArmatureMemo::FlagPair> TonTon::ArmatureMemo::GetRelativ
 	return (relative_flags = flags);
 }
 
-immutable_array<TonTon::ArmatureMemo::CladeFlagPair> TonTon::ArmatureMemo::GetRelativeCladeFlags()
-{
-	std::lock_guard lock(_mutex);
-	
-	if(relative_flags.size())
-		return relative_clade_flags;
-
-	auto dfs_ordering = GetDfsOrdering();
-	auto tags = GetCladeFlags();
-	auto children = GetChildren();
-
-	shared_array<TonTon::ArmatureMemo::CladeFlagPair> flags(dfs_ordering.size(), CladeFlagPair{CladeFlags::NONE, CladeFlags::NONE});
-		
-	for(auto i = 0u; i < dfs_ordering.size(); ++i)
-	{
-		auto j = dfs_ordering[(dfs_ordering.size()-1)-i];
-		auto p = in.parents[j];
-		
-		if(p >= 0)
-		{
-			flags[p].child_flags |= (flags[j].child_flags | tags[j]); 
-		}
-		
-		// root to leaves
-		j = dfs_ordering[i];
-		p = in.parents[j];
-		
-		if(p >= 0)
-		{
-			flags[j].parent_flags |= (flags[p].parent_flags | tags[p]); 
-		}
-	}
-	
-	return (relative_clade_flags = flags);
-}
-
 
 immutable_array<uint16_t> TonTon::ArmatureMemo::GetDfsOrdering()
 {
@@ -215,23 +179,12 @@ immutable_array<TonTon::CladeFlags> TonTon::ArmatureMemo::GetCladeFlags()
 {
 	std::lock_guard lock(_mutex);
 	
-	if(semantic_flags.size()) 
+	if(clade_flags.size()) 
 		return clade_flags;
 	
 	auto children = GetChildren();
 		
 	shared_array<TonTon::CladeFlags> flags(in.parents.size(), TonTon::CladeFlags::NONE);
-
-	auto HasWord = [&](int i, std::span<Word> tokens) -> bool
-	{
-		for(auto & word : in.tags[i])
-		{
-			if(std::find(tokens.begin(), tokens.end(), word) != tokens.end())
-				return true;
-		}
-		
-		return false;
-	};
 
 	for(auto i = 0u; i < in.parents.size(); ++i)
 	{
@@ -242,6 +195,42 @@ immutable_array<TonTon::CladeFlags> TonTon::ArmatureMemo::GetCladeFlags()
 	}
 		
 	return (clade_flags = flags);
+}
+
+immutable_array<TonTon::ArmatureMemo::CladeFlagPair> TonTon::ArmatureMemo::GetRelativeCladeFlags()
+{
+	std::lock_guard lock(_mutex);
+	
+	if(relative_clade_flags.size())
+		return relative_clade_flags;
+
+	auto dfs_ordering = GetDfsOrdering();
+	auto tags = GetCladeFlags();
+	auto children = GetChildren();
+
+	shared_array<TonTon::ArmatureMemo::CladeFlagPair> flags(dfs_ordering.size(), CladeFlagPair{CladeFlags::NONE, CladeFlags::NONE});
+		
+	for(auto i = 0u; i < dfs_ordering.size(); ++i)
+	{
+		auto j = dfs_ordering[(dfs_ordering.size()-1)-i];
+		auto p = in.parents[j];
+		
+		if(p >= 0)
+		{
+			flags[p].child_flags |= (flags[j].child_flags | tags[j]); 
+		}
+		
+		// root to leaves
+		j = dfs_ordering[i];
+		p = in.parents[j];
+		
+		if(p >= 0)
+		{
+			flags[j].parent_flags |= (flags[p].parent_flags | tags[p]); 
+		}
+	}
+	
+	return (relative_clade_flags = flags);
 }
 
 immutable_array<uint16_t> TonTon::ArmatureMemo::GetLeaves()
