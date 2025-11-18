@@ -42,7 +42,8 @@ static SemanticAnalysis AnalyzeSemantics(Input const& in, Scratch const& scratch
         if (HasFlag(flags, SemanticFlags::TEETH)) {
             // Check for predatory teeth types in tags
             for (auto word : tags[i]) {
-                if (word == Word::fang || word == Word::canine || word == Word::incisor) {
+                if (word == Word::fang || word == Word::canine || word == Word::incisor
+                || word == Word::carnivore || word == Word::predator) {
                     result.has_sharp_teeth = true;
                     result.has_weapons = true;
                 }
@@ -341,20 +342,35 @@ TonTon::Output_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & scr
 
 TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scratch) {
     Output_Behavior result;
-    
+
     SemanticAnalysis sem = AnalyzeSemantics(in, scratch);
     bool is_endotherm = scratch.metabolic.is_endotherm();
     float mass_kg = scratch.physical.body_mass_kg;
-    
+
+    // Get niche flags from armature (ecological roles)
+    auto niche_flags = in.skinnedMesh->skin->memo()->GetNicheFlags();
+
+    // Enhanced predator detection: morphology OR niche flags
+    bool is_predator = sem.is_predator ||
+                      HasFlag(niche_flags, NicheFlags::PREDATOR) ||
+                      HasFlag(niche_flags, NicheFlags::CARNIVORE);
+
+    bool is_herbivore = HasFlag(niche_flags, NicheFlags::HERBIVORE);
+
     // ========================================================================
     // AGGRESSION
     // ========================================================================
-    
+
     result.aggression = in.behavior.aggression_adjustment;
-    
+
     // Predatory morphology increases aggression
     if (sem.has_sharp_teeth || sem.has_claws) {
         result.aggression += 0.2f;
+    }
+
+    // Explicit predator tagging increases aggression
+    if (is_predator) {
+        result.aggression += 0.1f;
     }
     
     // Venomous creatures are defensively aggressive
@@ -370,9 +386,9 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     // Large body size correlates with territoriality/aggression
     float size_factor = glm::clamp(mass_kg / 10.0f, 0.0f, 0.2f);
     result.aggression += size_factor;
-    
+
     // Apex predators are more aggressive
-    if (sem.is_predator && mass_kg > 50.0f) {
+    if (is_predator && mass_kg > 50.0f) {
         result.aggression += 0.15f;
     }
     
@@ -406,9 +422,9 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     if (scratch.behavior.ambush_vs_pursuit > 0.7f) {
         result.social_tendency -= 0.3f;
     }
-    
+
     // Aerial predators hunt alone (except cooperative hunters)
-    if (scratch.aerial && sem.is_predator && mass_kg > 5.0f) {
+    if (scratch.aerial && is_predator && mass_kg > 5.0f) {
         result.social_tendency -= 0.2f;
     }
     
@@ -463,9 +479,9 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     if (!scratch.appendages.manipulation.empty()) {
         result.curiosity += 0.3f;
     }
-    
+
     // Predators are curious (hunting requires investigation)
-    if (sem.is_predator) {
+    if (is_predator) {
         result.curiosity += 0.15f;
     }
     
@@ -476,9 +492,9 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     // ========================================================================
     
     result.territoriality = 0.5f;
-    
+
     // Large predators defend territories
-    if (mass_kg > 5.0f && sem.is_predator) {
+    if (mass_kg > 5.0f && is_predator) {
         result.territoriality = 0.8f;
     }
     
@@ -596,8 +612,8 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     
     // Relative to own body mass
     result.prey_size_preference = 0.3f; // Default: small prey
-    
-    if (sem.is_predator) {
+
+    if (is_predator) {
         // Large predators take larger prey
         if (mass_kg > 50.0f) {
             result.prey_size_preference = 0.6f;
@@ -649,7 +665,7 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
         result.personal_space_radius_m = -1.0f;
     } else {
         // Group size scales with predator/prey and body mass
-        if (sem.is_predator) {
+        if (is_predator) {
             result.optimal_group_size = 5.0f; // Small packs (2-10)
         } else {
             // Prey form larger schools, inversely proportional to size
@@ -669,9 +685,9 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     } else {
         // Territory size ∝ M^1.0 for vertebrates (Davies & Houston 1984)
         float base_radius = 10.0f * std::pow(mass_kg, 1.0f);
-        
+
         // Predators need larger territories
-        if (sem.is_predator) {
+        if (is_predator) {
             base_radius *= 2.0f;
         }
         
@@ -761,13 +777,13 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     // ========================================================================
     // AI ARCHETYPE SUGGESTION
     // ========================================================================
-    
+
     // Decision tree based on key discriminators
     if (result.social_tendency > 0.7f) {
-        if (sem.is_predator) {
+        if (is_predator) {
             result.suggested_archetype = Output_Behavior::AIArchetype::PACK_COORDINATOR;
         } else {
-            result.suggested_archetype = scratch.aquatic ? 
+            result.suggested_archetype = scratch.aquatic ?
                 Output_Behavior::AIArchetype::SCHOOLING_PREY :
                 Output_Behavior::AIArchetype::SOCIAL_FORAGER;
         }
@@ -775,10 +791,18 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
         result.suggested_archetype = Output_Behavior::AIArchetype::TERRITORIAL_DEFENDER;
     } else if (result.ambush_vs_pursuit > 0.7f) {
         result.suggested_archetype = Output_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER;
-    } else if (scratch.aerial && mass_kg > 10.0f) {
+    } else if (scratch.aerial && is_predator) {
+        // Aerial predators: birds of prey, dragonflies, bats
+        // No mass requirement - dragonflies are small but still aerial predators
         result.suggested_archetype = Output_Behavior::AIArchetype::AERIAL_PREDATOR;
-    } else if (sem.is_predator && mass_kg > 100.0f) {
+    } else if (is_predator && mass_kg > 100.0f) {
         result.suggested_archetype = Output_Behavior::AIArchetype::APEX_PREDATOR;
+    } else if (is_herbivore) {
+        // Herbivores are social foragers by default
+        result.suggested_archetype = Output_Behavior::AIArchetype::SOCIAL_FORAGER;
+    } else if (is_predator) {
+        // Small/medium predators that don't fit other categories
+        result.suggested_archetype = Output_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER;
     } else {
         result.suggested_archetype = Output_Behavior::AIArchetype::OPPORTUNISTIC_SCAVENGER;
     }

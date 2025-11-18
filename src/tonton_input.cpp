@@ -173,14 +173,22 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(uint32_t i, glm::dvec3
 
 double TonTon::SkinnedMesh::EstimateCrossSection(uint32_t i, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area) const
 {
+//	double rough_cross_section = volume[i] / std::max(0.001f, glm::length(direction));
+//	return std::abs(rough_cross_section);
+	
 	std::array<double, 6> I = GetCovariance(i, scale);
     
+    // its covariance * volume already 
+    // so inertia is shuffled covariance * density
+    // meaning that units are M^5
     glm::dmat3 cov{
         I[0], I[3], I[4],
         I[3], I[1], I[5],
         I[4], I[5], I[2]
     };
     
+    cov = cov / double(volume[i]? volume[i] :  1.0);
+   
     glm::dvec3 d = glm::normalize(direction);
     
     // Project covariance onto plane perpendicular to d
@@ -194,8 +202,8 @@ double TonTon::SkinnedMesh::EstimateCrossSection(uint32_t i, glm::dvec3 scale, g
     
     // eigenvalues are sorted smallest to largest
     // The two largest (y and z) define the ellipse in the perpendicular plane
-    double a = std::sqrt(std::abs(eigenvalues.y));
-    double b = std::sqrt(std::abs(eigenvalues.z));
+    double a = 2.0 * std::sqrt(std::abs(eigenvalues.y));
+    double b = 2.0 * std::sqrt(std::abs(eigenvalues.z));
     
     // Second moment of area
     if (second_moment_area) {
@@ -214,7 +222,8 @@ double TonTon::SkinnedMesh::EstimateCrossSection(uint32_t i, glm::dvec3 scale, g
     }
     
     // Cross-sectional area (ellipse)
-    return glm::pi<double>() * a * b;
+    auto elipse_cross_section = glm::pi<double>() * a * b;
+    return elipse_cross_section;
 }
 	
 std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(std::span<uint16_t> joints, glm::dvec3 const& scale, glm::dvec3 *centroid_out, double * volume_out) const

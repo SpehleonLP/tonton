@@ -30,11 +30,13 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	// Check semantic flags for aquatic structures
 	for(auto i = 0u; i < semantic_flags.size(); ++i)
 	{
-		if(HasFlag(semantic_flags[i], SF::FIN))
+		bool is_fin = HasFlag(semantic_flags[i], SF::FIN);
+	
+		if(is_fin)
 			has_fins = true;
 
 		// Flukes are typically horizontal tail fins (cetaceans)
-		if(HasFlag(semantic_flags[i], SF::TAIL) && HasFlag(semantic_flags[i], SF::FIN))
+		if(HasFlag(semantic_flags[i], SF::TAIL) && is_fin)
 			has_flukes = true;
 
 		// Paddle limbs: limbs with AQUATIC flag
@@ -50,9 +52,57 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	}
 
 	// Check body flexibility from tail or serpentine
-	if(s.serpentine.has_value() || (s.appendages.tails.size() > 0))
+	// Only consider tail propulsive if it has sufficient mass and length for momentum generation
+	// Crocodiles: heavy tail (~25% body mass), good for undulation
+	// Cats: light tail (~3% body mass), NOT for swimming
+	// Dragonflies: thin abdomen operates at low Reynolds number (viscous regime)
+	if(s.serpentine.has_value())
 	{
 		has_flexible_body = true;
+	}
+	else if(s.appendages.tails.size() > 0)
+	{
+		// Calculate tail momentum potential relative to body
+		for(auto const& tail : s.appendages.tails)
+		{
+			float tail_mass_ratio = tail.mass_kg / s.physical.body_mass_kg;
+			float tail_length_ratio = tail.stretched_length_m / s.physical.body_length_m;
+
+			// Momentum factor: mass ratio × length ratio
+			// Crocodile: ~0.25 × ~0.5 = 0.125
+			// Cat: ~0.03 × ~0.5 = 0.015
+			float momentum_factor = tail_mass_ratio * tail_length_ratio;
+
+			// Threshold: need significant momentum for propulsion
+			if(momentum_factor > 0.08f)
+			{
+				// REYNOLDS NUMBER CHECK for BCF swimming viability
+				// Re = ρ * v * L / μ
+				// Need Re > 1000 for effective undulation (inertial forces must dominate)
+
+				// Estimate tail thickness from cross-section
+				float tail_diameter_m = std::sqrt(4.0f * tail.max_cross_section_m2 / 3.14159f);
+
+				// Estimate swimming velocity (conservative: 1 body length/s)
+				float swim_velocity_m_s = s.physical.body_length_m * 1.0f;
+
+				float fluid_density = in.environment.fluidDensity_Kg_m3;
+				float fluid_viscosity = in.environment.fluidViscosity_Pa_s;
+
+				float reynolds = (fluid_density * swim_velocity_m_s * tail_diameter_m) / fluid_viscosity;
+
+				// At Re < 1000, viscous forces dominate and undulation is ineffective
+				// Dragonfly abdomen: Re ~ 100 (too viscous)
+				// Crocodile tail: Re > 100,000 (inertial regime, effective)
+				if(reynolds < 1000.0f)
+				{
+					continue; // Skip this tail, Reynolds number too low
+				}
+
+				has_flexible_body = true;
+				break;
+			}
+		}
 	}
 
 	// Determine primary mode
@@ -81,7 +131,17 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	}
 	else if(has_flexible_body)
 	{
-		// Pure body undulation (eel-like)
+		// AERIAL EXCLUSION: Don't classify flying animals as aquatic swimmers
+		// Adult dragonflies have wings and fly - they don't swim
+		// BUT waterfowl (ducks) swim with paddle limbs, which is already handled above
+		if(s.aerial.has_value())
+		{
+			// If aerial mode exists and we ONLY have body flexibility (no fins/limbs/flukes),
+			// this is probably a flying insect with a long abdomen, not a swimmer
+			return {};
+		}
+
+		// Pure body undulation (eel-like, crocodile)
 		primary_mode = Output_Aquatic::PropulsionMode::BODY_CAUDAL_FIN;
 	}
 	else
@@ -97,7 +157,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	float cross_section_m2 = s.physical.cross_sectional_area_m2;
 
 	float fluid_density = in.environment.fluidDensity_Kg_m3;
-	float fluid_viscosity = in.environment.fluidViscosity_Pa_s;
+//	float fluid_viscosity = in.environment.fluidViscosity_Pa_s;
 
 	// 3. BUOYANCY
 	float body_density_kg_m3 = body_mass_kg / body_volume_m3;
@@ -507,4 +567,3 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		.jet_propulsion = jet_propulsion
 	};
 }
-

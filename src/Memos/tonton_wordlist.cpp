@@ -262,7 +262,10 @@ constexpr std::array<WordDef, (int)Word::TOTAL_WORDS+3> word_strings = [] {
 		{ Word::feather, "feather"},  
 		{ Word::adhesive, "adhesive"},  
 		{ Word::sensory, "sensory"},  
+		{ Word::predator, "predator"},  
+		{ Word::herbivore, "herbivore"},  
 		{ Word::chemoreceptor, "chemoreceptor"},  
+		{ Word::carnivore, "carnivore"},  
     };
     
     std::sort(arr.begin(), arr.end(), [](const WordDef& a, const WordDef& b) {
@@ -287,6 +290,17 @@ static std::string to_lower(std::string_view s)
 	return r;
 }
 
+
+std::string_view TonTon::WordToString(Word w)
+{
+	for(auto i = 0u; i < word_strings.size(); ++i)
+	{
+		if(word_strings[i].word == w)
+			return word_strings[i].string;
+	}
+	
+	return "<UNKNOWN>";
+}
 
 size_t TonTon::StringToWords(std::vector<Word> & dst, std::string_view word)
 {
@@ -683,6 +697,9 @@ TonTon::SemanticFlags TonTon::GetSemanticFlags(Word word)
 	case Word::sensory:
 	case Word::chemoreceptor:
 	case Word::compound:
+    case Word::predator:
+    case Word::carnivore:
+    case Word::herbivore:
 		break;
 	}
 	
@@ -723,6 +740,8 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::top:
     case Word::primary:
     case Word::secondary:
+    case Word::predator:
+    case Word::herbivore:
     case Word::leg:
     case Word::foot:
     case Word::bottom: return CF::NONE;
@@ -1030,8 +1049,135 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::chemoreceptor: return CF::NONE;
 
 	case Word::compound:
+    case Word::carnivore:
     case Word::TOTAL_WORDS: return CF::NONE;
     }
 
     return CF::NONE;
+}
+
+std::string_view TonTon::WordToString(SemanticFlags f)
+{
+
+#define CASE(x) case SemanticFlags::x: return #x
+
+	switch(f)
+	{
+	CASE(LEFT);
+	CASE(RIGHT);
+	CASE(ANTERIOR);
+	CASE(POSTERIOR);
+	CASE(DORSAL);
+	CASE(VENTRAL);
+	CASE(MEDIAL);
+	CASE(LATERAL);
+	CASE(PROXIMAL);
+	CASE(DISTAL);
+	CASE(TERMINAL);
+	CASE(HEAD);
+	CASE(NECK);
+	CASE(SPINE);
+	CASE(ABDOMEN);
+	CASE(TAIL);
+	CASE(LIMB);
+	CASE(DIGIT);
+	CASE(FACIAL);
+	CASE(TEETH);
+	CASE(NAIL);
+	CASE(GRASPER);
+	CASE(HORN_ANTLER);
+	CASE(AVIAN);
+	CASE(AQUATIC);
+	CASE(ARTHROPOD);
+	CASE(EQUINE);
+	CASE(WING);
+	CASE(FIN);
+	CASE(TENTACLE);
+	CASE(ARMOR);
+	CASE(ALPHA_CARD);
+	CASE(WEAPON);
+	CASE(ASSMETRICAL);
+	CASE(RIGGING_CONTROL);
+	CASE(DEFORMER);
+	CASE(TWIST_ROLL);
+	CASE(JIGGLE_BONE);
+	CASE(INTERNAL);
+	CASE(SENSORY);
+	CASE(RESPIRATORY);
+	CASE(MOUTH_PARTS);
+	CASE(HEARING);
+	CASE(VISION);
+	CASE(CONTACT);
+	CASE(FORELIMB);
+	CASE(HINDLIMB);
+	CASE(UPPER_LIMB);
+	CASE(MID_LIMB);
+	CASE(LOWER_LIMB);
+	CASE(THORAX);
+	CASE(PELVIS);
+	default: return "UNKNOWN";
+	}
+#undef CASE
+
+}
+
+std::string_view TonTon::WordToString(CladeFlags f)
+{
+
+#define CASE(x) case CladeFlags::x: return #x
+
+	switch(f)
+	{
+	CASE(NONE);
+	CASE(CHORDATA);
+	CASE(AMPHIBIA);
+	CASE(REPTILIA);
+	CASE(CHELONIA);
+	CASE(AVES);
+	CASE(MAMMALIA);
+	CASE(UNGULATA);
+	CASE(EQUIDAE);
+	CASE(CETACEA);
+	CASE(PISCES);
+	CASE(ARTHROPODA);
+	CASE(INSECTA);
+	CASE(ARACHNIDA);
+	CASE(CRUSTACEA);
+	CASE(MOLLUSCA);
+	CASE(CEPHALOPODA);
+	default: return "UNKNOWN";
+	}
+}
+
+TonTon::NicheFlags TonTon::GetNicheFlags(Word word)
+{
+    using NF = NicheFlags;
+
+    switch(word)
+    {
+    case Word::predator: return NF::PREDATOR;
+    case Word::herbivore: return NF::HERBIVORE;
+    case Word::carnivore: return NF::CARNIVORE;
+    default: return NF::NONE;
+    }
+
+    return NF::NONE;
+}
+
+std::string_view TonTon::WordToString(NicheFlags f)
+{
+
+#define CASE(x) case NicheFlags::x: return #x
+
+	switch(f)
+	{
+	CASE(NONE);
+	CASE(UNINITIALIZED);
+	CASE(PREDATOR);
+	CASE(HERBIVORE);
+	CASE(CARNIVORE);
+	default: return "UNKNOWN";
+	}
+#undef CASE
+
 }

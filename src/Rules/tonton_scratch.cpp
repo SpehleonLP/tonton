@@ -6,6 +6,7 @@
 #include "Rules/tonton_climbing.h"
 #include "Rules/tonton_serpentine.h"
 #include "Rules/tonton_metabolic.h"
+#include "tonton_formatter.h"
 #include "../include/tonton_input.h"
 
 #include "Memos/tonton_armaturememo.h"
@@ -71,6 +72,137 @@ TonTon::Scratch::Scratch(Input const& in)
 	behavior =  ComputeBehavior(in, *this);
 
 
+	// ========================================================================
+	// DIAGNOSTICS - Physics validation and confidence estimation
+	// ========================================================================
+
+	// 1. POWER BUDGET CHECK
+	// Check if the most demanding locomotion mode is feasible
+	// We check PEAK power (muscle) for flight, since it's the most demanding
+	// Terrestrial/aquatic locomotion is already constrained by muscle force in their respective rules
+	float peak_power_required_W = 0.0f;
+	bool has_demanding_mode = false;
+
+	if(aerial.has_value())
+	{
+		// Flight is the most power-demanding locomotion mode
+		// Check sustained flight power vs available muscle power
+		float weight_N = physical.body_mass_kg * in.environment.gravity_m_s2;
+		float flight_power = weight_N * aerial->flapping_cost_W_per_N;
+		peak_power_required_W = std::max(peak_power_required_W, flight_power);
+		has_demanding_mode = true;
+	}
+
+	if(aerial.has_value() && aerial->can_hover)
+	{
+		// Hovering is even more demanding
+		float weight_N = physical.body_mass_kg * in.environment.gravity_m_s2;
+		float hover_power = weight_N * aerial->hovering_cost_W_per_N;
+		peak_power_required_W = std::max(peak_power_required_W, hover_power);
+	}
+
+	// Power budget passes if:
+	// 1. No demanding modes (terrestrial/aquatic are self-regulating)
+	// 2. Peak power required <= available muscle power
+	diagnostics.passes_power_budget_check =
+		!has_demanding_mode ||
+		(peak_power_required_W <= metabolic.available_muscle_power_W);
+
+	// 2. MASS BUDGET CHECK
+	// Sum appendage masses and compare to body mass
+	float appendage_mass_kg = 0.0f;
+
+	for(auto const& tail : appendages.tails)
+	{
+		appendage_mass_kg += tail.mass_kg;
+	}
+
+	if(aerial.has_value())
+	{
+		for(auto const& wing : aerial->wings)
+		{
+			appendage_mass_kg += wing.mass_kg;
+		}
+	}
+
+	// Appendages should be < 80% of body mass (limbs, organs, etc make up the rest)
+	diagnostics.passes_mass_budget_check =
+		(appendage_mass_kg < physical.body_mass_kg * 0.8f);
+
+	// 3. PHYSICAL PLAUSIBILITY
+	// Check for obviously wrong values
+	bool reasonable_mass = (physical.body_mass_kg > 0.0001f && physical.body_mass_kg < 200000.0f);
+	bool reasonable_length = (physical.body_length_m > 0.001f && physical.body_length_m < 50.0f);
+	bool reasonable_density = (physical.body_mass_kg / physical.body_volume_m3 > 100.0f &&
+	                          physical.body_mass_kg / physical.body_volume_m3 < 2000.0f);
+	bool reasonable_metabolic = (metabolic.basal_rate_W > 0.0f && metabolic.aerobic_scope > 1.0f);
+
+	diagnostics.is_physically_plausible =
+		reasonable_mass && reasonable_length && reasonable_density && reasonable_metabolic &&
+		diagnostics.passes_power_budget_check && diagnostics.passes_mass_budget_check;
+
+	// 4. OVERALL CONFIDENCE
+	// Based on number of checks passed and locomotion mode diversity
+	int checks_passed = 0;
+	if(diagnostics.passes_power_budget_check) ++checks_passed;
+	if(diagnostics.passes_mass_budget_check) ++checks_passed;
+	if(reasonable_mass) ++checks_passed;
+	if(reasonable_length) ++checks_passed;
+	if(reasonable_density) ++checks_passed;
+	if(reasonable_metabolic) ++checks_passed;
+
+	// More locomotion modes analyzed = more confident
+	int locomotion_modes = 0;
+	if(terrestrial.has_value()) ++locomotion_modes;
+	if(aerial.has_value()) ++locomotion_modes;
+	if(aquatic.has_value()) ++locomotion_modes;
+	if(serpentine.has_value()) ++locomotion_modes;
+	if(climbing.has_value()) ++locomotion_modes;
+
+	// Confidence: (checks_passed / 6) * 0.7 + (locomotion_modes / 3) * 0.3
+	diagnostics.overall_confidence =
+		(float(checks_passed) / 6.0f) * 0.7f +
+		(std::min(locomotion_modes, 3) / 3.0f) * 0.3f;
+
+	// 5. WARNINGS
+	if(!diagnostics.passes_power_budget_check)
+	{
+		diagnostics.warnings.push_back({
+			.level = Warning::CAUTION,
+			.message = "Power budget exceeded: locomotion requires more power than available muscle can provide"
+		});
+	}
+
+	if(!diagnostics.passes_mass_budget_check)
+	{
+		diagnostics.warnings.push_back({
+			.level = Warning::CAUTION,
+			.message = "Mass budget suspicious: appendages account for >80% of body mass"
+		});
+	}
+
+	if(!reasonable_density)
+	{
+		diagnostics.warnings.push_back({
+			.level = Warning::ERROR,
+			.message = "Body density outside plausible range (100-2000 kg/m³)"
+		});
+	}
+
+	if(physical.body_mass_kg < 0.001f)
+	{
+		diagnostics.warnings.push_back({
+			.level = Warning::INFO,
+			.message = "Very small creature (<1g) - some allometric laws may not apply"
+		});
+	}
+	else if(physical.body_mass_kg > 10000.0f)
+	{
+		diagnostics.warnings.push_back({
+			.level = Warning::INFO,
+			.message = "Very large creature (>10 tons) - some physics may need adjustment"
+		});
+	}
 };
 
 using namespace TonTon;
@@ -397,63 +529,17 @@ std::vector<Output_Chain> TonTon::GetChainsFromRoot(Input const& in, std::span<W
 	});
 }
 
-std::vector<Output_Chain> TonTon::GetChainsFromRoot(TonTon::Input const& in, SemanticFlags flags)
+std::vector<Output_Chain> TonTon::GetChainsFromRoot(TonTon::Input const& in, SemanticFlags flags, SemanticFlags child_flags)
 {
 	auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
+	auto relative_flags = in.skinnedMesh->skin->memo()->GetRelativeFlags();
 	
 	return ::GetChainsFromRoot(in, [&](int node) -> bool
 	{
-		return HasFlag(semantic_flags[node], flags);
+		return HasFlag(semantic_flags[node], flags)
+			&& (child_flags == SemanticFlags::NONE
+			||  HasFlag(relative_flags[node].child_flags, child_flags));
 	});
-}
-
-std::vector<Output_Chain> TonTon::GetChainsFromTip(TonTon::Input const& in, SemanticFlags include_flags, SemanticFlags exclude_flags)
-{
-	std::vector<TonTon::Output_Chain> chains;
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo();
-	
-	auto dfs_ordering = sk_memo->GetDfsOrdering();
-	auto parents       = sk.skin->parents.data();
-	auto semantic_flags = sk_memo->GetSemanticFlags();
-	auto relative_flags = sk_memo->GetRelativeFlags();
-	auto gcr			 = sk_memo->GetGcrTable();
-
-	for(auto i = 0u; i < semantic_flags.size(); ++i)
-	{
-		if(!HasFlag(semantic_flags[i], include_flags))
-			continue;
-			
-		auto root = i;
-		float length = 0;
-		int counter = 0;
-		
-		for(;;)
-		{
-			auto p = parents[root];
-			if(p < 0) break;
-			
-				
-			if(HasFlag(semantic_flags[i], exclude_flags))
-				break;
-				
-			length += glm::distance(in.position(root), in.position(p));
-			root = p;
-			++counter;
-		}
-		
-		Output_Chain chain{
-			.root=uint16_t(root),
-			.tip=uint16_t(i),
-			.noJoints=counter,
-			.stretched_length_m=length,
-			.rest_length_m=glm::distance(in.position(root), in.position(i)),
-		};
-		
-		chains.push_back(chain);
-	}
-	
-	return chains;
 }
 
 std::vector<Output_Appendage> TonTon::GetAppendages(Input const& in, std::vector<Output_Chain> && chains)
@@ -518,14 +604,8 @@ std::vector<Output_Appendage> TonTon::GetAppendages(Input const& in, std::vector
 
 std::vector<Output_Manipulator>   TonTon::ComputeManipulation(Input const& in, Scratch&)
 {// walk back parents until we get something thats not limb-ish
-	SF constexpr NOT_LIMB_FLAGS = SF(
-		int64_t(SF::HEAD)|
-		int64_t(SF::NECK)|
-		int64_t(SF::SPINE)|
-		int64_t(SF::ABDOMEN)
-	);
 	
-	auto appendages = GetAppendages(in, GetChainsFromTip(in, SF::GRASPER, NOT_LIMB_FLAGS));
+	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB|SF::TAIL|SF::FACIAL, SF::GRASPER));
 	return ComputeManipulation(in, appendages);
 } 
 
@@ -549,7 +629,7 @@ static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in, Scratch 
 	
 	auto N = semantic_flags.size();
 	
-	shared_array<bool> tube_marks = shared_array<bool>(N, 0);
+	shared_array<uint8_t> tube_marks = shared_array<uint8_t>(N, 0);
 	
 	for(auto i = 0u; i < N; ++i)
 	{
@@ -557,21 +637,23 @@ static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in, Scratch 
 		auto node = dfs_ordering[(N-1)-i];
 		
 		// children[node].empty means a cache miss, so try to short circuit. 
-		if(tube_marks[node] == false && tube_table[node] > 0.98 && children[node].empty())
-			tube_marks[node] = true;
+		if(tube_marks[node] == false 
+		&& tube_table[node] > 0.98)
+		{
+			tube_marks[node] |= children[node].size()? 0x02 : 0x01;
+		}
 		
 		auto p = parents[node];
 		
 		if(p >= 0 && tube_marks[node])
 		{
-			tube_marks[p] = true;
+			tube_marks[p] = 0x04;
 		}
 	}
 
 	std::function<Output_Tail(int)> GetTail = [&](const int root) -> Output_Tail
 	{	
 		auto node = root;
-		auto node_children = children[node].size() == 0;
 		float stretched_length = 0;
 		float total_volume = 0;
 		float min_area = FLT_MAX;
@@ -658,7 +740,7 @@ static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in, Scratch 
 	std::vector<Output_Tail> r;
 // find tail roots		
 	for(auto node : dfs_ordering)
-	{
+	{		
 		if(HasFlag(semantic_flags[node], SF::TAIL)
 		&& HasFlag(relative_flags[node].parent_flags, SF::TAIL) == false)
 		{

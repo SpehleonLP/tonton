@@ -38,9 +38,8 @@ struct Scratch
 	Output_Diagnostics diagnostics;
 };
 
-std::vector<Output_Chain> GetChainsFromRoot(Input const& in, SemanticFlags flags);
+std::vector<Output_Chain> GetChainsFromRoot(Input const& in, SemanticFlags flags, SemanticFlags child_flags = SemanticFlags::NONE);
 std::vector<Output_Chain> GetChainsFromRoot(Input const& in, std::span<Word> words);
-std::vector<Output_Chain> GetChainsFromTip(Input const& in, SemanticFlags include_flags, SemanticFlags exclude_flags);
 std::vector<Output_Appendage> GetAppendages(Input const& in, std::vector<Output_Chain> && chains);
 
 std::vector<glm::vec3> GetGaitGroupCenters(Input const& in, Output_Appendage * data, size_t size, size_t stride);

@@ -22,7 +22,7 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 	auto children = in.skinnedMesh->skin->memo()->GetChildren();
 
 // re-get appendages because there may be overlap between manipulators and legs.
-	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB));
+	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB, SF::GRASPER|SF::CONTACT));
 
 	auto limbs = ComputeManipulation(in, appendages);
 
@@ -399,15 +399,8 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 
 std::optional<TonTon::Output_Brachiation>  TonTon::ComputeBrachiation(Input const& in, Scratch & s)
 {
-	SF constexpr NOT_LIMB_FLAGS = SF(
-		int64_t(SF::HEAD)|
-		int64_t(SF::NECK)|
-		int64_t(SF::SPINE)|
-		int64_t(SF::ABDOMEN)
-	);
-
 	// Brachiation requires anterior limbs with graspers
-	auto appendages = GetAppendages(in, GetChainsFromTip(in, SF::GRASPER, NOT_LIMB_FLAGS));
+	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB|SF::TAIL|SF::FACIAL, SF::GRASPER));
 	auto manipulators = ComputeManipulation(in, appendages);
 
 	if(manipulators.empty())
@@ -591,7 +584,7 @@ std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input cons
 		auto counter = 0;
 		float accumulator = 0;
 		float accumulator_2nd_moment = 0;
-		for(auto j = manipulators[i].tip; j != manipulators[j].root; j = parents[j])
+		for(auto j = manipulators[i].tip; j != manipulators[i].root; j = parents[j])
 		{
 			auto p =  parents[j];
 			if(p < 0) break;
@@ -627,7 +620,7 @@ std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input cons
 			// 3. LIFT FORCE (constrained by joint torque limits)
 			// Torque = Force × moment_arm
 			// Max torque ≈ muscle_PCSA × muscle_stress × moment_arm
-			float moment_arm_m = std::sqrt(avg_moment / 3.14159f); // Approximate from 2nd moment
+			float moment_arm_m = std::sqrt(avg_moment / avg_area); // Radius of gyration
 			float max_torque_Nm = muscle_stress_Pa * grip_muscle_area_m2 * moment_arm_m;
 			
 			// Convert torque to force at tip (lever arm = chain length)

@@ -63,6 +63,9 @@ enum class Word : uint16_t
 // Jiggle bones:
 	jiggle, phys, sym, hair, feather, mane, fur,
 	
+// tags given to parts (like spore!)
+	predator, herbivore, carnivore,
+	
 	TOTAL_WORDS
 };
 
@@ -186,68 +189,35 @@ enum class CladeFlags : uint32_t
 };
 
 size_t StringToWords(std::vector<Word> & dst, std::string_view word);
-SemanticFlags GetSemanticFlags(Word word);
-CladeFlags GetCladeFlags(Word word);
+std::string_view WordToString(Word);
 
-inline SemanticFlags operator|(SemanticFlags a, SemanticFlags b) 
+enum class NicheFlags
 {
-	return SemanticFlags((uint64_t)a | (uint64_t)b);
-}
+	NONE = 0,
+	UNINITIALIZED = ~1,
+	UNDEFINED = UNINITIALIZED,
+	
+	PREDATOR = 1 << 0,
+	HERBIVORE = 1 << 1,
+	CARNIVORE = 1 << 2
+};
 
-inline void operator|=(SemanticFlags & a, SemanticFlags b) 
-{
-	a = TonTon::SemanticFlags((uint64_t)a | (uint64_t)b);
-}
 
-inline SemanticFlags operator&(TonTon::SemanticFlags a, TonTon::SemanticFlags b) 
-{
-	return TonTon::SemanticFlags((uint64_t)a & (uint64_t)b);
-}
+#define FLAG_OPERATORS(XX) \
+inline XX operator|(XX a, XX b) { return XX((uint64_t)a | (uint64_t)b); } \
+inline void operator|=(XX & a, XX b) { a = XX((uint64_t)a | (uint64_t)b); } \
+inline XX operator&(XX a, XX b) { return XX((uint64_t)a & (uint64_t)b); } \
+inline void operator&=(XX & a, XX b) {a = XX((uint64_t)a & (uint64_t)b); } \
+inline bool HasFlag(XX a, XX b) { return ((uint64_t)a & (uint64_t)b) != 0; } \
+XX Get##XX(Word word); \
+std::string_view WordToString(XX); 
 
-inline void operator&=(TonTon::SemanticFlags & a, TonTon::SemanticFlags b) 
-{
-	a = TonTon::SemanticFlags((uint64_t)a & (uint64_t)b);
-}
+FLAG_OPERATORS(SemanticFlags)
+FLAG_OPERATORS(CladeFlags)
+FLAG_OPERATORS(NicheFlags)
 
-inline bool HasFlag(SemanticFlags a, SemanticFlags b)
-{
-	return ((uint64_t)a & (uint64_t)b) != 0;
-}
+#undef FLAG_OPERATORS
 
-inline bool ExactMatch(SemanticFlags a, SemanticFlags b)
-{
-	return ((uint64_t)a & (uint64_t)b) == (uint64_t)b;
-}
-
-inline CladeFlags operator|(CladeFlags a, CladeFlags b)
-{
-	return CladeFlags((uint64_t)a | (uint64_t)b);
-}
-
-inline void operator|=(CladeFlags & a, CladeFlags b)
-{
-	a = TonTon::CladeFlags((uint64_t)a | (uint64_t)b);
-}
-
-inline CladeFlags operator&(TonTon::CladeFlags a, TonTon::CladeFlags b)
-{
-	return TonTon::CladeFlags((uint64_t)a & (uint64_t)b);
-}
-
-inline void operator&=(TonTon::CladeFlags & a, TonTon::CladeFlags b)
-{
-	a = TonTon::CladeFlags((uint64_t)a & (uint64_t)b);
-}
-
-inline bool HasFlag(CladeFlags a, CladeFlags b)
-{
-	return ((uint64_t)a & (uint64_t)b) != 0;
-}
-
-inline bool ExactMatch(CladeFlags a, CladeFlags b)
-{
-	return ((uint64_t)a & (uint64_t)b) == (uint64_t)b;
-}
 
 }
 

@@ -10,17 +10,10 @@ using SF = TonTon::SemanticFlags;
 
 
 std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input const& in, Scratch &out)
-{
-	SF constexpr NOT_LIMB_FLAGS = SF(
-		int64_t(SF::HEAD)|
-		int64_t(SF::NECK)|
-		int64_t(SF::SPINE)|
-		int64_t(SF::ABDOMEN)
-	);
-	
+{	
 	auto position = in.skinnedMesh->skin->position.data();
 	auto children = in.skinnedMesh->skin->memo()->GetChildren();
-	auto appendages = GetAppendages(in, GetChainsFromTip(in, SF::CONTACT, NOT_LIMB_FLAGS));
+	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB, SF::CONTACT));
 	auto legs = ComputeManipulation(in, appendages);
 	
 	if(legs.empty())
@@ -32,20 +25,8 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	for(auto const& leg : legs)
 	{
 		functional_length = std::min(functional_length, leg.stretched_length_m);
-		
-		if(children[leg.root].size())
-		{
-			glm::vec3 accumulator{0};
-			for(auto child : children[leg.root])
-			{
-				accumulator += position[child];
-			}
-			
-			auto tip = accumulator / float(children.size());
-			auto vec = glm::normalize(tip - position[leg.root]); 
-			
-			posture = std::max(posture, 1.f - std::abs(vec.y));
-		}
+		auto vec = glm::normalize(position[leg.tip] - position[leg.root]); 			
+		posture = std::max(posture, 1.f - std::abs(vec.y));
 	}
 
 	// Basic speed scaling (from actual data, not Froude)
@@ -53,14 +34,14 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	float upright_base_speed = 10.0f * pow(out.physical.body_mass_kg, 0.17f); // m/s
 	float sprawling_base_speed = 2.5f * pow(out.physical.body_mass_kg, 0.25f); // m/s
 	
-	float base_sprint = glm::mix(sprawling_base_speed, upright_base_speed, posture);
+	float base_sprint = glm::mix(upright_base_speed, sprawling_base_speed, posture);
 	
 	// Posture affects sustained speed more than sprint
-	auto max_sustainable_speed_m_s = base_sprint * glm::mix(0.3f, 0.6f, posture);
+	auto max_sustainable_speed_m_s = base_sprint * glm::mix(0.6f, 0.3f,  posture);
 		
 	float max_sprint_duration_s = -1;
 	float recovery_time_s = -1;
-	if (posture < 0.5f) { // sprawling
+	if (posture > 0.5f) { // sprawling
 		// Carrier's constraint: lateral bending -> breathing conflict
 		float mass_factor = glm::min(1.0f, out.physical.body_mass_kg / 50.0f); // worse for heavier animals
 		
@@ -70,7 +51,7 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 		
 	// Turning radius limited by centripetal force
 	// F_centripetal = m*v²/r, limited by friction coefficient * weight
-	float friction_coeff = glm::mix(0.6f, 0.8f, posture); // sprawling has lower CoM
+	float friction_coeff = glm::mix(0.8f, 0.6f, posture); // sprawling has lower CoM
 	float max_lateral_accel = friction_coeff * 9.81f;
 	
 	float min_turning_radius_m = (base_sprint * base_sprint) / max_lateral_accel;
@@ -78,7 +59,7 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	// Forward acceleration limited by muscle force
 	// Very rough: force ~ cross_sectional_area of muscles ~ mass^(2/3)
 	float force_to_mass_ratio = 15.0f * std::pow(out.physical.body_mass_kg, -0.33f); // N/kg
-	float max_acceleration_m_s2 = force_to_mass_ratio * glm::mix(0.7f, 1.0f, posture);
+	float max_acceleration_m_s2 = force_to_mass_ratio * glm::mix(1.0f, 0.7f, posture);
 
 	// ========== CLADE-SPECIFIC REFINEMENTS ==========
 	// Applied after generic terrestrial locomotion physics
@@ -172,7 +153,7 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	if (HasFlag(out.physical.clade, CF::REPTILIA)) {
 		// Carrier's constraint: lateral bending during locomotion → breathing conflict
 		// Already captured in sprawling vs upright posture (lines 63-68)
-		// Low posture (<0.5) = sprawling = Carrier's constraint active
+		// Low posture (>0.5) = sprawling = Carrier's constraint active
 
 		// Just document here - constraint already applied in generic code
 	}
@@ -216,42 +197,73 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 		return {};
 
 	float body_mass_kg = s.physical.body_mass_kg;
-	float body_weight_N = body_mass_kg * in.environment.gravity_m_s2;
+//	float body_weight_N = body_mass_kg * in.environment.gravity_m_s2;
 
 	// 1. DETERMINE JUMP MECHANISM
 	Output_Jumping::MechanismType mechanism = Output_Jumping::MechanismType::MUSCLE_DIRECT;
 
-	// Elastic catapult for small animals or specialized jumpers
-	// Insects, frogs, fleas use elastic energy storage
-	bool is_small = body_mass_kg < 0.1f; // < 100g
-
-	// Check for specialized anatomy (can't detect from skeleton alone)
-	// Default to muscle direct for vertebrates, elastic for small animals
-	if(is_small)
-	{
-		mechanism = Output_Jumping::MechanismType::ELASTIC_CATAPULT;
-	}
-
-	// Hydraulic for very small arthropods (< 1g)
-	if(body_mass_kg < 0.001f)
-	{
-		mechanism = Output_Jumping::MechanismType::HYDRAULIC;
-	}
-
 	// 2. CALCULATE AVAILABLE JUMP FORCE
 	// Force comes from leg extension (quadriceps, gastrocnemius equivalents)
+	// NOTE: max_lift_force_N is calculated for tip force (long lever arm)
+	// For jumping, we need leg extension force which is much higher
+	// because the effective moment arm is much shorter (push through ankle/knee)
 
 	float total_leg_force_N = 0;
 	float avg_leg_length_m = 0;
 	int leg_count = terrestrial.legs.size();
+	float min_rest_length = FLT_MAX;
+	float max_stretched_length = -FLT_MAX;
+	float min_stretched_length = FLT_MAX;
+	float max_rest_length = -FLT_MAX;
+	float total_compression_ratio = 0;
 
 	for(auto const& leg : terrestrial.legs)
 	{
-		// Use lift force as proxy for leg extension force
-		total_leg_force_N += leg.max_lift_force_N;
+		// For jumping, use grip force as proxy for leg extension force
+		// Grip force = muscle_cross_section * muscle_stress
+		// Leg extensors (quadriceps, gastrocnemius) are typically ~1.5-2x stronger than flexors
+		float leg_extension_force_N = leg.max_grip_force_N * 1.5f;
+
+		total_leg_force_N += leg_extension_force_N;
 		avg_leg_length_m += leg.stretched_length_m;
+
+		min_rest_length = std::min(min_rest_length, leg.rest_length_m);
+		max_stretched_length = std::max(max_stretched_length, leg.stretched_length_m);
+		min_stretched_length = std::min(min_stretched_length, leg.stretched_length_m);
+		max_rest_length = std::max(max_rest_length, leg.rest_length_m);
+
+		float compression_ratio = leg.stretched_length_m / leg.rest_length_m;
+		total_compression_ratio += compression_ratio;
 	}
 	avg_leg_length_m /= leg_count;
+	float avg_compression_ratio = total_compression_ratio / leg_count;
+
+	float leg_length_asymmetry = max_stretched_length / min_stretched_length;
+	
+	// DETERMINE JUMP MECHANISM based on morphology
+	// Elastic catapult mechanism requires high leg compression for energy storage
+	// Frogs: compression ratio ~2.0-3.0 (legs fold to 33-50% of stretched length)
+	// Cats/humans: compression ratio ~1.05-1.2 (minimal compression)
+	// Grasshoppers/fleas: compression ratio >2.0
+
+	using CF = CladeFlags;
+
+	if(avg_compression_ratio > 1.8f)
+	{
+		// High compression indicates elastic energy storage capability
+		mechanism = Output_Jumping::MechanismType::ELASTIC_CATAPULT;
+	}
+	else
+	{
+		mechanism = Output_Jumping::MechanismType::MUSCLE_DIRECT;
+	}
+
+	// Hydraulic for very small arthropods (< 1g)
+	// Jumping spiders use hydraulic leg extension
+	if(body_mass_kg < 0.001f && HasFlag(s.physical.clade, CF::ARTHROPODA))
+	{
+		mechanism = Output_Jumping::MechanismType::HYDRAULIC;
+	}
 
 	// Not all legs contribute equally - use ~70% of total force
 	float effective_force_N = total_leg_force_N * 0.7f;
@@ -260,9 +272,9 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	// Work-energy: F*d = 0.5*m*v²
 	// Stroke distance ≈ leg_length * extension_ratio
 
-	float extension_ratio = 0.7f; // Typical leg extension during jump
-	float stroke_distance_m = avg_leg_length_m * extension_ratio;
-
+	// Typical leg extension during jump
+	float stroke_distance_m =  max_stretched_length - (min_rest_length * 0.6f);
+	
 	// Work done = force * distance
 	float work_J = effective_force_N * stroke_distance_m;
 
@@ -281,7 +293,6 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	}
 
 	float kinetic_energy_J = work_J * efficiency;
-
 	// v = sqrt(2 * KE / m)
 	float takeoff_velocity_m_s = std::sqrt(2.0f * kinetic_energy_J / body_mass_kg);
 
@@ -362,16 +373,11 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	// ========== CLADE-SPECIFIC REFINEMENTS ==========
 	// Applied after generic physics to add biological constraints
 
-	using CF = CladeFlags;
-
 	// ARTHROPODA: Insect jumping uses elastic energy storage (catapult mechanism)
-	if (HasFlag(s.physical.clade, CF::ARTHROPODA)) {
+	if (HasFlag(s.physical.clade, CF::ARTHROPODA) && mechanism == Output_Jumping::MechanismType::ELASTIC_CATAPULT) {
 		// Burrows (2006, 2009): Insects use elastic protein (resilin) in cuticle
 		// Bennet-Clark & Lucey (1967): Resilin stores energy with 97% efficiency
 		// Alexander (1988): Elastic storage enables power amplification 10-100x
-
-		// Force mechanism to elastic catapult for arthropods
-		mechanism = Output_Jumping::MechanismType::ELASTIC_CATAPULT;
 
 		// Cuticle elastic modulus (Vincent & Wegst 2004)
 		// Resilin: 0.6-2 MPa (very elastic)
@@ -425,30 +431,25 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 		recovery_time_s = storage_time_s + 0.5f; // Prep time + reset time
 	}
 
-	// AMPHIBIA: Frogs also use elastic catapult but with different implementation
-	if (HasFlag(s.physical.clade, CF::AMPHIBIA)) {
+	// AMPHIBIA: Frogs use elastic catapult when morphology supports it
+	if (HasFlag(s.physical.clade, CF::AMPHIBIA) && mechanism == Output_Jumping::MechanismType::ELASTIC_CATAPULT) {
 		// Frogs use elastic tendons (not cuticle like insects)
 		// Marsh & John-Alder (1994): Frog jump performance scales M^0.17
 
-		// If small amphibian (<100g), likely uses elastic storage
-		if (body_mass_kg < 0.1f) {
-			mechanism = Output_Jumping::MechanismType::ELASTIC_CATAPULT;
+		// Frog tendon elastic modulus ~1-2 GPa (less than arthropod cuticle)
+		float tendon_modulus_Pa = 1.5e9f;
+		float tendon_area_m2 = avg_leg_length_m * avg_leg_length_m * 0.005f;
+		float spring_stiffness = (tendon_modulus_Pa * tendon_area_m2) / avg_leg_length_m;
 
-			// Frog tendon elastic modulus ~1-2 GPa (less than arthropod cuticle)
-			float tendon_modulus_Pa = 1.5e9f;
-			float tendon_area_m2 = avg_leg_length_m * avg_leg_length_m * 0.005f;
-			float spring_stiffness = (tendon_modulus_Pa * tendon_area_m2) / avg_leg_length_m;
+		// Frogs achieve ~70-90% efficiency (lower than insects)
+		float efficiency = 0.80f;
+		elastic_storage_J = 0.5f * spring_stiffness * (avg_leg_length_m * 3.0f) * (avg_leg_length_m * 3.0f);
 
-			// Frogs achieve ~70-90% efficiency (lower than insects)
-			float efficiency = 0.80f;
-			elastic_storage_J = 0.5f * spring_stiffness * (avg_leg_length_m * 3.0f) * (avg_leg_length_m * 3.0f);
+		// Peplowski & Marsh (1997): Frogs achieve 10-20x power amplification
+		power_amplification_ratio = 15.0f;
 
-			// Peplowski & Marsh (1997): Frogs achieve 10-20x power amplification
-			power_amplification_ratio = 15.0f;
-
-			// Enhance jump performance
-			takeoff_velocity_m_s *= 1.3f; // 30% boost from elastic storage
-		}
+		// Enhance jump performance
+		takeoff_velocity_m_s *= 1.3f; // 30% boost from elastic storage
 	}
 
 	// 7. SANITY CHECKS

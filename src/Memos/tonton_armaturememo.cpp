@@ -139,8 +139,8 @@ immutable_array<TonTon::SemanticFlags> TonTon::ArmatureMemo::GetSemanticFlags()
 	auto children = GetChildren();
 		
 	shared_array<TonTon::SemanticFlags> flags(in.parents.size(), TonTon::SemanticFlags::NONE);
-
-	auto HasWord = [&](int i, std::span<Word> tokens) -> bool
+/*
+	auto HasOneOf = [&](int i, std::span<Word> tokens) -> bool
 	{
 		for(auto & word : in.tags[i])
 		{
@@ -149,7 +149,13 @@ immutable_array<TonTon::SemanticFlags> TonTon::ArmatureMemo::GetSemanticFlags()
 		}
 		
 		return false;
+	};*/
+	
+	auto HasWord = [&](int i, Word word) -> bool
+	{
+		return (std::find(in.tags[i].begin(), in.tags[i].end(), word) != in.tags[i].end());
 	};
+
 
 	for(auto i = 0u; i < in.parents.size(); ++i)
 	{
@@ -157,6 +163,16 @@ immutable_array<TonTon::SemanticFlags> TonTon::ArmatureMemo::GetSemanticFlags()
 		{
 			flags[i] |= ::TonTon::GetSemanticFlags(word);
 		}
+		
+// 'hip' could be hip-L, a limb, or hips as in pelvis.
+		if(HasFlag(flags[i], SemanticFlags::PELVIS)
+		&&(HasFlag(flags[i], SemanticFlags::LEFT)
+		|| HasFlag(flags[i], SemanticFlags::RIGHT)))
+		{
+			flags[i] &= SemanticFlags(~uint64_t(SemanticFlags::PELVIS));
+			flags[i] |= SemanticFlags::LIMB;
+		}
+		
 	}
 	
 	auto leg_words = std::array<Word, 1>{Word::leg};
@@ -165,14 +181,37 @@ immutable_array<TonTon::SemanticFlags> TonTon::ArmatureMemo::GetSemanticFlags()
 	{
 		if(children[i].empty())
 		{
-			if(HasWord(i, leg_words))
+			if(HasWord(i, Word::leg))
 			{
 				flags[i] |= SemanticFlags::CONTACT;		
 			}
 		}
 	}
 	
+	
 	return (semantic_flags = flags);
+}
+
+TonTon::NicheFlags TonTon::ArmatureMemo::GetNicheFlags()
+{
+	std::lock_guard lock(_mutex);
+	
+	if(nicheFlags != NicheFlags::UNDEFINED) 
+		return nicheFlags;
+	
+	TonTon::NicheFlags flags{NicheFlags::NONE};
+	
+	auto children = GetChildren();
+
+	for(auto i = 0u; i < in.parents.size(); ++i)
+	{
+		for(auto & word : in.tags[i])
+		{
+			flags |= ::TonTon::GetNicheFlags(word);
+		}
+	}
+		
+	return (nicheFlags = flags);
 }
 
 immutable_array<TonTon::CladeFlags> TonTon::ArmatureMemo::GetCladeFlags()

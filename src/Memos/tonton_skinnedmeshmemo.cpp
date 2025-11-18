@@ -213,9 +213,9 @@ immutable_array<TonTon::SkinnedMeshMemo::Clique> TonTon::SkinnedMeshMemo::GetCli
 			continue;
 		if(edges.size() == 1)
 		{
-			std::cout << names[edges[0].first] << "\n";
-			std::cout << names[edges[0].second] << "\n";
-				std::cout << "\n";
+	//		std::cout << names[edges[0].first] << "\n";
+	//		std::cout << names[edges[0].second] << "\n";
+	//			std::cout << "\n";
 					
 			r.push_back({
 				.parent=p,
@@ -232,12 +232,12 @@ immutable_array<TonTon::SkinnedMeshMemo::Clique> TonTon::SkinnedMeshMemo::GetCli
 		{
 			for(auto & c : cliques)
 			{
-				for(auto joint : c)
+				/*for(auto joint : c)
 				{
 					std::cout << names[joint] << "\n";
 				}
 				
-				std::cout << "\n";
+				std::cout << "\n";*/
 			
 				r.push_back({
 					.parent=p,

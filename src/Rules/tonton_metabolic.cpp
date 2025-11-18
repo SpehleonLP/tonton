@@ -30,7 +30,7 @@ TonTon::Output_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s)
 	bool needs_endothermy = false;
 
 	// Check for functional wings (flight requires high metabolic rate)
-	if (s.aerial.has_value() && s.aerial->can_fly) {
+	if (s.aerial.has_value() && HasFlag(clade, CF::CHORDATA)) {
 		needs_endothermy = true;
 	}
 

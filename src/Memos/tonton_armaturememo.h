@@ -34,6 +34,9 @@ struct ArmatureMemo
 	std::vector<uint16_t> GetAllChildren(int32_t of, SemanticFlags including, SemanticFlags excluding = SemanticFlags::NONE, std::span<int32_t> not_in = {});
 	std::vector<uint16_t> GetAllChildrenOfRoot(uint32_t begin);
 	
+	CladeFlags GetAllCladeFlags() { auto root = GetDfsOrdering()[0]; return GetCladeFlags()[root]|GetRelativeCladeFlags()[root].child_flags; }
+	NicheFlags GetNicheFlags();
+	
 	// each is indexed by bone.
 	immutable_array<std::span<const uint16_t>> GetChildren();
 	immutable_array<immutable_array<uint16_t>> GetDirectedGraph();
@@ -48,6 +51,7 @@ struct ArmatureMemo
 		
 private:	
 	std::recursive_mutex _mutex;
+	NicheFlags									nicheFlags{NicheFlags::UNDEFINED};
 	
 	immutable_array<std::span<const uint16_t>>	children;
 	immutable_array<immutable_array<uint16_t>> directed_graph;

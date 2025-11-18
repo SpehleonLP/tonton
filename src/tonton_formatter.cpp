@@ -406,20 +406,6 @@ std::ostream& operator<<(std::ostream& os, const Output::Appendages& app) {
     return os;
 }
 
-template<typename T>
-std::ostream& operator<<(std::ostream& os, immutable_array<T> app) {
-    os << '[';
-    
-    for(auto & item : app)
-    {
-		os << item;
-    }
-	
-	os << ']';
-
-    return os;
-}
-
 // Main Output
 std::ostream& operator<<(std::ostream& os, const Output& output) {
     os << "=== TonTon Output ===\n\n";
@@ -466,6 +452,50 @@ std::ostream& operator<<(std::ostream& os, const Output& output) {
 
     os << "===================\n";
     return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Word& output)
+{
+	return os << WordToString(output);
+}
+
+std::ostream& operator<<(std::ostream& os, const SemanticFlags& output)
+{
+	bool outputted = false;
+	
+	for(auto i = 0u; i < 64; ++i)
+	{
+		auto flag = SemanticFlags(uint64_t(1) << uint64_t(i));
+		
+		
+		if(HasFlag(output, flag))
+		{
+			if(outputted)	os << "|";	
+			os << WordToString(flag);				
+			outputted = true;
+		}		
+	}
+	
+	return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const CladeFlags& output)
+{	bool outputted = false;
+	
+	for(auto i = 0u; i < 64; ++i)
+	{
+		auto flag = CladeFlags(uint64_t(1) << uint64_t(i));
+		
+		
+		if(HasFlag(output, flag))
+		{
+			if(outputted)	os << "|";	
+			os << WordToString(flag);				
+			outputted = true;
+		}		
+	}
+	
+	return os;
 }
 
 } // namespace TonTon

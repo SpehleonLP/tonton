@@ -48,6 +48,24 @@ std::ostream& operator<<(std::ostream& os, const Output::Appendages& app);
 
 std::ostream& operator<<(std::ostream& os, const Output& output);
 
+std::ostream& operator<<(std::ostream& os, const Word& output);
+std::ostream& operator<<(std::ostream& os, const SemanticFlags& output);
+std::ostream& operator<<(std::ostream& os, const CladeFlags& output);
+
+template<typename T>
+std::ostream& operator<<(std::ostream& os, immutable_array<T> app) {
+    os << '[';
+    
+    for(auto & item : app)
+    {
+		os << item;
+    }
+	
+	os << ']';
+
+    return os;
+}
+
 }
 
 #endif // TONTON_FORMATTER_H
