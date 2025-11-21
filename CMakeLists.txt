@@ -43,6 +43,10 @@ target_link_libraries(tonton
         dodeedum
 )
 
+# Force tonton to have a direct dependency on dodeedum's library file
+# This ensures CMake properly tracks when dodeedum.a changes
+add_dependencies(tonton dodeedum)
+
 # Find and link GLM (if not already found by dodeedum)
 find_package(glm QUIET)
 if(glm_FOUND)

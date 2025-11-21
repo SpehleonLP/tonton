@@ -26,8 +26,8 @@ namespace TonTon
 {
 static	Output_Physical ComputePhysical(Input const& in, Scratch & s);
 
-static	std::vector<Output_Manipulator>   ComputeManipulation(Input const& in, Scratch & s);
-static	std::vector<Output_Tail>   ComputeTails(Input const& in, Scratch & s);
+static	std::vector<Output_Manipulator>   ComputeManipulation(Input const& in);
+static	std::vector<Output_Tail>   ComputeTails(Input const& in);
 
 }
 
@@ -38,13 +38,12 @@ Output_TakeoffAnalysis TakeoffAnalysis_Compute(const Scratch& output);
 
 TonTon::Scratch::Scratch(Input const& in)
 {
+	appendages.manipulation = shared_array<Output_Manipulator>::FromArray(ComputeManipulation(in));
+	appendages.tails = shared_array<Output_Tail>::FromArray(ComputeTails(in));
 
 	physical    = ComputePhysical(in, *this);
 	sensory     = ComputeSensory(in, *this);
-
-	appendages.manipulation = shared_array<Output_Manipulator>::FromArray(ComputeManipulation(in, *this));
-	appendages.tails = shared_array<Output_Tail>::FromArray(ComputeTails(in, *this));
-
+	
 	// Metabolic rates computed early (after physical, before locomotion)
 	// Locomotion modes need metabolic budget, but metabolic needs clade flags from physical
 	// For multi-clade creatures (pegasus), metabolic blends all clade contributions
@@ -207,6 +206,7 @@ TonTon::Scratch::Scratch(Input const& in)
 
 using namespace TonTon;
 
+
 static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 {
 	auto & sk = *in.skinnedMesh;
@@ -226,6 +226,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 	volume *= in.behavior.volume_scale();
 	surfaceArea *= in.behavior.area_scale();
 
+	auto position       = sk.skin->position.data();
 	auto relative_flags = sk_memo->GetRelativeFlags();
 	auto semantic_flags = sk_memo->GetSemanticFlags();
 	auto dfs_ordering   = sk_memo->GetDfsOrdering();
@@ -295,7 +296,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 					spine_length += glm::length(delta);
 				}
 			}
-			
+			#if 0
 			if(HasFlag(semantic_flags[joint], SPINE_FLAGS))
 			{
 				auto children = sk_memo->GetAllChildren(joint, SPINE_FLAGS, NOT_SPINE_FLAGS);
@@ -311,6 +312,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 				
 				this_cross_section_area = std::max(this_cross_section_area, silhouette.area);
 			}
+			#endif
 		}
 	
 		double SVL = snout_to_base_of_skull + spine_length;
@@ -319,7 +321,6 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 		{
 			max_body_length = SVL;
 			is_upright = is_this_upright;
-			crossSectionArea = this_cross_section_area;
 			spine_root = this_spine_root;
 		}
 	};
@@ -388,6 +389,20 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 		{
 			ProcessHead(i);
 		}
+		
+		if(HasFlag(semantic_flags[node], SF::SPINE))
+		{
+			if(parents[node] >= 0)
+			{
+				auto children = sk_memo->GetAllChildren(node, SPINE_FLAGS, NOT_SPINE_FLAGS);
+				children.push_back(node);
+					
+				auto area =	in.skinnedMesh->EstimateCrossSection(children, in.behavior.scale, position[node] - position[parents[node]]);	
+				crossSectionArea = std::max<double>(crossSectionArea, area);
+			}
+		}
+		
+		
 	}
 	
 	// failed to find body, try treating front of spine as head?
@@ -602,7 +617,7 @@ std::vector<Output_Appendage> TonTon::GetAppendages(Input const& in, std::vector
 	return r;
 }
 
-std::vector<Output_Manipulator>   TonTon::ComputeManipulation(Input const& in, Scratch&)
+std::vector<Output_Manipulator>   TonTon::ComputeManipulation(Input const& in)
 {// walk back parents until we get something thats not limb-ish
 	
 	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB|SF::TAIL|SF::FACIAL, SF::GRASPER));
@@ -610,7 +625,7 @@ std::vector<Output_Manipulator>   TonTon::ComputeManipulation(Input const& in, S
 } 
 
 
-static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in, Scratch &out) 
+static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in) 
 {
 	auto & sk = *in.skinnedMesh;
 	auto * sk_memo = sk.skin->memo();
@@ -669,7 +684,7 @@ static	std::vector<Output_Tail>   TonTon::ComputeTails(Input const& in, Scratch 
 			glm::vec3 accumulator{0};
 			for(auto child : children[node])
 			{
-				if(tube_marks[child] && HasFlag(semantic_flags[node], SF::TAIL))
+				if(tube_marks[child] && HasFlag(semantic_flags[child], SF::TAIL))
 				{
 					stack.push_back(child);
 					accumulator += position[child];

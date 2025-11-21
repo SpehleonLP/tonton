@@ -1147,6 +1147,7 @@ std::string_view TonTon::WordToString(CladeFlags f)
 	CASE(CEPHALOPODA);
 	default: return "UNKNOWN";
 	}
+#undef CASE
 }
 
 TonTon::NicheFlags TonTon::GetNicheFlags(Word word)

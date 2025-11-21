@@ -275,25 +275,70 @@ std::ostream& operator<<(std::ostream& os, const Output_Aquatic& aq) {
     }
     os << "\n";
 
-    os << "  propulsors:\n";
-    for (const auto& fin : aq.propulsors) {
-        os << fin << "\n";
-    }
-
-    if (aq.body_wave) {
-        os << *aq.body_wave;
-    }
-
-    if (aq.c_start) {
-        os << *aq.c_start;
-    }
-
-    if (aq.jet_propulsion) {
-        os << *aq.jet_propulsion;
-    }
-
-    os << "  speeds (min/cruise/burst): " << aq.min_swim_speed_m_s << "/"
+    // Kinematics
+    os << "\n  === KINEMATICS ===\n"
+       << "  tail_beat_frequency: " << aq.beat_frequency_Hz << " Hz\n"
+       << "  tail_amplitude: " << aq.tail_amplitude_m << " m ("
+       << (aq.tail_amplitude_m > 0 ? aq.tail_amplitude_m / 2.3 * 100 : 0) << "% body length)\n"  // Approximate
+       << "  speeds (min/cruise/burst): " << aq.min_swim_speed_m_s << "/"
        << aq.cruise_speed_m_s << "/" << aq.burst_speed_m_s << " m/s\n";
+
+    // Hydrodynamics
+    os << "\n  === HYDRODYNAMICS ===\n"
+       << "  Reynolds_number: " << aq.reynolds_number;
+    if (aq.reynolds_number < 1000) os << " (viscous regime)";
+    else if (aq.reynolds_number < 100000) os << " (transitional)";
+    else os << " (turbulent/inertial)";
+    os << "\n"
+       << "  drag_coefficient: " << aq.drag_coefficient;
+    if (aq.drag_coefficient < 0.05) os << " (highly streamlined)";
+    else if (aq.drag_coefficient < 0.1) os << " (streamlined)";
+    else os << " (moderate streamlining)";
+    os << "\n";
+
+    // Buoyancy
+    os << "\n  === BUOYANCY ===\n"
+       << "  neutral_buoyancy_density: " << aq.neutral_buoyancy_density_kg_m3 << " kg/m³\n"
+       << "  has_swim_bladder: " << (aq.has_swim_bladder ? "yes" : "no") << "\n";
+    if (aq.has_swim_bladder) {
+        os << "  swim_bladder_adjust_time: " << aq.swim_bladder_adjust_time_s << " s\n";
+    }
+    if (aq.sink_rate_m_s > 0.001f) {
+        os << "  sink_rate_when_stationary: " << aq.sink_rate_m_s << " m/s (negatively buoyant)\n"
+           << "  lift_required_per_meter: " << aq.lift_per_meter_swam_N << " N/m\n"
+           << "  requires_constant_motion: " << (aq.requires_constant_motion ? "YES" : "no") << "\n";
+    } else {
+        os << "  buoyancy: neutral or positive\n";
+    }
+
+    // Maneuverability
+    os << "\n  === MANEUVERABILITY ===\n"
+       << "  min_turning_radius: " << aq.min_turning_radius_m << " m\n"
+       << "  can_hover: " << (aq.can_hover ? "yes" : "no") << "\n";
+
+    // Propulsors
+    if (!aq.propulsors.empty()) {
+        os << "\n  === PROPULSORS ===\n";
+        for (const auto& fin : aq.propulsors) {
+            os << "  " << fin << "\n";
+        }
+    }
+
+    // Body wave
+    if (aq.body_wave) {
+        os << "\n  === BODY UNDULATION ===\n  " << *aq.body_wave;
+    }
+
+    // C-start response
+    if (aq.c_start) {
+        os << "\n  === ESCAPE RESPONSE ===\n  " << *aq.c_start;
+    }
+
+    // Jet propulsion
+    if (aq.jet_propulsion) {
+        os << "\n  === JET PROPULSION ===\n  " << *aq.jet_propulsion;
+    }
+
     return os;
 }
 

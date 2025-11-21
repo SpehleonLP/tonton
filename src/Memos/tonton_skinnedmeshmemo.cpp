@@ -3,6 +3,7 @@
 #include <iostream>
 #include "Memos/tonton_meshmemo.h"
 #include "../include/tonton_input.h"
+#include "dodeedum_mesh.h"
 #include <functional>
 #include <unordered_set>
 
@@ -59,10 +60,11 @@ glm::mat4 TonTon::GetProjectionMatrix(EigenValue projection, glm::quat eigen_dir
 	return glm::mat4(1);
 }
 
+// like if its a plane we want the normal of the plane from EigenValue::Smal?
 glm::vec3 TonTon::GetProjectionDirection(EigenValue projection, glm::quat eigen_direction)
 {
     glm::mat3 rotation = glm::mat3(eigen_direction);
-    rotation = glm::transpose(rotation);
+ //   rotation = glm::transpose(rotation);
 
     switch(projection)
     {
@@ -76,6 +78,7 @@ glm::vec3 TonTon::GetProjectionDirection(EigenValue projection, glm::quat eigen_
     
     return glm::vec3(0, 0, 1);
 }
+
 glm::mat4 TonTon::SkinnedMeshMemo::GetProjectionMatrix(EigenValue projection, glm::vec3 scale, std::span<uint16_t> joints, SkinnedMesh::LimbMetrics * metrics, std::pair<glm::quat, glm::vec3> * eigen_decomp) const
 {
 	auto m = in.GetMetrics(joints, scale);
@@ -320,4 +323,127 @@ static std::vector<std::vector<int>> GetCliques(std::vector<std::pair<int, int>>
     bronKerbosch(R, P, X);
     
     return cliques;
+}
+
+
+/// gltf doesn't store tails its a problem... 
+immutable_array<glm::vec3>  TonTon::SkinnedMeshMemo::GetBoneTails()
+{
+	if(_boneTails.size())	return _boneTails;
+
+	double accumulator = 0;
+	int counter = 0;
+	
+	auto positions = in.skin->position;
+	auto parents   = in.skin->parents;
+	auto rotations = in.skin->rotation.data();
+	
+	shared_array<glm::vec3> result = positions.clone();
+	shared_array<glm::vec3> pointing(positions.size(), glm::vec3(0));
+	auto children = in.skin->memo()->GetChildren();
+	
+	for(auto i = 0u; i < children.size(); ++i)
+	{
+		if(children[i].size() != 1)
+			continue;
+	
+		result[i] = positions[children[i][0]];
+		
+		pointing[i] = glm::normalize(result[i] - positions[i]);
+		
+		if(rotations)
+		{
+			accumulator += glm::dot(pointing[i], rotations[i] * glm::vec3(0, 1, 0));
+			++counter;
+		}
+	}
+	
+	if(counter)
+	{
+		accumulator = glm::clamp(accumulator / counter, -1.0, 1.0);
+	}
+	
+	for(auto i = 0u; i < children.size(); ++i)
+	{
+		if(children[i].size() <= 1) continue;
+	
+		glm::vec3 sum{0};
+		
+		for(auto child : children[i])
+			sum += positions[child];
+		
+		sum /= children[i].size();
+	
+		// basically weight how much we trust the rotation by how well it corresponds to previous data. 
+		pointing[i] = glm::normalize(sum - positions[i]);
+		
+		if(rotations)
+			pointing[i] = glm::mix(
+				pointing[i], 
+				rotations[i] * glm::vec3(0, 1, 0), 
+				accumulator);
+				
+		result[i] = positions[i] + pointing[i] * glm::dot(pointing[i], sum - positions[i]);
+	}
+	
+	// leaf bones
+	for(auto i = 0u; i < children.size(); ++i)
+	{
+		if(children[i].empty() == false) continue;
+		
+		if(parents[i] >= 0)
+		{
+			result[i] = positions[i] + (positions[i] - positions[parents[i]]) * 0.01f;
+			pointing[i] = glm::normalize(positions[i] - positions[parents[i]]);
+		}
+		
+		if(in.surfaceArea[i] == 0) 
+			continue;
+			
+		if(rotations)
+			pointing[i] = glm::mix(
+				pointing[i], 
+				rotations[i] * glm::vec3(0, 1, 0), 
+				accumulator);
+				
+		glm::vec3 furthest_vert = positions[i];
+		double furthest_distance_2 = 0;
+		float furthest_projected_vert = 0;
+			
+		for(auto & primitive : in.mesh->mesh)
+		{
+			primitive.for_each_vertex([&](DoDeeDum::Vert & vert)
+			{
+				float weight = 0;
+				for(auto j = 0u; j < 4; ++j)
+				{
+					weight += vert.weights[j] * (vert.joints[j] == i);
+				}
+				
+				if(weight)
+				{
+					auto vec = glm::vec3(vert.position) - positions[i];
+					auto len2 = glm::dot(vec, vec);
+					
+					if(len2 > furthest_distance_2)
+					{
+						furthest_distance_2 = len2;
+						furthest_vert = vert.position;
+					}
+					
+					furthest_projected_vert = glm::max(furthest_projected_vert, glm::dot(vec, pointing[i]));					
+				}
+				
+			// don't short circuit
+				return false;
+			});
+		}
+		
+		result[i] = positions[i] + glm::mix(
+			furthest_vert, 
+			pointing[i] * furthest_projected_vert, 
+			accumulator);	
+	}
+	
+	return (_boneTails = result);
 }

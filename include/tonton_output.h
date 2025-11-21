@@ -365,13 +365,15 @@ struct Output_Aquatic  {
 	};
 
 	struct Fin  : public Output_Appendage {
+		float chord_m{};
 		float area_m2{};
-		float aspect_ratio{};
 
 		// Animation - for undulating fins
 		float beat_frequency_Hz{0};
 		float beat_amplitude_rad{0};
 		float wave_speed_ratio{0};  // wave_speed / swim_speed
+		
+		glm::vec3 normal_vector{0, 0, 0}; // sign is not defined. 
 
 		SemanticFlags type{};  // FIN, WING (for flying fish), LIMB
 	};
@@ -384,12 +386,20 @@ struct Output_Aquatic  {
 	float burst_speed_m_s{};
 	float min_swim_speed_m_s{};         // to maintain lift/control
 
+	// Hydrodynamics
+	float lift_per_meter_swam_N{};      // For negatively buoyant animals
+	float sink_rate_m_s{};              // How fast they sink when stationary
+	float reynolds_number{};            // Swimming regime indicator
+	float drag_coefficient{};           // Cd for streamlining assessment
+	float tail_amplitude_m{};           // Actual tail oscillation amplitude
+	float beat_frequency_Hz{};          // Tail beat frequency
+
 	// Buoyancy control
 	float neutral_buoyancy_density_kg_m3{};
 	float swim_bladder_adjust_time_s{-1};
 	PropulsionMode primary_mode{};
 	bool has_swim_bladder{};
-	
+
 	// Maneuverability
 	bool can_hover{};                   // station-keeping
 	bool requires_constant_motion{};    // sharks, tuna

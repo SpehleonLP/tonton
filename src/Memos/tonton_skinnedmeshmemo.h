@@ -62,10 +62,12 @@ struct SkinnedMeshMemo
 	// so a tube has a tubiness of 1, while the left side of a whale fluke has low tubiness.
 	// tubiness is based on topology not geometry. 
 	immutable_array<float>  GetTubeTable();
+	immutable_array<glm::vec3> GetBoneTails();
 
 private:
 	immutable_array<float>   _tubeTable;
 	immutable_array<Clique> cliques;
+	immutable_array<glm::vec3> _boneTails;
 
 	union Key
 	{

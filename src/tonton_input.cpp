@@ -171,13 +171,24 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(uint32_t i, glm::dvec3
 	};
 }
 
+	
+static double EstimateCrossSection(std::array<double, 6> const& I, double volume, glm::vec3 direction, double * second_moment_area);
+
+double  TonTon::SkinnedMesh::EstimateCrossSection(std::span<uint16_t> joints, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area) const
+{
+	double volume;
+	auto cov = GetCovariance(joints, scale, nullptr, &volume);
+	
+	return ::EstimateCrossSection(cov, volume, direction, second_moment_area);
+}
+	
 double TonTon::SkinnedMesh::EstimateCrossSection(uint32_t i, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area) const
 {
-//	double rough_cross_section = volume[i] / std::max(0.001f, glm::length(direction));
-//	return std::abs(rough_cross_section);
-	
-	std::array<double, 6> I = GetCovariance(i, scale);
-    
+	return ::EstimateCrossSection(GetCovariance(i, scale), volume[i], direction, second_moment_area);
+}
+   
+static double EstimateCrossSection(std::array<double, 6> const& I, double volume, glm::vec3 direction, double * second_moment_area) 
+{
     // its covariance * volume already 
     // so inertia is shuffled covariance * density
     // meaning that units are M^5
@@ -187,7 +198,7 @@ double TonTon::SkinnedMesh::EstimateCrossSection(uint32_t i, glm::dvec3 scale, g
         I[4], I[5], I[2]
     };
     
-    cov = cov / double(volume[i]? volume[i] :  1.0);
+    cov = cov / double(volume? volume :  1.0);
    
     glm::dvec3 d = glm::normalize(direction);
     
@@ -282,6 +293,21 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(std::span<uint16_t> jo
 	}
 	
 	
+	return accumulator;
+}
+
+double TonTon::SkinnedMesh::GetSurfaceArea(uint16_t i, double area_scale) const
+{
+	return surfaceArea[i] * area_scale;
+}
+
+double TonTon::SkinnedMesh::GetSurfaceArea(std::span<uint16_t> joints, double area_scale) const
+{
+	double accumulator = 0;
+	
+	for(auto i : joints)
+		accumulator += surfaceArea[i] * area_scale;
+		
 	return accumulator;
 }
 
