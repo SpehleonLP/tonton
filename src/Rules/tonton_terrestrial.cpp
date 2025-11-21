@@ -62,7 +62,22 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	// Expected leg length from body mass (assuming isometric scaling)
 	// leg_length ∝ mass^(1/3) for isometrically scaled animals
 	// Typical mammals: leg_length ≈ 0.3 × mass^(1/3)
-	float expected_leg_m = 0.3f * std::pow(out.physical.body_mass_kg, 1.0f/3.0f);
+	
+	// Scale Effects between Body Size and Limb Design in Quadrupedal Mammals
+	// Brandon M. Kilbourne ,Louwrens C. Hoffman  
+	/*
+	 * Both fore- and hindlimb length are positively allometric with respect to body mass, (P<0.05) with slopes of
+	 * 0.40 and 0.37, respectively (Figs. 4A and 5A; Table 3). For mammalian subgroups, forelimb slopes range from 
+	 * 0.30 (Rodentia) to 0.42 (Carnivora), while hindlimb slopes range from 0.27 (Rodentia) to 0.42 (Carnivora). 
+	 * Apart from cursorial mammals, fore- and hindlimb slopes for each of the subgroups have wide confidence limits, 
+	 * likely due in part to their smaller sample sizes. For each of these groups, the slopes do not significantly 
+	 * depart from geometric similarity (P>0.05). For cursors, forelimb length is isometric with body mass, while 
+	 * hindlimb length is negatively allometric with body mass. 
+	 * 
+	 * (carnivoria R^2 = 0.78) 
+	 */ 
+
+	float expected_leg_m = 0.151f * std::pow(out.physical.body_mass_kg, 0.42);
 
 	// Leg length correction factor
 	// Short legs (penguins, seals): functional_length < expected → reduce speed
@@ -331,7 +346,7 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	// Stroke distance ≈ leg_length * extension_ratio
 
 	// Typical leg extension during jump
-	float stroke_distance_m =  max_stretched_length - (min_rest_length * 0.6f);
+	float stroke_distance_m =  max_stretched_length - (min_rest_length * 0.3f);
 	
 	// Work done = force * distance
 	float work_J = effective_force_N * stroke_distance_m;
