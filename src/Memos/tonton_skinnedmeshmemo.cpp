@@ -3,11 +3,11 @@
 #include <iostream>
 #include "Memos/tonton_meshmemo.h"
 #include "../include/tonton_input.h"
+#include "tonton_eigen.h"
 #include "dodeedum_mesh.h"
 #include <functional>
 #include <unordered_set>
 
-std::pair<glm::quat, glm::vec3> EigenDecomposition(glm::mat3 const& m);
 static std::vector<std::vector<int>> GetCliques(std::vector<std::pair<int, int>> const& edges);
 
 TonTon::SkinnedMeshMemo::SkinnedMeshMemo(SkinnedMesh const* ptr) : in(*ptr)

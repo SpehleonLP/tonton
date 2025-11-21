@@ -2,8 +2,10 @@
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "Memos/tonton_meshmemo.h"
+#include "tonton_eigen.h"
 #include "../include/tonton.h"
 #include <cfloat>
+
 
 TonTon::Armature::Armature() = default;
 TonTon::Armature::~Armature() = default;
@@ -207,7 +209,7 @@ static double EstimateCrossSection(std::array<double, 6> const& I, double volume
     glm::dmat3 proj = glm::dmat3(1.0) - glm::outerProduct(d, d);
     glm::dmat3 projected_cov = proj * cov * proj;
     
-	std::pair<glm::quat, glm::vec3> eigen_decomp = EigenDecomposition(projected_cov);
+	std::pair<glm::quat, glm::vec3> eigen_decomp = TonTon::EigenDecomposition(projected_cov);
 	
     auto & eigenvalues = eigen_decomp.second;
     
@@ -563,3 +565,4 @@ bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, glm:
     
     return true;
 }
+

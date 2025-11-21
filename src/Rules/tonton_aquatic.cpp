@@ -340,7 +340,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	// Aerobic scope gives sustainable power for cruising
 	// Mechanical efficiency of swimming: ~20-25%
 	float aerobic_power_W = s.metabolic.basal_rate_W * float(s.metabolic.aerobic_scope);
-	float swim_power_W = s.metabolic.available_muscle_power_W * 0.3f; // ~30% for swimming
+	float swim_power_W = s.metabolic.available_muscle_power_W * 0.08f; // 8% for efficient cruising
 //; aerobic_power_W * 0.2f; // 20% mechanical efficiency
 
 	AQUATIC_DBG("Metabolic: basal=" << s.metabolic.basal_rate_W << "W, aerobic_scope="
@@ -464,18 +464,18 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	// Cruise is the lower of Strouhal-optimal or power-limited
 	cruise_speed_m_s = std::min(cruise_speed_m_s, power_limited_speed);
 
-	// Burst speed (anaerobic, can use max metabolic rate for short duration)
-	// Use max_rate for anaerobic bursts (5-10 seconds)
-	float burst_power_W = s.metabolic.max_rate_W * 0.25f; // 25% mechanical efficiency for burst
+	// Burst speed (anaerobic, can use max muscle power for short duration)
+	// Use available muscle power for anaerobic bursts (5-10 seconds)
+	float burst_power_W = s.metabolic.available_muscle_power_W * 0.4f; // 40% mechanical efficiency for burst
 	float burst_power_limited_speed = std::pow(
 		(2.0f * burst_power_W) / (fluid_density * drag_coefficient * cross_section_m2),
 		1.0f / 3.0f
 	);
 
 	// Burst can also be limited by Strouhal at higher amplitude
-	float burst_strouhal_speed = (beat_frequency_Hz * tail_amplitude_m * 1.5f) / strouhal_optimal;
+//	float burst_strouhal_speed = (beat_frequency_Hz * tail_amplitude_m * 1.5f) / 0.2;
 
-	float burst_speed_m_s = std::min(burst_power_limited_speed, burst_strouhal_speed);
+	float burst_speed_m_s = burst_power_limited_speed;
 
 	// Apply muscle quality
 	cruise_speed_m_s *= glm::mix(0.8f, 1.2f, in.muscle_quality);
@@ -657,7 +657,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		// White muscle gives 2x power output of red muscle for short bursts
 		float burst_power_multiplier = 1.0f + white_muscle_fraction; // 1.3x to 1.7x
 		burst_speed_m_s *= burst_power_multiplier;
-		burst_speed_m_s = std::min(burst_speed_m_s, cruise_speed_m_s * 3.5f); // Cap at 3.5x
+//		burst_speed_m_s = std::min(burst_speed_m_s, cruise_speed_m_s * 3.5f); // Cap at 3.5x
 
 		// Caudal aspect ratio affects maximum speed
 		// Sambilay (1990): V = 0.59 * exp(0.42 * AR) relationship across 63 species

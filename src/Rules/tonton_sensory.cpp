@@ -4,9 +4,6 @@
 #include "Memos/tonton_armaturememo.h"
 #include "Rules/tonton_scratch.h"
 
-std::pair<glm::quat, glm::vec3> EigenDecomposition(glm::mat3 const& m);
-std::pair<glm::quat, glm::vec3> EigenDecomposition(glm::dmat3 const& m);
-
 namespace TonTon
 {
 struct EyeInfo {

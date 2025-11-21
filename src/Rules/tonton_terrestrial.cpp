@@ -21,20 +21,78 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	
 	float functional_length{FLT_MAX};
 	float posture = 0.0f;
-	
+
 	for(auto const& leg : legs)
 	{
 		functional_length = std::min(functional_length, leg.stretched_length_m);
-		auto vec = glm::normalize(position[leg.tip] - position[leg.root]); 			
+		auto vec = glm::normalize(position[leg.tip] - position[leg.root]);
 		posture = std::max(posture, 1.f - std::abs(vec.y));
 	}
 
-	// Basic speed scaling (from actual data, not Froude)
-	// These are empirical fits from Garland 1983, Reilly et al. 2007
-	float upright_base_speed = 10.0f * pow(out.physical.body_mass_kg, 0.17f); // m/s
-	float sprawling_base_speed = 2.5f * pow(out.physical.body_mass_kg, 0.25f); // m/s
-	
-	float base_sprint = glm::mix(upright_base_speed, sprawling_base_speed, posture);
+	// HYBRID SPEED SCALING: Mass allometry + leg length correction
+	//
+	// Base speed from empirical allometric scaling (Garland 1983):
+	// log10(speed) = 0.17 × log10(mass) + C
+	// where C varies by clade and lifestyle:
+	// - Cursorial mammals: C ≈ 1.1 (fast runners: cats, dogs, ungulates)
+	// - General mammals: C ≈ 0.9
+	// - Reptiles: C ≈ 0.7
+	// - Aquatic-adapted (flippers/fins): C ≈ 0.4 (penguins, seals - poor land locomotion)
+	//
+	// Then correct for leg length deviation from expected proportions
+
+	using CF = CladeFlags;
+
+	float mass_exponent = 0.17f;
+	float base_constant = 0.9f; // Default for general vertebrates
+
+	// Clade-specific adjustments
+	if (HasFlag(out.physical.clade, CF::MAMMALIA)) {
+		base_constant = 1.05f; // Mammals are generally fast runners
+	} else if (HasFlag(out.physical.clade, CF::AVES)) {
+		base_constant = 0.85f; // Ground birds vary widely
+	} else if (HasFlag(out.physical.clade, CF::REPTILIA)) {
+		base_constant = 0.70f; // Reptiles generally slower
+	}
+
+	// Base speed from mass allometry (in m/s)
+	float allometric_speed_m_s = std::pow(10.0f,
+		mass_exponent * std::log10(out.physical.body_mass_kg) + base_constant);
+
+	// Expected leg length from body mass (assuming isometric scaling)
+	// leg_length ∝ mass^(1/3) for isometrically scaled animals
+	// Typical mammals: leg_length ≈ 0.3 × mass^(1/3)
+	float expected_leg_m = 0.3f * std::pow(out.physical.body_mass_kg, 1.0f/3.0f);
+
+	// Leg length correction factor
+	// Short legs (penguins, seals): functional_length < expected → reduce speed
+	// Long legs (kangaroos, ostriches): functional_length > expected → increase speed
+	float leg_length_ratio = functional_length / expected_leg_m;
+	float leg_correction = std::sqrt(leg_length_ratio); // sqrt because speed ∝ sqrt(leg_length) from Froude
+	leg_correction = std::clamp(leg_correction, 0.3f, 2.0f); // Don't go crazy with extremes
+
+	float base_sprint = allometric_speed_m_s * leg_correction;
+
+	// Detect aquatic-adapted body plans (penguins, seals, otters)
+	// These have flippers/fins AND disproportionately short legs
+	auto all_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
+	bool has_flippers = false;
+	for (size_t i = 0; i < all_flags.size(); ++i) {
+		if (HasFlag(all_flags[i], SF::FIN) ||
+		    (HasFlag(all_flags[i], SF::WING) && HasFlag(all_flags[i], SF::FORELIMB))) {
+			has_flippers = true;
+			break;
+		}
+	}
+
+	// Aquatic-adapted animals with short legs: poor terrestrial locomotion
+	if (has_flippers && leg_length_ratio < 0.6f) {
+		// Penguins, seals waddle slowly on land
+		base_sprint *= 0.35f; // Massive penalty for flipper-based waddling
+	}
+
+	// Posture penalty for sprawling (reduces efficiency, not just stride length)
+	base_sprint *= glm::mix(1.0f, 0.7f, posture);
 	
 	// Posture affects sustained speed more than sprint
 	auto max_sustainable_speed_m_s = base_sprint * glm::mix(0.6f, 0.3f,  posture);

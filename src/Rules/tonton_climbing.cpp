@@ -32,6 +32,7 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 	// 1. CLIMBING CAPABILITY CHECK
 	// Need sufficient grip/adhesion force to support body weight
 	// Use all limbs (not just contact limbs) since climbing uses hands/feet
+	// BUT exclude wings/flippers - they can't grip surfaces!
 	float body_weight_N = s.physical.body_mass_kg * in.environment.gravity_m_s2;
 
 	float total_grip_force = 0;
@@ -41,17 +42,31 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 	bool any_setae = false;
 	bool any_suckers = false;
 
-	int limb_count = limbs.size();
+	int limb_count = 0;
 
 	for(auto const& limb : limbs)
 	{
+		// Exclude wings and fins - they're for flight/swimming, not climbing
+		// Exception: birds with zygodactyl feet (parrots, woodpeckers) can climb
+		bool is_wing = HasFlag(limb.subtree_flags, SF::WING);
+		bool is_fin = HasFlag(limb.subtree_flags, SF::FIN);
+
+		if(is_wing || is_fin) {
+			continue; // Skip flippers and wings
+		}
+
 		total_grip_force += limb.max_grip_force_N;
 		total_adhesion_force += limb.max_adhesion_force_N;
 		any_claws |= limb.has_claws;
 		any_wet_grip |= limb.has_wet_grip;
 		any_setae |= limb.has_setae;
 		any_suckers |= limb.has_suckers;
+		limb_count++;
 	}
+
+	// If no non-wing limbs, can't climb
+	if(limb_count == 0)
+		return {};
 
 	// Total support force (assuming 3-point contact, 1 limb moving)
 	int contact_limbs = std::max(1, limb_count - 1);
@@ -549,9 +564,16 @@ std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input cons
 		static_cast<Output_Appendage&>(	manipulators[i]) = appendages[i];
 		auto idx = manipulators[i].tip;
 		
-		auto relevant_joints = sk_memo->GetAllChildrenOfRoot(manipulators[i].root);
+		int relevant_root = manipulators[i].tip;
+		for(auto j = manipulators[i].tip; j >= manipulators[i].root; j = parents[j])
+		{
+			if(HasFlag(semantic_flags[j], SF::CONTACT|SF::GRASPER))
+				relevant_root = j;		
+		}
+		
+		auto relevant_joints = sk_memo->GetAllChildrenOfRoot(relevant_root);
 		// get all *excluding grasper itself* (just fingers)
-		auto which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size()-1);
+		auto which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
 			
 		auto metrics = in.skinnedMesh->GetMetrics(which, in.behavior.scale);
 		TonTon::Silhouette silhouette;
@@ -615,7 +637,19 @@ std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input cons
 			// Effective cross-sectional area (perpendicular to force direction)
 			// For grip, this is roughly the cross-section of the muscles
 			float grip_muscle_area_m2 = avg_area * muscle_fraction;
-			manipulators[i].max_grip_force_N = muscle_stress_Pa * grip_muscle_area_m2;
+			float base_grip_force_N = muscle_stress_Pa * grip_muscle_area_m2;
+
+			// Grip force depends on mechanical advantage / limb geometry
+			// Short thick limbs (penguin legs) have poor leverage despite high muscle mass
+			// Compare limb length to thickness (sqrt of cross-sectional area)
+			float limb_thickness_m = std::sqrt(avg_area); // Characteristic thickness
+			float aspect_ratio = manipulators[i].stretched_length_m / std::max(0.001f, limb_thickness_m);
+			// Typical limb: aspect_ratio ~5-15 (length is 5-15x thickness)
+			// Penguin legs: aspect_ratio ~2-3 (short and thick), poor mechanical advantage
+			// Primate arms: aspect_ratio ~10-20 (long and slender), good leverage
+			float length_factor = glm::clamp(aspect_ratio / 10.0f, 0.3f, 1.2f); // 0.3x at stubby, 1.0x at normal
+
+			manipulators[i].max_grip_force_N = base_grip_force_N * length_factor;
 			
 			// 3. LIFT FORCE (constrained by joint torque limits)
 			// Torque = Force × moment_arm

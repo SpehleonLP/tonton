@@ -87,6 +87,8 @@ struct Output_Physical {
 	float body_volume_m3{};
 	float tail_length_m{};
 	
+	float svl_m() const { return body_length_m - tail_length_m; }
+	
 	// Body plan characteristics
 	float surface_area_m2{};
 	float cross_sectional_area_m2{};
@@ -273,7 +275,8 @@ struct Output_TakeoffAnalysis {
     // Required jump velocity from legs
     static float RequiredJumpVelocity(const Output_Aerial& aerial,
                                      float body_mass_kg,
-                                     float max_lift_N);
+                                     float max_lift_N,
+                                     float gravity_m_s2);
     
     // Running takeoff distance
     static float RunwayDistance(const Output_Aerial& aerial,
@@ -338,6 +341,10 @@ struct Output_Aerial {
 	float flapping_efficiency{};
 	float hovering_efficiency{};
 	bool can_hover{};
+
+	// Flight capability diagnostics (based on muscle power budget)
+	bool can_sustain_level_flight{};  // Sufficient power for sustained flight
+	bool can_slow_descent{};          // Can flutter to slow fall, but not gain altitude
 			
 	// Steady glide: Lift = Weight
 	float gliding_CL(float weight_N, float speed_m_s, float air_density = 1.225f) const;
@@ -525,7 +532,7 @@ struct  Output_Tail : public Output_Appendage // or tips for branching
 	
 	enum Flags : uint8_t
 	{
-	//	Balance = 1 << 0,		// seems to be a catch all for "we don't know what this does"
+	//	Balance = 1 << 0,		// in biology seems to be a catch all for "we don't know what this does"
 	//	Propulsion = 1 << 2,   // not determinable at the point in time we compute the tail. 
 		Grasping = 1 << 3,
 	//	Display = 1 << 4,		// unsure how to detect right now
@@ -667,6 +674,8 @@ struct Output  {
 using Sensory = Output_Sensory<optional>;
 
 	static counted_ptr<const Output> Factory(Input const& in);
+//	static counted_ptr<const Output> Scale(Output const& in, float scale);
+	
 
 	void AddRef() const { ++_refCount; };
 	void Release() const { if(--_refCount == 0) delete this; }

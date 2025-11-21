@@ -41,7 +41,41 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 	bool has_terrestrial = s.terrestrial.has_value();
 	if(!has_terrestrial) {
 		// No terrestrial locomotion at all - serpentine is the way
+		// (e.g., eels, sea snakes - they're aquatic but still serpentine)
 		return true;
+	}
+
+	// CHECK FLEXIBILITY: For TERRESTRIAL serpentine locomotion, check body flexibility
+	// Use tail cross-section to estimate flexibility (assuming cylindrical tail)
+	// Flexible creatures (snakes, eels) have high length/diameter ratios
+	// Rigid creatures (sharks, most fish) have low ratios
+	// NOTE: This check only applies to terrestrial locomotion, not aquatic anguilliform swimming
+
+	if(s.appendages.tails.size() > 0) {
+		auto const& tail = s.appendages.tails[0];
+
+		// Serpentine locomotion requires a minimum tail/body length to undulate
+		// Penguins, chickens, etc. with vestigial tails (< 5% body length) cannot undulate
+		float min_tail_length = s.physical.body_length_m * 0.05f;
+		if(tail.stretched_length_m < min_tail_length) {
+			return false; // Tail too short for serpentine motion
+		}
+
+		// Calculate tail diameter from cross-section (assume circular)
+		// A = πr² → r = sqrt(A/π) → diameter = 2r
+		float cross_section_m2 = tail.max_cross_section_m2;
+		if(cross_section_m2 > 0.0001f) {
+			float tail_diameter_m = 2.0f * std::sqrt(cross_section_m2 / M_PI);
+			float tail_aspect_ratio = tail.stretched_length_m / tail_diameter_m;
+
+			// Snakes: aspect ratio ~40-80 (very flexible)
+			// Lizards: aspect ratio ~10-20 (moderately flexible)
+			// Fish/Sharks: aspect ratio ~3-8 (rigid)
+			// Threshold: need aspect ratio > 15 for TERRESTRIAL serpentine locomotion
+			if(tail_aspect_ratio < 15.0f) {
+				return false; // Too rigid for terrestrial serpentine motion
+			}
+		}
 	}
 
 	// If has legs, check if they're dominant or subordinate to tail

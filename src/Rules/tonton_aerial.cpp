@@ -27,10 +27,12 @@ std::vector<GaitGroupSpan> GetGaitGroupSpan(Output_Aerial::Wing * data, size_t s
 std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scratch &out)
 {
     TonTon::Output_Aerial r;
-    
+
     auto wings = shared_array<TonTon::Output_Aerial::Wing>::FromArray(GetWings(in, out));
     r.wings = wings;
-    
+
+   // std::cerr << "DEBUG: GetWings returned " << r.wings.size() << " wings\n";
+
     if (r.wings.empty()) {
         return {}; // No wings, no aerial capability
     }
@@ -73,10 +75,22 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
     const float rho = in.environment.fluidDensity_Kg_m3;
     const float mu = in.environment.fluidViscosity_Pa_s;
     const float body_mass_kg = out.physical.body_mass_kg;
-    const float weight_N = body_mass_kg * g;
-    
+    const float body_volume_m3 = out.physical.body_volume_m3;
+
+    // Account for buoyancy in dense fluids (critical for underwater "flight")
+    // Effective weight = (body_mass - displaced_fluid_mass) * g
+    // In air: negligible (~1.2 kg/m³), in water: major (~1025 kg/m³)
+    const float displaced_fluid_mass_kg = body_volume_m3 * rho;
+    float effective_weight_N = (body_mass_kg - displaced_fluid_mass_kg) * g;
+
+    // For underwater flyers with neutral/positive buoyancy (effective weight ≤ 0),
+    // use drag-based propulsion model instead of lift-based flight
+    // Min weight: 1% of air weight to avoid singularities in flight equations
+    const float min_weight_N = body_mass_kg * g * 0.01f;
+    const float weight_N = std::max(effective_weight_N, min_weight_N);
+
     // --- WING LOADING ---
-    // Pure physics: weight per unit wing area
+    // Pure physics: effective weight per unit wing area (accounts for buoyancy)
     r.wing_loading_N_m2 = weight_N / total_wing_area_m2;
     
     // --- STALL SPEED (minimum flight speed) ---
@@ -231,20 +245,38 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
 	
 	// Total mechanical power
 	float mechanical_power_W = aerodynamic_power_W + inertial_power_W;
-	
+
 	// Convert to metabolic cost
 	float muscle_efficiency = 0.20f + 0.03f * in.feather_quality;
 	float flapping_power_W = mechanical_power_W / muscle_efficiency;
-	
+
+	// ============================================================================
+	// MUSCLE POWER BUDGET CHECK
+	// ============================================================================
+	// Check if creature has enough muscle power to sustain this wingbeat frequency
+	// NOTE: Don't reduce frequency yet - need to check hovering power first!
+	// For hovering specialists (dragonflies), hovering may be cheaper than forward flight
+
+	float forward_power_ratio = available_power_W / flapping_power_W;
+
 	r.flapping_cost_W_per_N = flapping_power_W / weight_N;
-		    // Flapping efficiency: can we sustain it?
-    r.flapping_efficiency = std::min(1.0f, available_power_W / flapping_power_W);
-    if (r.flapping_efficiency < 0.5f) {
-    //    r.flapping_efficiency = 0.0f; // Below 50% power margin = not viable
-    } else {
-        // Normalize 0.5-1.0 range to 0-1
-        r.flapping_efficiency = (r.flapping_efficiency - 0.5f) * 2.0f;
-    }
+
+	// Flight capability diagnostic (will be refined after hovering calculation)
+	// - power_ratio > 1.5: Excellent - can sustain level flight with margin
+	// - power_ratio 1.0-1.5: Marginal - can barely sustain level flight
+	// - power_ratio 0.5-1.0: Flutter only - can slow descent, cannot gain altitude
+	// - power_ratio < 0.5: Cannot fly - wings too weak
+
+	// Defer efficiency calculation until after frequency adjustment decision
+	if (forward_power_ratio >= 1.0f) {
+		r.can_sustain_level_flight = true;
+	} else if (forward_power_ratio >= 0.5f) {
+		r.can_sustain_level_flight = false;
+		r.can_slow_descent = true; // Can flutter to slow fall
+	} else {
+		r.can_sustain_level_flight = false;
+		r.can_slow_descent = false; // Wings essentially useless
+	}
     
 	// so if we have 1 pair of wings then 1 center
 	// if we have 2 then 2 centers
@@ -303,14 +335,89 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
 	
 	r.hovering_cost_W_per_N = hovering_power_W / weight_N;
 	
-	// Hovering viability
-	bool hover_power_ok = (available_power_W / hovering_power_W) > 2.0f;
-	
-	if (hover_power_ok) {
-		float power_ratio = available_power_W / hovering_power_W;
-		r.hovering_efficiency = std::min(1.0f, (power_ratio - 2.0f) / 2.0f);  // 2-4x = 0-1
+	// Hovering viability - defer efficiency calculation
+	float hover_power_ratio = available_power_W / hovering_power_W;
+
+	// Basic hovering capability: if you have enough power, you can hover
+	// Efficiency reflects how much margin you have
+	if (hover_power_ratio > 1.0f) {
+		r.can_hover = true;
+		r.hovering_efficiency = std::min(1.0f, (hover_power_ratio - 1.0f) / 2.0f);
 	} else {
+		r.can_hover = false;
 		r.hovering_efficiency = 0.0f;
+	}
+
+	// ============================================================================
+	// FINAL POWER BUDGET DECISION
+	// ============================================================================
+	// Now that we have both forward and hovering power requirements, decide if
+	// we need to reduce wingbeat frequency
+
+	// Use the better of forward or hovering power (specialist creatures excel at one mode)
+	float best_power_ratio = std::max(forward_power_ratio, hover_power_ratio);
+/*
+	std::cerr << "DEBUG: forward_power_ratio=" << forward_power_ratio
+	          << " hover_power_ratio=" << hover_power_ratio
+	          << " best_power_ratio=" << best_power_ratio << "\n";*/
+
+	if (best_power_ratio < 1.0f) {
+		// Insufficient power for ANY flight mode - must reduce wingbeat rate
+		// Power scales roughly with frequency cubed (P ∝ f³)
+		float frequency_scale = std::pow(best_power_ratio, 1.0f / 3.0f);
+		r.wingbeat_frequency_Hz *= frequency_scale;
+
+		// Recalculate speeds based on reduced frequency
+		float stroke_length_m = base_beat_amplitude_rad;
+		float strouhal_optimal = 0.3f;
+		r.cruise_speed_m_s = (r.wingbeat_frequency_Hz * stroke_length_m) / strouhal_optimal;
+		r.cruise_speed_m_s = std::max(r.cruise_speed_m_s, r.min_flight_speed_m_s * 1.2f);
+
+		float strouhal_max = 0.2f;
+		r.max_flight_speed_m_s = (r.wingbeat_frequency_Hz * stroke_length_m) / strouhal_max;
+
+		// Recalculate power costs with new frequency (P ∝ f³)
+		float freq_cube = frequency_scale * frequency_scale * frequency_scale;
+		r.flapping_cost_W_per_N *= freq_cube;
+		r.hovering_cost_W_per_N *= freq_cube;
+		forward_power_ratio = available_power_W / (r.flapping_cost_W_per_N * weight_N);
+		hover_power_ratio = available_power_W / (r.hovering_cost_W_per_N * weight_N);
+
+		// Update diagnostics with new power ratios
+		if (forward_power_ratio >= 1.0f) {
+			r.flapping_efficiency = std::min(1.0f, (forward_power_ratio - 1.0f) / 0.5f);
+			r.can_sustain_level_flight = true;
+			r.can_slow_descent = false;
+		} else if (forward_power_ratio >= 0.5f) {
+			r.flapping_efficiency = 0.0f;
+			r.can_sustain_level_flight = false;
+			r.can_slow_descent = true;
+		} else {
+			r.flapping_efficiency = 0.0f;
+			r.can_sustain_level_flight = false;
+			r.can_slow_descent = false;
+		}
+
+		// Update hovering after frequency reduction
+		if (hover_power_ratio > 1.0f) {
+			r.can_hover = true;
+			r.hovering_efficiency = std::min(1.0f, (hover_power_ratio - 1.0f) / 2.0f);
+		} else {
+			r.can_hover = false;
+			r.hovering_efficiency = 0.0f;
+		}
+	} else {
+		// best_power_ratio >= 1.0, keep original frequency
+		// Calculate flapping efficiency based on final power ratio
+		if (forward_power_ratio >= 1.0f) {
+			r.flapping_efficiency = std::min(1.0f, (forward_power_ratio - 1.0f) / 0.5f);
+		} else if (forward_power_ratio >= 0.5f) {
+			// Can flutter but not sustain flight
+			r.flapping_efficiency = 0.0f;
+		} else {
+			r.flapping_efficiency = 0.0f;
+		}
+		// Hovering already set above, don't recalculate
 	}
 
    #if 0
@@ -439,7 +546,9 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
     using CF = CladeFlags;
 
     // AVES: Bird-specific flight characteristics
+   // std::cerr << "DEBUG: Checking AVES clade\n";
     if (HasFlag(out.physical.clade, CF::AVES)) {
+       // std::cerr << "DEBUG: Dragonfly classified as AVES!\n";
         // Pennycuick (1996): Universal wingbeat frequency f = 3.87 × M^(-0.33)
         // Rayner (1988): Validated across 186 bird species (R² = 0.96)
         // Greenewalt (1962): Original observation of M^(-1/3) scaling
@@ -457,16 +566,9 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
         // This is already calculated correctly in the physics, just document the constraint
 
         // Hovering capability refinement for birds
-        // Altshuler et al. (2004): Hummingbird hovering requires wing loading < 80 N/m²
-        // Chai & Dudley (1995): Minimum 50 Hz wingbeat for sustained hover
-        // Ellington (1984): Power margin > 2.0 required for stability
-        if (r.wing_loading_N_m2 < 80.0f &&
-            r.wingbeat_frequency_Hz > 50.0f &&
-            (available_power_W / (r.hovering_cost_W_per_N * weight_N)) > 2.0f) {
-            r.can_hover = true;
-        } else {
-            r.can_hover = false;
-        }
+        // Hovering capability already determined by power budget
+        // These are constraints for optimal hovering, not capability
+        // (wing loading, frequency, etc affect efficiency but not basic capability)
 
         // Birds are endotherms - can sustain high power output
         // Already reflected in metabolic scaling, but document here
@@ -475,11 +577,13 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
 
     // INSECTA: Insect-specific flight (very different from birds)
     if (HasFlag(out.physical.clade, CF::INSECTA)) {
+       // std::cerr << "DEBUG: Applying insect-specific flight adjustments\n";
         // Insects operate at LOW Reynolds number (10-10,000)
         // Ellington (1984): Re = 10-10,000 for most insects vs. Re > 10^5 for birds
         // Fundamentally different aerodynamics - LEV dominates
 
         float insect_reynolds = (rho * r.cruise_speed_m_s * mean_chord_m) / mu;
+       // std::cerr << "DEBUG: insect_reynolds=" << insect_reynolds << "\n";
 
         if (insect_reynolds < 10000.0f) {
             // Leading edge vortex (LEV) enhanced lift
@@ -494,7 +598,7 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
             // Hovering is EASIER at low Re (LEV stabilization)
             r.hovering_efficiency *= 1.3f;
             r.hovering_efficiency = std::min(r.hovering_efficiency, 1.0f);
-            r.can_hover = r.hovering_efficiency > 0.5f;
+            // can_hover already set by power budget, don't override
         }
 
         // Insects use asynchronous muscle (flies) or synchronous (most others)
@@ -557,9 +661,12 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
     // ============================================================================
 
     // Sanity checks
+   // std::cerr << "DEBUG: Final flapping_efficiency=" << r.flapping_efficiency  << " hovering_efficiency=" << r.hovering_efficiency << "\n";
+
     // Check if ANY flight mode is viable
     if (r.flapping_efficiency == 0.0f &&
         r.hovering_efficiency == 0.0f) {
+       // std::cerr << "DEBUG: Both efficiencies are 0, returning empty\n";
         return {}; // Not a flyer
     }
 

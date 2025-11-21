@@ -21,8 +21,8 @@ static void print_optional(std::ostream& os, const char* name, const float& opt)
 std::ostream& operator<<(std::ostream& os, const Output_Physical& p) {
     os << "Physical:\n"
        << "  body_mass_kg: " << p.body_mass_kg << "\n"
-       << "  body_length_m: " << p.body_length_m << "\n"
-       << "  total_length_m: " << p.body_length_m + p.tail_length_m << "\n"
+       << "  svl_m: " << p.svl_m() << "\n"
+       << "  total_length_m: " << p.body_length_m  << "\n"
        << "  body_volume_m3: " << p.body_volume_m3 << "\n"
       // << "  center_of_mass: (" << p.center_of_mass.x << ", " << p.center_of_mass.y << ", " << p.center_of_mass.z << ")\n"
        << "  surface_area_m2: " << p.surface_area_m2 << "\n"
@@ -219,8 +219,9 @@ std::ostream& operator<<(std::ostream& os, const Output_Aerial& a) {
     }
 
     os << "  wingbeat_frequency_Hz: " << a.wingbeat_frequency_Hz << "\n"
-    //   << "  can_hover: " << (a.can_hover ? "true" : "false") << "\n"
-   //    << "  can_soar: " << (a.can_soar ? "true" : "false") << "\n"
+       << "  can_sustain_level_flight: " << (a.can_sustain_level_flight ? "yes" : "no") << "\n"
+       << "  can_slow_descent: " << (a.can_slow_descent ? "yes" : "no") << "\n"
+       << "  can_hover: " << (a.can_hover ? "yes" : "no") << "\n"
        << "  speeds (min/cruise/max): " << a.min_flight_speed_m_s << "/"
        << a.cruise_speed_m_s << "/" << a.max_flight_speed_m_s << " m/s\n"
        

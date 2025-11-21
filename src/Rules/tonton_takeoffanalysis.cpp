@@ -1,6 +1,7 @@
 #include "tonton_takeoffanalysis.h"
 #include "tonton_scratch.h"
 #include "../include/tonton_output.h"
+#include "../include/tonton_input.h"
 
 namespace TonTon {
 
@@ -9,21 +10,21 @@ using TakeoffAnalysis = Output_TakeoffAnalysis;
 static TakeoffAnalysis::TakeoffMode ClassifyMode(const Scratch& output,
                                                  const TakeoffAnalysis& analysis);
                                                  
-TakeoffAnalysis TakeoffAnalysis_Compute(const Scratch& output) {
+TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) {
     TakeoffAnalysis result;
     using TakeoffMode = TakeoffAnalysis::TakeoffMode;
     using T = TakeoffAnalysis;
-    
+
     if (!output.aerial.has_value()) {
         result.mode = TakeoffMode::IMPOSSIBLE;
         result.confidence = 1.0f;
         return result;
     }
-    
+
     const auto& aerial = output.aerial.value();
     const float body_mass_kg = output.physical.body_mass_kg;
-    const float weight_N = body_mass_kg * 9.81f;
-    const float air_density = 1.225f;  // Could use environment.fluidDensity_Kg_m3
+    const float weight_N = body_mass_kg * in.environment.gravity_m_s2;
+    const float air_density = in.environment.fluidDensity_Kg_m3;
     
     // ========================================================================
     // FORCE ANALYSIS
@@ -72,17 +73,19 @@ TakeoffAnalysis TakeoffAnalysis_Compute(const Scratch& output) {
     
     // Check if legs can provide jump assist
     if (output.jumping.has_value()) {
-        result.required_jump_velocity_m_s = T::RequiredJumpVelocity(aerial, body_mass_kg, 
-                                                                 result.max_instantaneous_lift_N);
-        result.constraints.leg_strength_ok = output.jumping->takeoff_velocity_m_s >= 
+        result.required_jump_velocity_m_s = T::RequiredJumpVelocity(aerial, body_mass_kg,
+                                                                 result.max_instantaneous_lift_N,
+                                                                 in.environment.gravity_m_s2);
+        result.constraints.leg_strength_ok = output.jumping->takeoff_velocity_m_s >=
                                             result.required_jump_velocity_m_s;
     } else if (output.terrestrial.has_value()) {
         // Estimate jump capability from leg strength
         result.required_jump_velocity_m_s = T::RequiredJumpVelocity(aerial, body_mass_kg,
-                                                                 result.max_instantaneous_lift_N);
+                                                                 result.max_instantaneous_lift_N,
+                                                                 in.environment.gravity_m_s2);
         
         float estimated_jump_height_m = body_mass_kg * 0.1f;  // Rough: 10% body mass -> 0.1m
-        float estimated_jump_velocity = std::sqrt(2.0f * 9.81f * estimated_jump_height_m);
+        float estimated_jump_velocity = std::sqrt(2.0f * in.environment.gravity_m_s2 * estimated_jump_height_m);
         result.constraints.leg_strength_ok = estimated_jump_velocity >= result.required_jump_velocity_m_s;
     }
     
@@ -213,28 +216,29 @@ inline float TakeoffAnalysis::GroundEffectBonus(float wing_span_m, float height_
 
 inline float TakeoffAnalysis::RequiredJumpVelocity(const Output_Aerial& aerial,
                                                    float body_mass_kg,
-                                                   float max_lift_N) {
-    const float weight_N = body_mass_kg * 9.81f;
-    
+                                                   float max_lift_N,
+                                                   float gravity_m_s2) {
+    const float weight_N = body_mass_kg * gravity_m_s2;
+
     // If wings can already provide > weight, no jump needed
     if (max_lift_N >= weight_N * 1.1f) {
         return 0.0f;
     }
-    
+
     // Otherwise, need to gain enough height/time for wings to build lift
     // Target: reach min flight speed or buy enough time for wing acceleration
-    
+
  //   float lift_deficit_N = weight_N - max_lift_N;
-    
+
     // Time needed to reach min flight speed (assuming wings can eventually support)
     float time_needed_s = std::max(0.3f, aerial.min_flight_speed_m_s / 5.0f);
-    
+
     // Height needed = 0.5 * g * t²
-    float height_needed_m = 0.5f * 9.81f * time_needed_s * time_needed_s;
-    
+    float height_needed_m = 0.5f * gravity_m_s2 * time_needed_s * time_needed_s;
+
     // Jump velocity: v = sqrt(2 * g * h)
-    float required_v_m_s = std::sqrt(2.0f * 9.81f * height_needed_m);
-    
+    float required_v_m_s = std::sqrt(2.0f * gravity_m_s2 * height_needed_m);
+
     // Clamp to reasonable range
     return std::min(required_v_m_s, 5.0f);  // Max 5 m/s jump (very strong)
 }

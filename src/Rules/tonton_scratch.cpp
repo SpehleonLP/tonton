@@ -33,7 +33,7 @@ static	std::vector<Output_Tail>   ComputeTails(Input const& in);
 
 namespace TonTon
 {
-Output_TakeoffAnalysis TakeoffAnalysis_Compute(const Scratch& output);
+Output_TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output);
 }
 
 TonTon::Scratch::Scratch(Input const& in)
@@ -65,7 +65,7 @@ TonTon::Scratch::Scratch(Input const& in)
 
 	if(aerial.has_value())
 	{
-		aerial->takeoff = TakeoffAnalysis_Compute(*this);
+		aerial->takeoff = TakeoffAnalysis_Compute(in, *this);
 	}
 
 	behavior =  ComputeBehavior(in, *this);
@@ -228,6 +228,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 
 	auto position       = sk.skin->position.data();
 	auto relative_flags = sk_memo->GetRelativeFlags();
+	auto children		= sk_memo->GetChildren();
 	auto semantic_flags = sk_memo->GetSemanticFlags();
 	auto dfs_ordering   = sk_memo->GetDfsOrdering();
 	auto gcr_table      = sk_memo->GetGcrTable();
@@ -250,9 +251,9 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 	bool is_upright = false;
 	int spine_root = 0;
 	
-	auto ProcessHead = [&](uint32_t begin)
+	auto ProcessHead = [&](const uint32_t begin)
 	{
-		auto root = dfs_ordering[begin];
+		const auto root = dfs_ordering[begin];
 		Cube aabb = sk.aabb[root];
 		
 		for(auto idx = begin; idx < dfs_ordering.size(); ++idx)
@@ -274,6 +275,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 		double spine_length = 0;
 		double this_cross_section_area = 0;
 		bool is_this_upright = false;
+		bool in_spine = false;
 		int this_spine_root{};
 	
 	// walk down spine
@@ -291,28 +293,57 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 					is_this_upright = (projection > 0.707);					
 				}
 				
-				if(HasFlag(semantic_flags[joint], SPINE_FLAGS))
+				if(HasFlag(semantic_flags[p], SPINE_FLAGS))
 				{
 					spine_length += glm::length(delta);
+					this_spine_root = p;
+					in_spine = true;
+				}
+				else if(in_spine)
+					break;
+			}
+		}
+		
+		// walk up spine	
+		bool shared_by_head = true;	
+		for(auto  joint = this_spine_root; joint != -1; )
+		{
+			int candidate = -1;
+			bool candidate_shared_by_head = false;
+			
+			for(auto child : children[joint])
+			{
+				auto flags = semantic_flags[child]|relative_flags[child].child_flags;
+				
+				if( HasFlag(flags, SPINE_FLAGS)
+				&& !HasFlag(semantic_flags[child], NOT_SPINE_FLAGS))
+				{
+					bool child_shared_by_head = (gcr_table[root*noJoints + child] == child);
+				
+					if((child_shared_by_head == true && candidate == -1)
+					|| (child_shared_by_head == false))
+					{
+						candidate = child;
+						candidate_shared_by_head = child_shared_by_head;
+					}
 				}
 			}
-			#if 0
-			if(HasFlag(semantic_flags[joint], SPINE_FLAGS))
+			
+			glm::vec3 delta = glm::vec3(0);
+			
+			if(candidate == -1)
+				delta = in.position(joint) - in.skinnedMesh->memo()->GetBoneTails()[joint];
+			else if(candidate_shared_by_head == false)
 			{
-				auto children = sk_memo->GetAllChildren(joint, SPINE_FLAGS, NOT_SPINE_FLAGS);
-				children.push_back(joint);
-				
-				auto silhouette = in.skinnedMesh->memo()->GetSilhouettes(
-					Axis::Z, 
-					in.behavior.scale,
-					std::span(children.data(), children.size()),
-					0.5,
-					false
-				);
-				
-				this_cross_section_area = std::max(this_cross_section_area, silhouette.area);
+				if(in_spine == false)
+					delta = in.position(root) - in.position(candidate);
+				else
+					delta = in.position(joint) - in.position(candidate);
 			}
-			#endif
+			
+			joint = candidate;			
+			shared_by_head = candidate_shared_by_head;
+			spine_length += glm::length(delta);	
 		}
 	
 		double SVL = snout_to_base_of_skull + spine_length;
@@ -363,8 +394,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 			
 			if(p >= 0)
 			{	
-				tail_length += glm::distance(in.position(joint), in.position(p));
-				
+				tail_length += glm::distance(in.position(joint), in.position(p));	
 			}
 			
 			if(HasFlag(semantic_flags[joint], SPINE_FLAGS))
@@ -437,7 +467,7 @@ static Output_Physical TonTon::ComputePhysical(Input const& in, Scratch & out)
 	
 	return {
 		.body_mass_kg=float(volume * body_density),
-		.body_length_m=max_body_length,
+		.body_length_m=max_body_length+max_tail_length,
 		.body_volume_m3=volume,
 		.tail_length_m=max_tail_length,
 		

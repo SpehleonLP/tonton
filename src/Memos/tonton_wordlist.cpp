@@ -977,7 +977,7 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::anal: return CF::PISCES;
 
     // Marine mammals
-    case Word::flipper:
+    case Word::flipper: return CF::CHORDATA;
     case Word::fluke: return CF::CETACEA;
 
     // Cephalopods
