@@ -1,13 +1,14 @@
 #include "tonton_metabolic.h"
-#include "tonton_output.h"
+#include "tonton_analysis.h"
 #include "tonton_input.h"
+#include "tonton_skinnedmesh.h"
 #include "Rules/tonton_scratch.h"
 #include <cmath>
 #include <vector>
 
 using CF = TonTon::CladeFlags;
 
-TonTon::Output_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s)
+TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s)
 {
 	float body_mass_kg = s.physical.body_mass_kg;
 
@@ -288,7 +289,7 @@ TonTon::Output_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s)
 		available_muscle_power_W *= temp_factor;
 	}
 
-	return Output_Metabolic{
+	return Analysis_Metabolic{
 		.basal_rate_W = basal_rate_W,
 		.max_rate_W = max_rate_W,
 		.aerobic_scope = aerobic_scope,

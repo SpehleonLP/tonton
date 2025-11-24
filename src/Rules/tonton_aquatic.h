@@ -7,9 +7,9 @@ namespace TonTon
 
 struct Input;
 struct Scratch;
-struct Output_Aquatic;
+struct Analysis_Aquatic;
 
-std::optional<Output_Aquatic>   ComputeAquatic(Input const& in, Scratch & s);
+std::optional<Analysis_Aquatic>   ComputeAquatic(Input const& in, Scratch &s);
 
 }
 

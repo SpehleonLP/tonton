@@ -7,12 +7,12 @@ namespace TonTon
 
 struct Input;
 struct Scratch;
-struct Output_Metabolic;
+struct Analysis_Metabolic;
 
 // Compute metabolic rates with multi-clade blending
 // Called after physical analysis (clade flags available)
 // Called before locomotion modes (they need metabolic budget)
-Output_Metabolic ComputeMetabolic(Input const& in, Scratch & s);
+Analysis_Metabolic ComputeMetabolic(Input const& in, Scratch & s);
 
 }
 

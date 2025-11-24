@@ -1,10 +1,7 @@
 #include "tonton_aerial.h"
-#include "Memos/tonton_armaturememo.h"
-#include "Memos/tonton_skinnedmeshmemo.h"
-#include "Rules/tonton_scratch.h"
-#include "dodeedum.h"
+#include "../../include/tonton_skinnedmesh.h"
 #include "../../include/tonton_input.h"
-#include <iostream>
+#include "../../include/tonton_builder.h"
 #include <set>
 #include <cmath>
 #include <algorithm>
@@ -19,17 +16,17 @@ struct GaitGroupSpan
 
 namespace TonTon
 {
-static std::vector<Output_Aerial::Wing> GetWings(Input const& in, Scratch &out);
-std::vector<GaitGroupSpan> GetGaitGroupSpan(Output_Aerial::Wing * data, size_t size);
+static std::vector<Analysis_Aerial::Wing> GetWings(Input const& in);
+std::vector<GaitGroupSpan> GetGaitGroupSpan(Analysis_Aerial::Wing * data, size_t size);
 // Forward declaration for GetGaitGroupCenters
-std::vector<glm::vec3> GetGaitGroupCenters(Input const& in, std::span<Output_Aerial::Wing> wings);
+std::vector<glm::vec3> GetGaitGroupCenters(Input const& in, std::span<Analysis_Aerial::Wing> wings);
 }
 
-std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scratch &out)
+std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in)
 {
-    TonTon::Output_Aerial r;
+    TonTon::Analysis_Aerial r;
     
-    auto wings = shared_array<TonTon::Output_Aerial::Wing>::FromArray(GetWings(in, out));
+    auto wings = shared_array<TonTon::Analysis_Aerial::Wing>::FromArray(GetWings(in));
     r.wings = wings;
     
     if (r.wings.empty()) {
@@ -73,8 +70,8 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
     const float g = in.environment.gravity_m_s2;
     const float rho = in.environment.fluidDensity_Kg_m3;
     const float mu = in.environment.fluidViscosity_Pa_s;
-    const float body_mass_kg = out.physical.body_mass_kg;
-    const float weight_N = body_mass_kg * g;
+    const float body_mass_kg = in.body_mass_kg();
+    const float weight_N = in.body_weight_N();
     
     // --- WING LOADING ---
     // Pure physics: weight per unit wing area
@@ -217,7 +214,7 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
 	// Parasite drag power: body
 	float CD_body = 0.1f + 0.05f * (1.0f - in.structure_vs_weight);
 	float parasite_power_W = 0.5f * rho * std::pow(r.cruise_speed_m_s, 3.0f) * 
-							 out.physical.cross_sectional_area_m2 * CD_body;
+							 in.cross_sectional_area_m2() * CD_body;
 	
 	// Inertial power (approximate as fraction of aerodynamic power)
 	float aerodynamic_power_W = induced_power_W + profile_power_W + parasite_power_W;
@@ -251,7 +248,7 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
 	// if we have 2 then 2 centers
 	// if we have 5 then 5 centers etc.
 	// centers represnent a group of wings that are symmetrical, bilaterially, penta- whatever.	
-	std::span<TonTon::Output_Aerial::Wing> as_span(wings);
+	std::span<TonTon::Analysis_Aerial::Wing> as_span(wings);
     auto centers = TonTon::GetGaitGroupCenters(in, as_span); // Added TonTon:: prefix
     
     // HOVERING FLIGHT
@@ -378,7 +375,7 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
     r.min_turning_radius_m = (r.cruise_speed_m_s * r.cruise_speed_m_s) / 
                              (g * std::sqrt(max_load_factor * max_load_factor - 1.0f));
     
-    auto GetInertia = [I=out.physical.inertia_restPose()](glm::vec3 const& axis)
+    auto GetInertia = [I=in.inertia_restPose()](glm::vec3 const& axis)
     {
 		return glm::dot(axis, I * axis);
     };
@@ -459,126 +456,58 @@ std::optional<TonTon::Output_Aerial> TonTon::ComputeAerial(Input const& in, Scra
     return r;
 }
 
-std::vector<TonTon::Output_Aerial::Wing> TonTon::GetWings(Input const& in, Scratch & out)
+std::vector<TonTon::Analysis_Aerial::Wing> TonTon::GetWings(Input const& in)
 {
 using SF = SemanticFlags;
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo(); // Corrected
-	auto position = sk.skin->position.data(); // Corrected
 	
-	auto appendages = GetChainsFromRoot(in, SF::WING); 
-	std::vector<TonTon::Output_Aerial::Wing> r;
-	r.resize(appendages.size());
+	std::vector<TonTon::Analysis_Aerial::Wing> r;
+	r.reserve(in.builder->appendages.size());
 	
 	double body_density=glm::mix(700.0, 1050.0, in.average_density);
 	
-	for(auto i = 0u; i < r.size(); ++i)
+	double area_scale = in.area_scale();
+	double volume_scale = in.volume_scale();
+	double inertia_scale = in.inertia_scale();
+	double mass_scale = volume_scale * in.body_density();
+	
+	for(auto & appendage : in.builder->appendages)
 	{
-		(Output_Chain&)r[i] = appendages[i];
-		r[i].span_m = r[i].stretched_length_m;
-		
-		SkinnedMesh::LimbMetrics limb_metrics;
-		std::pair<glm::quat, glm::vec3> eigen_decomposition;
-		
-		auto relevant_joints = sk_memo->GetAllChildrenOfRoot(r[i].root);
-		auto which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
-		// in.armature->memo() was used here, changed to in.skinnedMesh->skin->memo()
-		auto projection = in.skinnedMesh->memo()->GetProjectionMatrix(EigenValue::Small, in.behavior.scale, which, &limb_metrics, &eigen_decomposition); // Corrected
-		auto metrics = in.skinnedMesh->memo()->GetSilhouettes(projection, in.behavior.scale, which); // Corrected
-		
-		r[i].area_m2 = metrics.area;
-		r[i].chord_m = metrics.MeasureWidth_Segment(position[r[i].root], position[r[i].tip]).length;
-		
-		auto axis = GetTangentAxis(EigenValue::Small, eigen_decomposition.first, in.position(r[i].root), in.position(r[i].tip));
-		
-		r[i].mass_kg = limb_metrics.volume * body_density;
-		r[i].inertia_kgm2 = limb_metrics.GetInertia(position[r[i].root], body_density, axis);
+		if(!HasFlag(appendage.semantic_flags, SF::WING))
+			continue;
 			
+		TonTon::Analysis_Aerial::Wing wing;
+		(Analysis_Appendage&)wing = appendage;
+		
+		wing.stretched_length_m *= in.scale;
+		wing.rest_length_m *= in.scale;
+		
+		wing.span_m = wing.stretched_length_m + appendage.distance_to_parent_m * in.scale;
+		wing.area_m2 = appendage.surface.area_m2 * area_scale;
+		wing.chord_m = appendage.surface.chord_m * in.scale;
+					
+		wing.mass_kg = appendage.volume_m3 * mass_scale;
+		wing.inertia_kgm2 = appendage.unit_inertia_m5 * inertia_scale * body_density;
+		
 		// --- WING INERTIA --- 
 		// Van Den Berg & Rayner (1995): I = k × m_wing × L² (R^2 = 0.97)
 		// Wing mass typically 10-15% of body mass (more for hovering specialists)
 		// only applies to birds.
 		float wing_mass_fraction = 0.10f + 0.05f * in.stability_vs_speed;
-		float wing_mass_kg = out.physical.body_mass_kg * wing_mass_fraction;
-		float wing_inertia_kg_m2 = 0.33f * wing_mass_kg * r[i].span_m * r[i].span_m * 4.0;
+		float wing_mass_kg = in.body_mass_kg() * wing_mass_fraction;
+		float wing_inertia_kg_m2 = 0.33f * wing_mass_kg * wing.span_m * wing.span_m * 4.0;
 		
 	// indicates feathers	
-		if(wing_mass_kg < r[i].mass_kg)	
+		if(wing_mass_kg < wing.mass_kg)	
 		{
-			r[i].mass_kg = wing_mass_kg;
-			r[i].inertia_kgm2 = wing_inertia_kg_m2;
-		}
-	}
-	
-	for(auto i = 0u; i < r.size(); )
-	{
-		glm::vec3 accumulator{0.0};
-		
-		int begin = i;
-		for(; i < r.size(); ++i)
-		{
-			if(r[begin].gait_group != r[i].gait_group)
-				break;
-			
-			accumulator += in.position(r[i].root); // Corrected
+			wing.mass_kg = wing_mass_kg;
+			wing.inertia_kgm2 = wing_inertia_kg_m2;
 		}
 		
-		accumulator /= (i - begin);
-		
-		for(i=begin; i < r.size(); ++i)
-		{
-			r[i].span_m += glm::distance(in.position(r[i].root), accumulator);
-		}
+		r.push_back(wing);
 	}
 	
 	return r;
 }
-
-namespace TonTon // Moved definition inside namespace
-{
-std::vector<glm::vec3> GetGaitGroupCenters(Input const& in, std::span<Output_Aerial::Wing> wings)
-{
-	std::vector<glm::vec3> positions;
-	std::vector<std::pair<int, int>> count;
-	positions.reserve(2);
-	count.reserve(2);
-	
-	for(auto i = 0u; i < wings.size(); ++i)
-	{
-		TonTon::Output_Aerial::Wing * p = &wings[i];
-	
-		for(auto j = 0u; j < count.size(); ++j)
-		{
-			if(count[j].first == p->gait_group)
-			{
-				positions[j] += in.position(p->root);
-				count[j].second += 1;
-				goto found;
-			}
-			
-			if(count[j].first > p->gait_group)
-			{
-				count.insert(count.begin()+j, {	int(p->gait_group),1});
-				positions.insert(positions.begin()+j, in.position(p->root));
-				goto found;
-			}
-		}
-
-		count.push_back({int(p->gait_group),1});
-		positions.push_back(in.position(p->root));
-		
-	found:
-		(void)0;
-	}
-
-	for(auto j = 0u; j < count.size(); ++j)
-	{
-		positions[j] *= 1.0 / count[j].second;
-	}
-	
-	return positions;
-}
-} // End namespace TonTon
 
 
 /*
@@ -590,14 +519,14 @@ struct GaitGroupSpan
 };
 */
 
-std::vector<GaitGroupSpan> TonTon::GetGaitGroupSpan(Output_Aerial::Wing * data, size_t size)
+std::vector<GaitGroupSpan> TonTon::GetGaitGroupSpan(Analysis_Aerial::Wing * data, size_t size)
 {
 	std::vector<GaitGroupSpan> group_span;
 	group_span.reserve(2);
 	
 	for(auto i = 0u; i < size; ++i)
 	{
-		Output_Aerial::Wing * p = &data[i];
+		Analysis_Aerial::Wing * p = &data[i];
 	
 		for(auto j = 0u; j < group_span.size(); ++j)
 		{

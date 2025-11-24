@@ -18,7 +18,7 @@ static void print_optional(std::ostream& os, const char* name, const float& opt)
 }
 
 // Physical
-std::ostream& operator<<(std::ostream& os, const Output_Physical& p) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Physical& p) {
     os << "Physical:\n"
        << "  body_mass_kg: " << p.body_mass_kg << "\n"
        << "  svl_m: " << p.svl_m() << "\n"
@@ -33,7 +33,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Physical& p) {
 }
 
 // Metabolic
-std::ostream& operator<<(std::ostream& os, const Output_Metabolic& m) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Metabolic& m) {
     os << "Metabolic:\n"
        << "  basal_rate_W: " << m.basal_rate_W << "\n"
        << "  max_rate_W: " << m.max_rate_W << "\n"
@@ -48,7 +48,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Metabolic& m) {
 }
 
 // Behavior
-std::ostream& operator<<(std::ostream& os, const Output_Behavior& b) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Behavior& b) {
     os << "Behavior:\n"
        << "  aggression: " << b.aggression << "\n"
        << "  social_tendency: " << b.social_tendency << "\n"
@@ -59,14 +59,14 @@ std::ostream& operator<<(std::ostream& os, const Output_Behavior& b) {
        << "  is_migratory: " << (b.is_migratory ? "true" : "false") << "\n"
        << "  suggested_archetype: ";
     switch(b.suggested_archetype) {
-        case Output_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER: os << "SOLITARY_AMBUSH_HUNTER"; break;
-        case Output_Behavior::AIArchetype::PACK_COORDINATOR: os << "PACK_COORDINATOR"; break;
-        case Output_Behavior::AIArchetype::SOCIAL_FORAGER: os << "SOCIAL_FORAGER"; break;
-        case Output_Behavior::AIArchetype::TERRITORIAL_DEFENDER: os << "TERRITORIAL_DEFENDER"; break;
-        case Output_Behavior::AIArchetype::OPPORTUNISTIC_SCAVENGER: os << "OPPORTUNISTIC_SCAVENGER"; break;
-        case Output_Behavior::AIArchetype::AERIAL_PREDATOR: os << "AERIAL_PREDATOR"; break;
-        case Output_Behavior::AIArchetype::SCHOOLING_PREY: os << "SCHOOLING_PREY"; break;
-        case Output_Behavior::AIArchetype::APEX_PREDATOR: os << "APEX_PREDATOR"; break;
+        case Analysis_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER: os << "SOLITARY_AMBUSH_HUNTER"; break;
+        case Analysis_Behavior::AIArchetype::PACK_COORDINATOR: os << "PACK_COORDINATOR"; break;
+        case Analysis_Behavior::AIArchetype::SOCIAL_FORAGER: os << "SOCIAL_FORAGER"; break;
+        case Analysis_Behavior::AIArchetype::TERRITORIAL_DEFENDER: os << "TERRITORIAL_DEFENDER"; break;
+        case Analysis_Behavior::AIArchetype::OPPORTUNISTIC_SCAVENGER: os << "OPPORTUNISTIC_SCAVENGER"; break;
+        case Analysis_Behavior::AIArchetype::AERIAL_PREDATOR: os << "AERIAL_PREDATOR"; break;
+        case Analysis_Behavior::AIArchetype::SCHOOLING_PREY: os << "SCHOOLING_PREY"; break;
+        case Analysis_Behavior::AIArchetype::APEX_PREDATOR: os << "APEX_PREDATOR"; break;
     }
     os << "\n";
     return os;
@@ -100,7 +100,7 @@ std::ostream& operator<<(std::ostream& os, const Output::Sensory& s) {
 }
 
 // Diagnostics
-std::ostream& operator<<(std::ostream& os, const Output_Diagnostics& d) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Diagnostics& d) {
     os << "Diagnostics:\n"
        << "  overall_confidence: " << d.overall_confidence << "\n"
        << "  passes_power_budget_check: " << (d.passes_power_budget_check ? "true" : "false") << "\n"
@@ -112,9 +112,9 @@ std::ostream& operator<<(std::ostream& os, const Output_Diagnostics& d) {
         for (const auto& w : d.warnings) {
             os << "    [";
             switch(w.level) {
-                case Output_Diagnostics::Warning::Severity::INFO: os << "INFO"; break;
-                case Output_Diagnostics::Warning::Severity::CAUTION: os << "CAUTION"; break;
-                case Output_Diagnostics::Warning::Severity::ERROR: os << "ERROR"; break;
+                case Analysis_Diagnostics::Warning::Severity::INFO: os << "INFO"; break;
+                case Analysis_Diagnostics::Warning::Severity::CAUTION: os << "CAUTION"; break;
+                case Analysis_Diagnostics::Warning::Severity::ERROR: os << "ERROR"; break;
             }
             os << "] " << w.message << "\n";
         }
@@ -123,7 +123,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Diagnostics& d) {
 }
 
 // BodyWave
-std::ostream& operator<<(std::ostream& os, const Output_BodyWave& bw) {
+std::ostream& operator<<(std::ostream& os, const Analysis_BodyWave& bw) {
     os << "    BodyWave(root:" << static_cast<int>(bw.root) << " tip:" << static_cast<int>(bw.tip)
        << " λ/L:" << bw.wavelength_ratio << " A/L:" << bw.amplitude_ratio
        << " flex:" << bw.body_flexibility << ")";
@@ -132,18 +132,18 @@ std::ostream& operator<<(std::ostream& os, const Output_BodyWave& bw) {
 
 
 // Terrestrial::SerpentineLocomotion
-std::ostream& operator<<(std::ostream& os, const Output_Serpentine& serp) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Serpentine& serp) {
     os << "  SerpentineLocomotion:\n";
 
     os << "    capable_modes: ";
     {
-        if((int)serp.capable_modes & (int)Output_Serpentine::Mode::LATERAL_UNDULATION) 
+        if((int)serp.capable_modes & (int)Analysis_Serpentine::Mode::LATERAL_UNDULATION) 
                 os << "LATERAL_UNDULATION";
-        if((int)serp.capable_modes & (int)Output_Serpentine::Mode::RECTILINEAR) 
+        if((int)serp.capable_modes & (int)Analysis_Serpentine::Mode::RECTILINEAR) 
                 os << " RECTILINEAR"; 
-        if((int)serp.capable_modes & (int)Output_Serpentine::Mode::SIDEWINDING) 
+        if((int)serp.capable_modes & (int)Analysis_Serpentine::Mode::SIDEWINDING) 
                 os << " SIDEWINDING"; 
-        if((int)serp.capable_modes & (int)Output_Serpentine::Mode::CONCERTINA) 
+        if((int)serp.capable_modes & (int)Analysis_Serpentine::Mode::CONCERTINA) 
                 os << " CONCERTINA"; 
     }
     os << "\n";
@@ -181,7 +181,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Serpentine& serp) {
 }
 
 // Terrestrial
-std::ostream& operator<<(std::ostream& os, const Output_Terrestrial& t) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Terrestrial& t) {
     os << "Terrestrial:\n"
        << "  posture: " << t.posture;
     os << "\n  can_breathe_while_running: " << (t.max_sprint_duration_s < 0? "true" : "false") << "\n";
@@ -202,7 +202,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Terrestrial& t) {
 }
 
 // Aerial::Wing
-std::ostream& operator<<(std::ostream& os, const Output_Aerial::Wing& wing) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Aerial::Wing& wing) {
     os << "    Wing(root:" << static_cast<int>(wing.root) << " tip:" << static_cast<int>(wing.tip)
        << " span:" << wing.span_m << "m area:" << wing.area_m2 << "m²"
        << " chord length:" << wing.chord_m << "m " 
@@ -211,7 +211,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Aerial::Wing& wing) {
 }
 
 // Aerial
-std::ostream& operator<<(std::ostream& os, const Output_Aerial& a) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Aerial& a) {
     os << "Aerial:\n"
        << "  wings:\n";
     for (const auto& wing : a.wings) {
@@ -237,14 +237,14 @@ std::ostream& operator<<(std::ostream& os, const Output_Aerial& a) {
 }
 
 // Aquatic::Fin
-std::ostream& operator<<(std::ostream& os, const Output_Aquatic::Fin& fin) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Aquatic::Fin& fin) {
     os << "    Fin(root:" << static_cast<int>(+fin.root) << " tip:" << static_cast<int>(+fin.tip)
        << " area:" << fin.area_m2 << "m²)";
     return os;
 }
 
 // Aquatic::CStartResponse
-std::ostream& operator<<(std::ostream& os, const Output_Aquatic::CStartResponse& cstart) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Aquatic::CStartResponse& cstart) {
     os << "  CStartResponse:\n"
        << "    duration_s: " << cstart.duration_s << "\n"
        << "    max_body_curvature_rad: " << cstart.max_body_curvature_rad << "\n"
@@ -253,7 +253,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Aquatic::CStartResponse&
 }
 
 // Aquatic::JetPropulsion
-std::ostream& operator<<(std::ostream& os, const Output_Aquatic::JetPropulsion& jet) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Aquatic::JetPropulsion& jet) {
     os << "  JetPropulsion:\n"
        << "    mantle_contraction_frequency_Hz: " << jet.mantle_contraction_frequency_Hz << "\n"
        << "    jet_pulse_volume_m3: " << jet.jet_pulse_volume_m3 << "\n"
@@ -264,15 +264,15 @@ std::ostream& operator<<(std::ostream& os, const Output_Aquatic::JetPropulsion& 
 }
 
 // Aquatic
-std::ostream& operator<<(std::ostream& os, const Output_Aquatic& aq) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Aquatic& aq) {
     os << "Aquatic:\n"
        << "  propulsion_mode: ";
     switch(aq.primary_mode) {
-        case Output_Aquatic::PropulsionMode::BODY_CAUDAL_FIN: os << "BODY_CAUDAL_FIN"; break;
-        case Output_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN: os << "MEDIAN_PAIRED_FIN"; break;
-        case Output_Aquatic::PropulsionMode::JET_PROPULSION: os << "JET_PROPULSION"; break;
-        case Output_Aquatic::PropulsionMode::PADDLE_LIMBS: os << "PADDLE_LIMBS"; break;
-        case Output_Aquatic::PropulsionMode::DORSOVENTRAL_FLUKES: os << "DORSOVENTRAL_FLUKES"; break;
+        case Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN: os << "BODY_CAUDAL_FIN"; break;
+        case Analysis_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN: os << "MEDIAN_PAIRED_FIN"; break;
+        case Analysis_Aquatic::PropulsionMode::JET_PROPULSION: os << "JET_PROPULSION"; break;
+        case Analysis_Aquatic::PropulsionMode::PADDLE_LIMBS: os << "PADDLE_LIMBS"; break;
+        case Analysis_Aquatic::PropulsionMode::DORSOVENTRAL_FLUKES: os << "DORSOVENTRAL_FLUKES"; break;
     }
     os << "\n";
 
@@ -344,7 +344,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Aquatic& aq) {
 }
 
 // Climbing
-std::ostream& operator<<(std::ostream& os, const Output_Climbing& c) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Climbing& c) {
     os << "Climbing:\n"
        << "  limbs:\n";
     for (const auto& limb : c.limbs) {
@@ -358,13 +358,13 @@ std::ostream& operator<<(std::ostream& os, const Output_Climbing& c) {
 }
 
 // Jumping
-std::ostream& operator<<(std::ostream& os, const Output_Jumping& j) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Jumping& j) {
     os << "Jumping:\n"
        << "  mechanism: ";
     switch(j.mechanism) {
-        case Output_Jumping::MechanismType::MUSCLE_DIRECT: os << "MUSCLE_DIRECT"; break;
-        case Output_Jumping::MechanismType::ELASTIC_CATAPULT: os << "ELASTIC_CATAPULT"; break;
-        case Output_Jumping::MechanismType::HYDRAULIC: os << "HYDRAULIC"; break;
+        case Analysis_Jumping::MechanismType::MUSCLE_DIRECT: os << "MUSCLE_DIRECT"; break;
+        case Analysis_Jumping::MechanismType::ELASTIC_CATAPULT: os << "ELASTIC_CATAPULT"; break;
+        case Analysis_Jumping::MechanismType::HYDRAULIC: os << "HYDRAULIC"; break;
     }
     os << "\n"
        << "  max_jump_height_m: " << j.max_jump_height_m << "\n"
@@ -374,7 +374,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Jumping& j) {
 }
 
 // Manipulation::Manipulator
-std::ostream& operator<<(std::ostream& os, const Output_Manipulator& manip) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Manipulator& manip) {
     os << "    Manipulator(root:" << static_cast<int>(manip.root) << " tip:" << static_cast<int>(manip.tip)
        << " reach:" << manip.stretched_length_m << "m"
        << " grip:" << manip.max_grip_force_N << "N"
@@ -384,7 +384,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Manipulator& manip) {
 }
 
 // Manipulation
-std::ostream& operator<<(std::ostream& os, const std::vector<Output_Manipulator> & m) {
+std::ostream& operator<<(std::ostream& os, const std::vector<Analysis_Manipulator> & m) {
     os << "Manipulation:\n"
        << "  manipulators:\n";
     for (const auto& manip : m) {
@@ -394,7 +394,7 @@ std::ostream& operator<<(std::ostream& os, const std::vector<Output_Manipulator>
 }
 
 // Brachiation::Arm
-std::ostream& operator<<(std::ostream& os, const Output_Brachiation::Arm& arm) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Brachiation::Arm& arm) {
     os << "    Arm(root:" << static_cast<int>(arm.root) << " hand:" << static_cast<int>(arm.tip)
        << " reach:" << arm.reach_m << "m"
        << " grip:" << arm.grip_strength_N << "N)";
@@ -402,7 +402,7 @@ std::ostream& operator<<(std::ostream& os, const Output_Brachiation::Arm& arm) {
 }
 
 // Brachiation
-std::ostream& operator<<(std::ostream& os, const Output_Brachiation& br) {
+std::ostream& operator<<(std::ostream& os, const Analysis_Brachiation& br) {
     os << "Brachiation:\n"
        << "  arms:\n";
     for (const auto& arm : br.arms) {

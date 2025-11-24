@@ -7,11 +7,11 @@ namespace TonTon
 {
 struct Input;
 struct Scratch;
-struct Output_Digging;
-struct Output_Constriction;
+struct Analysis_Digging;
+struct Analysis_Constriction;
 
-std::optional<Output_Digging> ComputeDigging(Input const& in, Scratch & s);
-std::optional<Output_Constriction> ComputeConstriction(Input const& in, Scratch & s);
+std::optional<Analysis_Digging> ComputeDigging(Input const& in, Scratch & s);
+std::optional<Analysis_Constriction> ComputeConstriction(Input const& in, Scratch & s);
 
 }
 

@@ -1,5 +1,5 @@
 #include "tonton_meshmemo.h"
-#include "../../include/tonton_input.h"
+#include "../../include/tonton_skinnedmesh.h"
 #include "dodeedum.h"
 #include "dodeedum_mesh.h"
 

@@ -1,15 +1,16 @@
 #include "tonton_climbing.h"
-#include "../../include/tonton_input.h"
-#include "../../include/tonton_output.h"
+#include "../../include/tonton_skinnedmesh.h"
+#include "../../include/tonton_analysis.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "Rules/tonton_scratch.h"
 #include "dodeedum.h"
+#include "tonton_input.h"
 #include <cfloat>
 
 using SF = TonTon::SemanticFlags;
 
-std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in, Scratch & s)
+std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& in, Scratch & s)
 {
 	SF constexpr NOT_LIMB_FLAGS = SF(
 		int64_t(SF::HEAD)|
@@ -18,12 +19,8 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 		int64_t(SF::ABDOMEN)
 	);
 
-	auto position = in.skinnedMesh->skin->position.data();
-	auto children = in.skinnedMesh->skin->memo()->GetChildren();
-
 // re-get appendages because there may be overlap between manipulators and legs.
 	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB, SF::GRASPER|SF::CONTACT));
-
 	auto limbs = ComputeManipulation(in, appendages);
 
 	if(limbs.empty())
@@ -198,8 +195,8 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 		min_roughness_required = 0.4f;
 	}
 
-	Output_Climbing result{
-		.limbs = shared_array<Output_Manipulator>::FromArray(limbs),
+	Analysis_Climbing result{
+		.limbs = shared_array<Analysis_Manipulator>::FromArray(limbs),
 		.max_climb_speed_m_s = max_climb_speed_m_s,
 		.max_climb_angle_rad = max_angle_rad,
 		.can_descend_head_first = can_descend_head_first,
@@ -412,7 +409,7 @@ std::optional<TonTon::Output_Climbing>  TonTon::ComputeClimbing(Input const& in,
 	return result;
 }
 
-std::optional<TonTon::Output_Brachiation>  TonTon::ComputeBrachiation(Input const& in, Scratch & s)
+std::optional<TonTon::Analysis_Brachiation>  TonTon::ComputeBrachiation(Input const& in, Scratch & s)
 {
 	// Brachiation requires anterior limbs with graspers
 	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB|SF::TAIL|SF::FACIAL, SF::GRASPER));
@@ -422,7 +419,7 @@ std::optional<TonTon::Output_Brachiation>  TonTon::ComputeBrachiation(Input cons
 		return {};
 
 	// Filter to only anterior (forelimb) manipulators
-	std::vector<Output_Manipulator> arms;
+	std::vector<Analysis_Manipulator> arms;
 	for(auto const& manip : manipulators)
 	{
 		if(HasFlag(manip.subtree_flags, SF::FORELIMB) || HasFlag(manip.subtree_flags, SF::ANTERIOR))
@@ -522,13 +519,13 @@ std::optional<TonTon::Output_Brachiation>  TonTon::ComputeBrachiation(Input cons
 	max_gap_distance_m *= 0.75f;
 
 	// 5. BUILD ARM STRUCTURES
-	std::vector<Output_Brachiation::Arm> output_arms;
+	std::vector<Analysis_Brachiation::Arm> output_arms;
 	output_arms.reserve(arms.size());
 
 	for(auto const& arm : arms)
 	{
-		Output_Brachiation::Arm brachiation_arm;
-		static_cast<Output_Appendage&>(brachiation_arm) = arm;
+		Analysis_Brachiation::Arm brachiation_arm;
+		static_cast<Analysis_Appendage&>(brachiation_arm) = arm;
 
 		brachiation_arm.reach_m = arm.stretched_length_m;
 		brachiation_arm.grip_strength_N = arm.max_grip_force_N;
@@ -537,8 +534,8 @@ std::optional<TonTon::Output_Brachiation>  TonTon::ComputeBrachiation(Input cons
 		output_arms.push_back(brachiation_arm);
 	}
 
-	return Output_Brachiation{
-		.arms = shared_array<Output_Brachiation::Arm>::FromArray(output_arms),
+	return Analysis_Brachiation{
+		.arms = shared_array<Analysis_Brachiation::Arm>::FromArray(output_arms),
 		.max_swing_speed_m_s = max_swing_speed_m_s,
 		.max_gap_distance_m = max_gap_distance_m,
 		.pendulum_length_m = pendulum_length_m,
@@ -547,21 +544,15 @@ std::optional<TonTon::Output_Brachiation>  TonTon::ComputeBrachiation(Input cons
 	};
 }
 
-std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input const& in, std::vector<Output_Appendage> & appendages) 
+
+std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input const& in) 
 { 		
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo();
-	auto position = sk.skin->position.data();
-	auto parents = sk.skin->parents.data();
 	
-	auto relative_flags = in.skinnedMesh->skin->memo()->GetRelativeFlags();
-	auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
-	
-	std::vector<Output_Manipulator> manipulators(appendages.size());
+	std::vector<Analysis_Manipulator> manipulators(appendages.size());
 	
 	for(auto i = 0u; i < appendages.size(); ++i)
 	{
-		static_cast<Output_Appendage&>(	manipulators[i]) = appendages[i];
+		static_cast<Analysis_Appendage&>(	manipulators[i]) = appendages[i];
 		auto idx = manipulators[i].tip;
 		
 		int relevant_root = manipulators[i].tip;
@@ -767,7 +758,7 @@ std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input cons
 
 		// 5. SCALING ADJUSTMENTS
 		// Square-cube law: Force scales with cross-section (area), not volume
-		float size_scale = in.behavior.area_scale(); // Already accounts for anisotropic scaling
+		float size_scale = in.area_scale(); // Already accounts for anisotropic scaling
 		
 		// Apply conservative allometric scaling
 		// Smaller animals have relatively stronger muscles (force/mass ratio)
@@ -796,5 +787,4 @@ std::vector<TonTon::Output_Manipulator>   TonTon::ComputeManipulation(Input cons
 	}
 	
 	return manipulators;
-
 }

@@ -5,7 +5,7 @@
 
 namespace TonTon {
 
-using TakeoffAnalysis = Output_TakeoffAnalysis;
+using TakeoffAnalysis = Analysis_TakeoffAnalysis;
 
 static TakeoffAnalysis::TakeoffMode ClassifyMode(const Scratch& output,
                                                  const TakeoffAnalysis& analysis);
@@ -139,7 +139,7 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
 }
 
 
-inline float TakeoffAnalysis::EstimateMaxLift(const Output_Aerial& aerial,
+inline float TakeoffAnalysis::EstimateMaxLift(const Analysis_Aerial& aerial,
                                               float ,
                                               float air_density) {
     if (aerial.wings.empty()) return 0.0f;
@@ -165,7 +165,7 @@ inline float TakeoffAnalysis::EstimateMaxLift(const Output_Aerial& aerial,
 }
 
 
-inline float TakeoffAnalysis::EstimateMaxThrust(const Output_Aerial& aerial,
+inline float TakeoffAnalysis::EstimateMaxThrust(const Analysis_Aerial& aerial,
                                                float ,
                                                float air_density) {
     if (aerial.wings.empty()) return 0.0f;
@@ -214,7 +214,7 @@ inline float TakeoffAnalysis::GroundEffectBonus(float wing_span_m, float height_
 }
 
 
-inline float TakeoffAnalysis::RequiredJumpVelocity(const Output_Aerial& aerial,
+inline float TakeoffAnalysis::RequiredJumpVelocity(const Analysis_Aerial& aerial,
                                                    float body_mass_kg,
                                                    float max_lift_N,
                                                    float gravity_m_s2) {
@@ -244,8 +244,8 @@ inline float TakeoffAnalysis::RequiredJumpVelocity(const Output_Aerial& aerial,
 }
 
 
-inline float TakeoffAnalysis::RunwayDistance(const Output_Aerial& aerial,
-                                            const Output_Terrestrial* terrestrial,
+inline float TakeoffAnalysis::RunwayDistance(const Analysis_Aerial& aerial,
+                                            const Analysis_Terrestrial* terrestrial,
                                             float body_mass_kg) {
     if (!terrestrial) return -1.0f;  // Cannot run
     

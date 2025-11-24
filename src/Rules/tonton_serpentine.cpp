@@ -1,8 +1,9 @@
 #include "tonton_serpentine.h"
+#include "tonton_input.h"
 #include "tonton_scratch.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
-#include "../../include/tonton_input.h"
+#include "../../include/tonton_skinnedmesh.h"
 #include <cmath>
 #include <algorithm>
 
@@ -23,7 +24,7 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 	// Check for tail with propulsion capability
 	bool has_propulsive_tail = false;
 	for(auto const& tail : s.appendages.tails) {
-		if(tail.used_for & Output_Tail::Propulsion) {
+		if(tail.used_for & Analysis_Tail::Propulsion) {
 			has_propulsive_tail = true;
 			break;
 		}
@@ -104,9 +105,9 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 
 // Calculate body wave parameters for lateral undulation
 // Based on Gray (1936), Garland (1994)
-static Output_BodyWave CalculateLateralUndulation(Input const& in, Scratch const& s)
+static Analysis_BodyWave CalculateLateralUndulation(Input const& in, Scratch const& s)
 {
-	Output_BodyWave wave{};
+	Analysis_BodyWave wave{};
 
 	// Find spine chain from tail to head
 	auto & sk = *in.skinnedMesh;
@@ -181,13 +182,13 @@ static Output_BodyWave CalculateLateralUndulation(Input const& in, Scratch const
 	return wave;
 }
 
-std::optional<Output_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
+std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
 {
 	if(!CanUseSerpentineLocomotion(in, s)) {
 		return {}; // Not capable of serpentine locomotion
 	}
 
-	Output_Serpentine result{};
+	Analysis_Serpentine result{};
 
 	// ========================================================================
 	// FRICTION PROPERTIES
@@ -236,17 +237,17 @@ std::optional<Output_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
 	// ========================================================================
 	// CAPABLE MODES
 	// ========================================================================
-	result.capable_modes = Output_Serpentine::Mode::LATERAL_UNDULATION;
+	result.capable_modes = Analysis_Serpentine::Mode::LATERAL_UNDULATION;
 
 	// RECTILINEAR: Slow, stealthy "caterpillar" crawl
 	// Requires long body and good muscle control
 	// Used by large constrictors (boas, pythons)
 	if(body_mass_kg > 2.0f && body_length_m > 1.0f) {
-		result.capable_modes = Output_Serpentine::Mode(
-			int(result.capable_modes) | int(Output_Serpentine::Mode::RECTILINEAR)
+		result.capable_modes = Analysis_Serpentine::Mode(
+			int(result.capable_modes) | int(Analysis_Serpentine::Mode::RECTILINEAR)
 		);
 
-		Output_Serpentine::Rectilinear recti;
+		Analysis_Serpentine::Rectilinear recti;
 		// Rectilinear is very slow: ~0.02-0.05 m/s for most snakes
 		recti.speed_m_s = 0.02f * body_length_m;
 		recti.frequency_Hz = recti.speed_m_s / body_length_m;
@@ -259,11 +260,11 @@ std::optional<Output_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
 	// Reduces contact area on hot surfaces
 	float flexibility_threshold = 0.6f;
 	if(result.lateral_undulation.body_flexibility > flexibility_threshold) {
-		result.capable_modes = Output_Serpentine::Mode(
-			int(result.capable_modes) | int(Output_Serpentine::Mode::SIDEWINDING)
+		result.capable_modes = Analysis_Serpentine::Mode(
+			int(result.capable_modes) | int(Analysis_Serpentine::Mode::SIDEWINDING)
 		);
 
-		Output_Serpentine::SideWinding side;
+		Analysis_Serpentine::SideWinding side;
 		// Sidewinding can be faster than lateral undulation on loose surfaces
 		side.speed_m_s = lateral_speed_m_s * 1.2f;
 		side.frequency_Hz = frequency_Hz;
@@ -279,11 +280,11 @@ std::optional<Output_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
 	// Requires ability to form tight loops (high flexibility)
 	// Used in burrows, pipes, climbing
 	if(result.lateral_undulation.body_flexibility > 0.5f) {
-		result.capable_modes = Output_Serpentine::Mode(
-			int(result.capable_modes) | int(Output_Serpentine::Mode::CONCERTINA)
+		result.capable_modes = Analysis_Serpentine::Mode(
+			int(result.capable_modes) | int(Analysis_Serpentine::Mode::CONCERTINA)
 		);
 
-		Output_Serpentine::Concertina conc;
+		Analysis_Serpentine::Concertina conc;
 		// Concertina is slow but powerful
 		// Speed ≈ body_length / (2 × cycle_time)
 		float cycle_time_s = 2.0f / frequency_Hz; // Slower than undulation
@@ -364,7 +365,7 @@ std::optional<Output_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
 		// Concertina and sidewinding don't work underwater
 		result.concertina = std::nullopt;
 		result.sidewinding = std::nullopt;
-		result.capable_modes = Output_Serpentine::Mode::LATERAL_UNDULATION;
+		result.capable_modes = Analysis_Serpentine::Mode::LATERAL_UNDULATION;
 	}
 
 	// AMPHIBIA: Salamanders and caecilians

@@ -1,6 +1,6 @@
 #ifndef TONTON_SENSORY_H
 #define TONTON_SENSORY_H
-#include "../../include/tonton_output.h"
+#include "../../include/tonton_analysis.h"
 #include <optional>
 
 namespace TonTon
@@ -9,7 +9,7 @@ namespace TonTon
 struct Input;
 struct Scratch;
 
-Output_Sensory<std::optional>  ComputeSensory(Input const& in, Scratch & s);
+Analysis_Sensory<std::optional>  ComputeSensory(Input const& in, Scratch & s);
 
 }
 

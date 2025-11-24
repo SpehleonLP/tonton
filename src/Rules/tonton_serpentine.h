@@ -1,7 +1,7 @@
 #ifndef TONTON_SERPENTINE_H
 #define TONTON_SERPENTINE_H
 
-#include "../../include/tonton_output.h"
+#include "../../include/tonton_analysis.h"
 #include <optional>
 
 namespace TonTon
@@ -38,9 +38,9 @@ struct Scratch;
  *
  * @param in Input armature, environment, and parameters
  * @param s Scratch workspace with previously computed outputs
- * @return Output_Serpentine data if capable, std::nullopt otherwise
+ * @return Analysis_Serpentine data if capable, std::nullopt otherwise
  */
-std::optional<Output_Serpentine> ComputeSerpentine(Input const& in, Scratch &s);
+std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s);
 
 } // namespace TonTon
 

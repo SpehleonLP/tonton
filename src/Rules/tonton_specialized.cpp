@@ -16,7 +16,7 @@ using SF = TonTon::SemanticFlags;
 // - Hopkins 2007: Fossorial morphology indicators
 // - Biewener 1990: Muscle stress (~300 kPa maximum)
 
-std::optional<Output_Digging> TonTon::ComputeDigging(Input const& in, Scratch & s)
+std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch & s)
 {
 	auto & sk = *in.skinnedMesh;
 	auto * sk_memo = sk.skin->memo();
@@ -93,21 +93,21 @@ std::optional<Output_Digging> TonTon::ComputeDigging(Input const& in, Scratch & 
 	// DIGGING METHOD DETERMINATION
 	// ========================================================================
 
-	Output_Digging result;
+	Analysis_Digging result;
 
 	// Default to scratch digging (most common)
-	result.method = Output_Digging::Method::SCRATCH;
+	result.method = Analysis_Digging::Method::SCRATCH;
 
 	// Head-lift method (turtles, some lizards) - uses head as wedge
 	if(!has_digging_claws && !has_incisor_teeth && s.physical.body_mass_kg > 0.5f)
 	{
-		result.method = Output_Digging::Method::HEAD_LIFT;
+		result.method = Analysis_Digging::Method::HEAD_LIFT;
 	}
 
 	// Incisor digging (rodents, pocket gophers)
 	if(has_incisor_teeth && has_strong_forelimbs)
 	{
-		result.method = Output_Digging::Method::INCISOR;
+		result.method = Analysis_Digging::Method::INCISOR;
 	}
 
 	// Humeral rotation (moles, golden moles) - highly specialized
@@ -118,7 +118,7 @@ std::optional<Output_Digging> TonTon::ComputeDigging(Input const& in, Scratch & 
 		// Check if body is cylindrical (fineness ratio < 5 = stocky digger)
 		if(s.physical.fineness_ratio < 5.0f)
 		{
-			result.method = Output_Digging::Method::HUMERAL_ROTATION;
+			result.method = Analysis_Digging::Method::HUMERAL_ROTATION;
 		}
 	}
 
@@ -165,22 +165,22 @@ std::optional<Output_Digging> TonTon::ComputeDigging(Input const& in, Scratch & 
 	// Method-specific adjustments
 	switch(result.method)
 	{
-		case Output_Digging::Method::HUMERAL_ROTATION:
+		case Analysis_Digging::Method::HUMERAL_ROTATION:
 			// Moles are fastest diggers
 			result.max_dig_speed_m_s *= 3.0f;
 			break;
 
-		case Output_Digging::Method::INCISOR:
+		case Analysis_Digging::Method::INCISOR:
 			// Rodents moderately fast
 			result.max_dig_speed_m_s *= 1.5f;
 			break;
 
-		case Output_Digging::Method::HEAD_LIFT:
+		case Analysis_Digging::Method::HEAD_LIFT:
 			// Slowest method
 			result.max_dig_speed_m_s *= 0.5f;
 			break;
 
-		case Output_Digging::Method::SCRATCH:
+		case Analysis_Digging::Method::SCRATCH:
 		default:
 			// Default speed
 			break;
@@ -217,7 +217,7 @@ std::optional<Output_Digging> TonTon::ComputeDigging(Input const& in, Scratch & 
 // - Moon 2000: Python constriction pressures (can reach 30 kPa)
 // - Boback et al. 2012: Constriction in snakes
 
-std::optional<Output_Constriction> TonTon::ComputeConstriction(Input const& in, Scratch & s)
+std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in, Scratch & s)
 {
 	// Check for elongated body (snakes, eels, some amphisbaenians)
 	// Fineness ratio = length / diameter
@@ -251,7 +251,7 @@ std::optional<Output_Constriction> TonTon::ComputeConstriction(Input const& in, 
 	// CONSTRICTION FORCE CALCULATION
 	// ========================================================================
 
-	Output_Constriction result;
+	Analysis_Constriction result;
 
 	// Muscle stress: 200-400 kPa (Biewener 1990)
 	float muscle_stress_Pa = glm::mix(200000.0f, 400000.0f, in.muscle_quality);

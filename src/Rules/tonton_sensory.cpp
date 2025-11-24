@@ -16,6 +16,7 @@ struct EyeInfo {
     float eye_diameter_m;
     float mobility_rad;           // How much can it rotate? (stalk vs fixed)
 };
+
 static std::vector<EyeInfo> FindEyes(Input const& in, Scratch const&) {
 	using SF = SemanticFlags;
 	
@@ -90,8 +91,8 @@ static std::vector<EyeInfo> FindEyes(Input const& in, Scratch const&) {
     return eyes;
 }
 
-static Output_Vision ComputeVision(Input const& in, Scratch const& s) {
-    Output_Vision vision{};
+static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
+    Analysis_Vision vision{};
     
     auto gcr_table = in.skinnedMesh->skin->memo()->GetGcrTable();
     auto N = in.skinnedMesh->skin->names.size();
@@ -260,7 +261,7 @@ static Output_Vision ComputeVision(Input const& in, Scratch const& s) {
 
         // Compound eyes excel at motion detection but poor at detail
         // Warrant & McIntyre (1993): ~100x better temporal resolution than vertebrates
-        vision.motion_sensitivity_bonus = 2.0f; // Could add this field to Output_Vision
+        vision.motion_sensitivity_bonus = 2.0f; // Could add this field to Analysis_Vision
 
         // Many arthropods have UV vision (300-400nm)
         // Beneficial for flower navigation, mate selection
@@ -324,8 +325,8 @@ static Output_Vision ComputeVision(Input const& in, Scratch const& s) {
     return vision;
 }
 
-static std::optional<Output_Hearing> ComputeHearing(Input const& in, Scratch const& s) {
-    Output_Hearing hearing{};
+static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch const& s) {
+    Analysis_Hearing hearing{};
     auto & physical = s.physical;
     
     // BASE VALUES from geometry
@@ -520,12 +521,12 @@ static std::optional<Output_Hearing> ComputeHearing(Input const& in, Scratch con
 
     return hearing;
 }
-static std::optional<Output_Olfaction> ComputeOlfaction(
+static std::optional<Analysis_Olfaction> ComputeOlfaction(
     Input const& in, 
     Scratch const& s,
-    immutable_array<Output_Chain> antennae)
+    immutable_array<Analysis_Chain> antennae)
 {
-    Output_Olfaction olfaction{};
+    Analysis_Olfaction olfaction{};
     
     // BASE VALUES from geometry
     float nasal_surface_area = 0.0f;
@@ -845,14 +846,14 @@ static std::optional<Output_Olfaction> ComputeOlfaction(
     return olfaction;
 }
 
-Output_Sensory<std::optional>  ComputeSensory(Input const& in, Scratch & s)
+Analysis_Sensory<std::optional>  ComputeSensory(Input const& in, Scratch & s)
 {
-	Output_Sensory<std::optional> out;
+	Analysis_Sensory<std::optional> out;
 	
 	std::array<Word, 1> words = {Word::antenna}; 
 	auto chains = GetChainsFromRoot(in, std::span<Word>{words});
 	
-	out.antennae = shared_array<Output_Chain>::FromArray(chains);
+	out.antennae = shared_array<Analysis_Chain>::FromArray(chains);
 	
 	out.vision = ComputeVision(in, s);
 	out.hearing = ComputeHearing(in, s);

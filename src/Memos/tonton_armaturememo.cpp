@@ -1,5 +1,5 @@
 #include "tonton_armaturememo.h"
-#include "../../include/tonton_input.h"
+#include "../../include/tonton_skinnedmesh.h"
 
 TonTon::ArmatureMemo::ArmatureMemo(Armature const* ptr) : in(*ptr)
 {

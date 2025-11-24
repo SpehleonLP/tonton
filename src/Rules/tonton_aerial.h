@@ -5,11 +5,11 @@
 namespace TonTon {
 
 struct Scratch;
-struct Output_Appendage;
-struct Output_Aerial;
+struct Analysis_Appendage;
+struct Analysis_Aerial;
 struct Input;
 
-std::optional<Output_Aerial>  ComputeAerial(Input const& in, Scratch &out);
+std::optional<Analysis_Aerial>  ComputeAerial(Input const& in);
 
 
 } // namespace TonTon

@@ -1,9 +1,9 @@
-#include "../include/tonton_output.h"
+#include "../include/tonton_analysis.h"
 
 
 #include "Rules/tonton_scratch.h"
-#include "../include/tonton_output.h"
-#include "../include/tonton_input.h"
+#include "../include/tonton_analysis.h"
+#include "../include/tonton_skinnedmesh.h"
 
 	
 counted_ptr<const TonTon::Output> TonTon::Output::Factory(Input const& in)
@@ -58,13 +58,13 @@ counted_ptr<const TonTon::Output> TonTon::Output::Factory(Input const& in)
 	
 
 // Steady glide: Lift = Weight
-float TonTon::Output_Aerial::gliding_CL(float weight_N, float speed_m_s, float air_density) const {
+float TonTon::Analysis_Aerial::gliding_CL(float weight_N, float speed_m_s, float air_density) const {
 	float dynamic_pressure = 0.5f * air_density * speed_m_s * speed_m_s;
 	return weight_N / (dynamic_pressure * wing_area_m2);
 }
 
 // Simplified flapping CL estimation
-float TonTon::Output_Aerial::flapping_CL_effective(float weight_N,
+float TonTon::Analysis_Aerial::flapping_CL_effective(float weight_N,
 							float forward_speed_m_s, 
 							float wingbeat_freq_Hz,
 							float beat_amplitude_rad,
@@ -82,14 +82,14 @@ float TonTon::Output_Aerial::flapping_CL_effective(float weight_N,
 	return weight_N / (dynamic_pressure * wing_area_m2);
 }
 
-float TonTon::Output_Aerial::hovering_disk_loading_N_m2(float weight_N) const {
+float TonTon::Analysis_Aerial::hovering_disk_loading_N_m2(float weight_N) const {
 	// Total disk area (both wings sweep a circle)
 	float disk_area = M_PI * wing_span_m * wing_span_m;
 	return weight_N / disk_area;  // N/m²
 }
 
 // Momentum theory for hovering
-float TonTon::Output_Aerial::hovering_power_ideal_W(float weight_N, float air_density_kg_m3) const {	
+float TonTon::Analysis_Aerial::hovering_power_ideal_W(float weight_N, float air_density_kg_m3) const {	
 	// Induced velocity needed to hover
 	float v_induced = sqrt(hovering_disk_loading_N_m2(weight_N) / (2.0f * air_density_kg_m3));
 	

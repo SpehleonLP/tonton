@@ -1,7 +1,9 @@
 #include "tonton_aquatic.h"
 #include "dodeedum.h"
-#include "tonton_output.h"
+#include "tonton_analysis.h"
+#include "tonton_builder.h"
 #include "tonton_input.h"
+#include "tonton_skinnedmesh.h"
 #include "Rules/tonton_scratch.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
@@ -22,18 +24,14 @@ using SF = TonTon::SemanticFlags;
 
 namespace TonTon
 {
-std::vector<TonTon::Output_Aquatic::Fin> Compute_Fins(TonTon::Input const& in, TonTon::Scratch & s);
+std::vector<TonTon::Analysis_Aquatic::Fin> Compute_Fins(const Input &in);
 };
 
-std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, Scratch & s)
+std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in, Scratch &s)
 {
 	AQUATIC_DBG("Starting aquatic analysis, fluid_density=" << in.environment.fluidDensity_Kg_m3 << " kg/m3");
 
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo();
-
-	auto fins = Compute_Fins(in, s);
-	auto semantic_flags = sk_memo->GetSemanticFlags();
+	auto fins = Compute_Fins(in);
 //	auto relative_flags = sk_memo->GetRelativeFlags();
 
 	// 1. DETECT PROPULSION MODE
@@ -43,16 +41,12 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	bool is_tail_horizontal = false;
 	bool has_paddle_limbs = false;
 	bool has_assymetric_tail = false;
+	auto clade = in.builder->physical.clade;
 	
 	std::vector<bool> is_tail_fin(fins.size(), false);
-	{
-		auto gcr_table = sk_memo->GetGcrTable();
-		auto N = sk.skin->parents.size();
-		
+	{		
 		for(auto i = 0u; i < fins.size(); ++i)
 		{
-			auto offset = &gcr_table[N*fins[i].root];
-			
 			if(HasFlag(fins[i].type, SF::FIN))
 				has_fins = true;
 			else
@@ -63,24 +57,16 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 				
 			if(is_tail_fin[i])
 			{
-				auto fin_joints = sk_memo->GetAllChildrenOfRoot(fins[i].root);
-				auto aabb = sk.aabb[fins[i].root];
-				
-				for(auto & j : fin_joints)
-				{
-					aabb.min = glm::min(aabb.min, sk.aabb[j].min);
-					aabb.max = glm::min(aabb.max, sk.aabb[j].max);
-				}
-				
-				
+				auto const& app = in.builder->appendages[fins[i].id];
+				auto const& aabb = app.aabb;
+								
 				is_tail_horizontal |= (aabb.max.x - aabb.min.x) > (aabb.max.y - aabb.min.y); 
 				
 				if(!is_tail_horizontal)
 				{
 					glm::vec3 center = (aabb.min + aabb.max) / 2.f;
-					glm::vec3 centroid = sk.GetCentroid(fin_joints, in.behavior.scale);
 					
-					float offset = glm::dot(centroid - center, glm::vec3(0, 1, 0));
+					float offset = glm::dot(app.centroid - center, glm::vec3(0, 1, 0));
 					offset = offset / (aabb.max.y - aabb.min.y);
 					
 	// therefore the tail generates lift and we don't have a swim bladder!				
@@ -91,20 +77,9 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	};
 
 	bool has_flexible_body = false;
-	bool has_jet_system = false;
+	bool has_jet_system = in.builder->siphon_joint >= 0;
 
 	AQUATIC_DBG("Checking for propulsion structures...");
-
-	// Check semantic flags for aquatic structures
-	for(auto i = 0u; i < semantic_flags.size(); ++i)
-	{
-		// Check for siphon (cephalopods)
-		for(auto word : sk.skin->tags[i])
-		{
-			if(word == Word::siphon)
-				has_jet_system = true;
-		}
-	}
 
 	// Check body flexibility from tail or serpentine
 	// Only consider tail propulsive if it has sufficient mass and length for momentum generation
@@ -169,28 +144,28 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	}
 
 	// Determine primary mode
-	Output_Aquatic::PropulsionMode primary_mode;
+	Analysis_Aquatic::PropulsionMode primary_mode;
 
 	if(has_jet_system)
 	{
-		primary_mode = Output_Aquatic::PropulsionMode::JET_PROPULSION;
+		primary_mode = Analysis_Aquatic::PropulsionMode::JET_PROPULSION;
 	}
 	else if(is_tail_horizontal)
 	{
-		primary_mode = Output_Aquatic::PropulsionMode::DORSOVENTRAL_FLUKES;
+		primary_mode = Analysis_Aquatic::PropulsionMode::DORSOVENTRAL_FLUKES;
 	}
 	else if(has_paddle_limbs)
 	{
-		primary_mode = Output_Aquatic::PropulsionMode::PADDLE_LIMBS;
+		primary_mode = Analysis_Aquatic::PropulsionMode::PADDLE_LIMBS;
 	}
 	else if(has_fins)
 	{
 		// Could be BCF (body-caudal fin) or MPF (median-paired fin)
 		// Use BCF if has flexible body, otherwise MPF
 		if(has_flexible_body)
-			primary_mode = Output_Aquatic::PropulsionMode::BODY_CAUDAL_FIN;
+			primary_mode = Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN;
 		else
-			primary_mode = Output_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN;
+			primary_mode = Analysis_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN;
 	}
 	else if(has_flexible_body)
 	{
@@ -205,7 +180,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		}
 
 		// Pure body undulation (eel-like, crocodile)
-		primary_mode = Output_Aquatic::PropulsionMode::BODY_CAUDAL_FIN;
+		primary_mode = Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN;
 	}
 	else
 	{
@@ -231,7 +206,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 
 	// Most fish have swim bladders to achieve neutral buoyancy
   // Line 239: BEFORE calculating requires_constant_motion
-	bool has_swim_bladder = HasFlag(s.physical.clade, CladeFlags::PISCES); // Default for fish
+	bool has_swim_bladder = HasFlag(clade, CladeFlags::PISCES); // Default for fish
 	
 	// Asymmetric tail = generates lift = NO swim bladder (sharks, sturgeons)
 	if (has_assymetric_tail) {
@@ -266,19 +241,19 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	// Base scaling: f ∝ L^(-0.5) for cruising (from fish data)
 	float beat_frequency_Hz;
 
-	if(primary_mode == Output_Aquatic::PropulsionMode::BODY_CAUDAL_FIN)
+	if(primary_mode == Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN)
 	{
 		beat_frequency_Hz = 2.0f * std::pow(body_length_m, -0.5f); // BCF: 1-3 Hz for most fish
 	}
-	else if(primary_mode == Output_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN)
+	else if(primary_mode == Analysis_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN)
 	{
 		beat_frequency_Hz = 4.0f * std::pow(body_length_m, -0.5f); // MPF: higher frequency
 	}
-	else if(primary_mode == Output_Aquatic::PropulsionMode::PADDLE_LIMBS)
+	else if(primary_mode == Analysis_Aquatic::PropulsionMode::PADDLE_LIMBS)
 	{
 		beat_frequency_Hz = 1.5f * std::pow(body_length_m, -0.5f); // Rowing: medium frequency
 	}
-	else if(primary_mode == Output_Aquatic::PropulsionMode::DORSOVENTRAL_FLUKES)
+	else if(primary_mode == Analysis_Aquatic::PropulsionMode::DORSOVENTRAL_FLUKES)
 	{
 		beat_frequency_Hz = 2.5f * std::pow(body_length_m, -0.5f); // Cetacean fluking
 	}
@@ -363,7 +338,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	// PHYSICAL FEASIBILITY CHECK
 	// Maximum amplitude is limited by spine/body flexibility
 	float max_amplitude_ratio = 0.25f; // Typical fish: 0.2-0.3
-	if(primary_mode == Output_Aquatic::PropulsionMode::BODY_CAUDAL_FIN)
+	if(primary_mode == Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN)
 	{
 		max_amplitude_ratio = 0.35f; // Flexible swimmers (eels) can achieve higher
 	}
@@ -395,7 +370,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		    << "(2) tail/fin area ≥ " << required_tail_area << " m² (currently " << tail_area_m2 << ").";
 
 		s.diagnostics.warnings.push_back({
-			.level = Output_Diagnostics::Warning::Severity::INFO,
+			.level = Analysis_Diagnostics::Warning::Severity::INFO,
 			.message = msg.str()
 		});
 
@@ -418,7 +393,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 			fins[i].beat_amplitude_rad = tail_amplitude_ratio * M_PI; // Convert linear amplitude to angular
 			fins[i].wave_speed_ratio = 1.0f; // Wave travels at body speed for propulsion
 		}
-		else if(primary_mode == Output_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN)
+		else if(primary_mode == Analysis_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN)
 		{
 			// MPF mode: pectoral fins are primary propulsors
 			if(HasFlag(fins[i].type, SF::FORELIMB) || HasFlag(fins[i].type, SF::FIN))
@@ -428,7 +403,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 				fins[i].wave_speed_ratio = 0.0f; // Rowing motion, not undulation
 			}
 		}
-		else if(primary_mode == Output_Aquatic::PropulsionMode::PADDLE_LIMBS)
+		else if(primary_mode == Analysis_Aquatic::PropulsionMode::PADDLE_LIMBS)
 		{
 			// Paddle limbs: rowing/flapping motion
 			if(HasFlag(fins[i].type, SF::LIMB))
@@ -494,8 +469,8 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	// F_centripetal = m*v²/r
 
 	bool can_hover = false;
-	if(primary_mode == Output_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN ||
-	   primary_mode == Output_Aquatic::PropulsionMode::JET_PROPULSION)
+	if(primary_mode == Analysis_Aquatic::PropulsionMode::MEDIAN_PAIRED_FIN ||
+	   primary_mode == Analysis_Aquatic::PropulsionMode::JET_PROPULSION)
 	{
 		// MPF swimmers and jet propulsion can hover
 		can_hover = true;
@@ -507,7 +482,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	if(has_flexible_body)
 		agility_factor = 2.0f; // More agile
 
-	if(primary_mode == Output_Aquatic::PropulsionMode::PADDLE_LIMBS)
+	if(primary_mode == Analysis_Aquatic::PropulsionMode::PADDLE_LIMBS)
 		agility_factor = 1.5f; // Good maneuverability
 
 	// r = v² / (a_max)
@@ -517,9 +492,9 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 
 	// 6. C-START ESCAPE RESPONSE
 	// Most fish can perform C-starts for rapid acceleration
-	std::optional<Output_Aquatic::CStartResponse> c_start;
+	std::optional<Analysis_Aquatic::CStartResponse> c_start;
 
-	if(has_flexible_body && primary_mode != Output_Aquatic::PropulsionMode::PADDLE_LIMBS)
+	if(has_flexible_body && primary_mode != Analysis_Aquatic::PropulsionMode::PADDLE_LIMBS)
 	{
 		// C-start: bend body into C-shape, then snap straight
 		float c_start_duration_s = 0.05f; // ~50ms typical
@@ -528,7 +503,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		// Acceleration = v / t, where v ≈ burst_speed
 		float c_start_acceleration = burst_speed_m_s / c_start_duration_s;
 
-		c_start = Output_Aquatic::CStartResponse{
+		c_start = Analysis_Aquatic::CStartResponse{
 			.duration_s = c_start_duration_s,
 			.max_body_curvature_rad = max_curvature_rad,
 			.acceleration_m_s2 = c_start_acceleration
@@ -552,7 +527,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 		preferred_depth_max_m = 50.0f;
 		crush_depth_m = 200.0f; // Swim bladder compression
 	}
-	else if(primary_mode == Output_Aquatic::PropulsionMode::JET_PROPULSION)
+	else if(primary_mode == Analysis_Aquatic::PropulsionMode::JET_PROPULSION)
 	{
 		// Cephalopods can handle deep water
 		preferred_depth_max_m = 500.0f;
@@ -569,17 +544,17 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	crush_depth_m *= glm::mix(0.5f, 2.0f, in.structure_vs_weight);
 
 	// 9. BODY WAVE (for BCF swimmers)
-	std::optional<Output_BodyWave> body_wave;
+	std::optional<Analysis_BodyWave> body_wave;
 
-	if(primary_mode == Output_Aquatic::PropulsionMode::BODY_CAUDAL_FIN && has_flexible_body)
+	if(primary_mode == Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN && has_flexible_body)
 	{
-		Output_BodyWave wave;
+		Analysis_BodyWave wave;
 
 		// Use tail as reference
 		if(s.appendages.tails.size() > 0)
 		{
 			auto const& tail = s.appendages.tails[0];
-			static_cast<Output_Chain&>(wave) = tail;
+			static_cast<Analysis_Chain&>(wave) = tail;
 		}
 
 		wave.wavelength_ratio = 0.7f; // Wavelength ≈ 0.7 * body_length
@@ -604,25 +579,14 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	}
 
 	// 10. JET PROPULSION (for cephalopods)
-	std::optional<Output_Aquatic::JetPropulsion> jet_propulsion;
+	std::optional<Analysis_Aquatic::JetPropulsion> jet_propulsion;
 
-	if(has_jet_system)
+	if(has_jet_system && in.builder->siphon_joint >= 0)
 	{
-		Output_Aquatic::JetPropulsion jet;
+		Analysis_Aquatic::JetPropulsion jet;
 
 		// Find siphon joint
-		jet.siphon_joint = -1;
-		for(auto i = 0u; i < sk.skin->tags.size(); ++i)
-		{
-			for(auto word : sk.skin->tags[i])
-			{
-				if(word == Word::siphon)
-				{
-					jet.siphon_joint = i;
-					break;
-				}
-			}
-		}
+		jet.siphon_joint = in.builder->siphon_joint;
 
 		// Jet parameters
 		jet.mantle_contraction_frequency_Hz = beat_frequency_Hz * 1.5f;
@@ -644,7 +608,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	using CF = CladeFlags;
 
 	// PISCES: Fish-specific swimming characteristics
-	if (HasFlag(s.physical.clade, CF::PISCES)) {
+	if (HasFlag(clade, CF::PISCES)) {
 		// Fish have specialized muscle fiber types
 		// Rome et al. (1988): Red muscle 200 W/kg sustained, white muscle 250-500 W/kg burst
 		// Wardle (1975): White muscle can produce 400 W/kg for short bursts (5-10s)
@@ -666,7 +630,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	}
 
 	// CETACEA: Air-breathing marine mammals (whales, dolphins, porpoises)
-	if (HasFlag(s.physical.clade, CF::CETACEA)) {
+	if (HasFlag(clade, CF::CETACEA)) {
 		// Cetaceans don't have swim bladders - they use lungs for buoyancy control
 		has_swim_bladder = false;
 		swim_bladder_adjust_time_s = -1.0f;
@@ -700,7 +664,7 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	// No additional refinements needed - mode captures the physics
 
 	// AMPHIBIA: Tadpoles, aquatic frogs (if somehow has fins/tail)
-	if (HasFlag(s.physical.clade, CF::AMPHIBIA)) {
+	if (HasFlag(clade, CF::AMPHIBIA)) {
 		// Amphibians have lower metabolic rates (ectotherm) → lower sustained speeds
 		// Already reflected in metabolic scaling
 		// Most use paddle limbs or body undulation (already captured)
@@ -711,12 +675,12 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	}
 
 	// REPTILIA: Marine reptiles (sea turtles, marine iguanas, sea snakes)
-	if (HasFlag(s.physical.clade, CF::REPTILIA | CF::CHELONIA)) {
+	if (HasFlag(clade, CF::REPTILIA | CF::CHELONIA)) {
 		// Reptiles must surface to breathe but can hold breath longer than mammals
 		// Lower metabolic rate (ectotherm) → lower O2 consumption
 
 		// Turtles (CHELONIA) have excellent dive duration
-		if (HasFlag(s.physical.clade, CF::CHELONIA)) {
+		if (HasFlag(clade, CF::CHELONIA)) {
 			// Sea turtles can dive for hours (low metabolism + anaerobic tolerance)
 			preferred_depth_max_m = std::min(preferred_depth_max_m * 2.0f, 300.0f);
 		}
@@ -749,8 +713,8 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	float characteristic_length = body_length_m;
 	float reynolds = (fluid_density * cruise_speed_m_s * characteristic_length) / in.environment.fluidViscosity_Pa_s;
 
-	return Output_Aquatic{
-		.propulsors = shared_array<Output_Aquatic::Fin>::FromArray(fins),
+	return Analysis_Aquatic{
+		.propulsors = shared_array<Analysis_Aquatic::Fin>::FromArray(fins),
 		.body_wave = body_wave,
 		.cruise_speed_m_s = cruise_speed_m_s,
 		.burst_speed_m_s = burst_speed_m_s,
@@ -776,58 +740,36 @@ std::optional<TonTon::Output_Aquatic>   TonTon::ComputeAquatic(Input const& in, 
 	};
 }
 
-std::vector<TonTon::Output_Aquatic::Fin> TonTon::Compute_Fins(const Input &in, Scratch &s)
+std::vector<TonTon::Analysis_Aquatic::Fin> TonTon::Compute_Fins(Input const& in)
 {
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo();
-	auto position = sk.skin->position.data();
-	auto tails = sk->GetBoneTails();
-	auto semantic_flags = sk_memo->GetSemanticFlags();
-	auto relative_flags = sk_memo->GetRelativeFlags();
+using SF = SemanticFlags;
 	
-	// get limbs and fins!
-	auto fin_chains = GetChainsFromRoot(in, SF::LIMB|SF::FIN);
-	auto fin_appendages = GetAppendages(in, std::move(fin_chains));
-	double area_scale = in.behavior.area_scale();
-		
-	std::vector<TonTon::Output_Aquatic::Fin>  fins;
-	fins.reserve(fin_appendages.size());
+	std::vector<TonTon::Analysis_Aquatic::Fin> r;
+	r.reserve(in.builder->appendages.size());
 	
-	for(auto & appendage : fin_appendages)
+	double area_scale = in.area_scale();
+	double volume_scale = in.volume_scale();
+	
+	for(auto & appendage : in.builder->appendages)
 	{
-		appendage.rest_length_m += glm::length(tails[appendage.tip] - position[appendage.root]);
-		appendage.stretched_length_m += glm::length(tails[appendage.tip] - position[appendage.tip]);
-		
-		Output_Aquatic::Fin fin;
-		static_cast<Output_Appendage&>(fin) = appendage;
-
-		SkinnedMesh::LimbMetrics limb_metrics;
-		std::pair<glm::quat, glm::vec3> eigen_decomposition;
-	
-		// Get fin area from silhouette
-		auto fin_joints = sk_memo->GetAllChildrenOfRoot(appendage.root);
-		auto projection = in.skinnedMesh->memo()->GetProjectionMatrix(
-			EigenValue::Small, 
-			in.behavior.scale,
-			fin_joints, 
-			&limb_metrics, 
-			&eigen_decomposition);
+		if(!HasFlag(appendage.semantic_flags, SF::WING))
+			continue;
 			
-		auto& silhouette = in.skinnedMesh->memo()->GetSilhouettes(projection, in.behavior.scale, fin_joints);
+		TonTon::Analysis_Aquatic::Fin fin;
+		(Analysis_Appendage&)fin = appendage;
 		
-		fin.area_m2 = silhouette.area;
-		fin.chord_m = silhouette.MeasureWidth_Segment(position[fin.root], tails[fin.tip]).length;
+		fin.stretched_length_m *= in.scale;
+		fin.rest_length_m *= in.scale;
 		
-		// aspect ratio wasn't really meaningful because a shark's body is so fat!
-
-		fin.normal_vector = GetProjectionDirection(EigenValue::Small, eigen_decomposition.first);
-		fin.type = relative_flags[appendage.root].child_flags|semantic_flags[appendage.root];
-		auto surfaceArea = in.skinnedMesh->GetSurfaceArea(fin_joints, area_scale);
-
+		fin.type    = appendage.semantic_flags;
+		fin.normal_vector = appendage.surfaceNormal;
+		fin.area_m2 = appendage.surface.area_m2 * area_scale;
+		fin.chord_m = appendage.surface.chord_m * in.scale;
+							
 		// Add this analysis before your flipper check
-		float percent_area = (silhouette.area*2.0) / surfaceArea; // volume-to-area ratio
+		float percent_area = (appendage.surface.area_m2*2.0) / appendage.area_m2; // volume-to-area ratio
 	//	float thickness = surfaceArea / limb_metrics.volume;
-		int joint_count = fin_joints.size();
+		int joint_count = appendage.noJoints;
 		float aspect_ratio = fin.rest_length_m / fin.chord_m;
 		
 		// Flipper characteristics
@@ -839,9 +781,9 @@ std::vector<TonTon::Output_Aquatic::Fin> TonTon::Compute_Fins(const Input &in, S
 
 		if(HasFlag(fin.type, SF::FIN) 
 		|| is_flipper)
-			fins.push_back(fin);
+			r.push_back(fin);
 	}
 	
-	return fins;
+	return r;
 }
-		
+

@@ -1,5 +1,5 @@
-#ifndef TONTON_OUTPUT_H
-#define TONTON_OUTPUT_H
+#ifndef TONTON_ANALYSIS_H
+#define TONTON_ANALYSIS_H
 #include "tonton_counted_ptr.hpp"
 #include "tonton_shared_array.hpp"
 #include "tonton_optional.hpp"
@@ -18,7 +18,7 @@ namespace TonTon {
 struct Input;
 
 // support
-struct Output_Chain
+struct Analysis_Chain
 {
 	// stop ik chain here
 	uint16_t root{};     
@@ -31,17 +31,18 @@ struct Output_Chain
 	float rest_length_m{};
 };
 
-struct Output_Appendage : public Output_Chain
+struct Analysis_Appendage : public Analysis_Chain
 {
 // everything in the group is symmetric about some bone. so if the gait group has 2 memebers its bilaterally symmetrical.
 // common ancestor of the group
 	int16_t common_ancestor{}; 
 	uint16_t gait_group{}; 
+	uint16_t id{}; // index in appendage array in builder.
 	float   phase_offset{};
 };
 
 // Venom delivery
-struct Output_Venom {
+struct Analysis_Venom {
 	int32_t delivery_joint{};       // fang, stinger, spine
 	float injection_volume_ml{};
 	float strike_speed_m_s{};
@@ -50,7 +51,7 @@ struct Output_Venom {
 // ============================================================================
 // MANIPULATION - limb end point: trunks, tentacles, hands
 // ============================================================================
-struct Output_Manipulator : public Output_Appendage {
+struct Analysis_Manipulator : public Analysis_Appendage {
 	
 	SemanticFlags subtree_flags{}; // TENTACLE, DIGIT, etc.
 	
@@ -81,7 +82,7 @@ struct Output_Manipulator : public Output_Appendage {
 // ============================================================================
 // CORE PHYSICAL PROPERTIES (always present)
 // ============================================================================
-struct Output_Physical {
+struct Analysis_Physical {
 	float body_mass_kg{};
 	float body_length_m{};
 	float body_volume_m3{};
@@ -97,6 +98,7 @@ struct Output_Physical {
 	int16_t		spine_root{};
 	bool		upright{};
 	CladeFlags  clade{CladeFlags::NONE};
+	NicheFlags  niche{NicheFlags::NONE};
 	
 	std::array<float, 6>  covariance_restPose{1.f, 1.f, 1.f, 0.f, 0.f, 0.f};
 	inline glm::mat3 inertia_restPose() const 
@@ -114,7 +116,7 @@ struct Output_Physical {
 // ============================================================================
 // METABOLIC & ENERGETICS (always present)
 // ============================================================================
-struct Output_Metabolic {
+struct Analysis_Metabolic {
 	float basal_rate_W{};
 	float max_rate_W{};
 	float aerobic_scope{};              // max/basal ratio
@@ -132,7 +134,7 @@ struct Output_Metabolic {
 
 
 // Body undulation (for BCF swimmers)
-struct Output_BodyWave : public Output_Chain {			
+struct Analysis_BodyWave : public Analysis_Chain {			
 	float wavelength_ratio{};        // wavelength / body_length
 	float amplitude_ratio{};         // tail_amplitude / body_length
 	float body_flexibility{};        // 0=rigid (tuna), 1=eel-like
@@ -146,8 +148,8 @@ struct Output_BodyWave : public Output_Chain {
 // ============================================================================
 // TERRESTRIAL LOCOMOTION (optional)
 // ============================================================================
-struct Output_Terrestrial {
-	immutable_array<Output_Manipulator> legs{};
+struct Analysis_Terrestrial {
+	immutable_array<Analysis_Manipulator> legs{};
 	
 	// 0 upright -> 1 sprawling
 	float posture{};
@@ -167,7 +169,7 @@ struct Output_Terrestrial {
 };
 
 // Serpentine locomotion (for SERPENTINE posture)
-struct Output_Serpentine {
+struct Analysis_Serpentine {
 	enum class Mode {
 		LATERAL_UNDULATION = 1 << 0,  // Primary terrestrial snake mode
 		RECTILINEAR = 1 << 1,         // Slow, stealthy crawling
@@ -183,7 +185,7 @@ struct Output_Serpentine {
 	float lateral_undulation_speed_m_s{};
 	
 	// Lateral undulation parameters
-	Output_BodyWave lateral_undulation{};
+	Analysis_BodyWave lateral_undulation{};
 
 	struct Rectilinear
 	{
@@ -212,8 +214,8 @@ struct Output_Serpentine {
 // ============================================================================
 // AERIAL LOCOMOTION (optional)
 // ============================================================================
-struct Output_Aerial;
-struct Output_TakeoffAnalysis {
+struct Analysis_Aerial;
+struct Analysis_TakeoffAnalysis {
     
     enum class TakeoffMode {
         VERTICAL_LAUNCH,        // Pure wing power (hummingbird, dragonfly)
@@ -261,11 +263,11 @@ struct Output_TakeoffAnalysis {
     
     
     // Core force estimations
-    static float EstimateMaxLift(const Output_Aerial& aerial, 
+    static float EstimateMaxLift(const Analysis_Aerial& aerial, 
                                 float body_mass_kg,
                                 float air_density = 1.225f);
     
-    static float EstimateMaxThrust(const Output_Aerial& aerial,
+    static float EstimateMaxThrust(const Analysis_Aerial& aerial,
                                   float body_mass_kg,
                                   float air_density = 1.225f);
     
@@ -273,14 +275,14 @@ struct Output_TakeoffAnalysis {
     static float GroundEffectBonus(float wing_span_m, float height_above_ground_m);
     
     // Required jump velocity from legs
-    static float RequiredJumpVelocity(const Output_Aerial& aerial,
+    static float RequiredJumpVelocity(const Analysis_Aerial& aerial,
                                      float body_mass_kg,
                                      float max_lift_N,
                                      float gravity_m_s2);
     
     // Running takeoff distance
-    static float RunwayDistance(const Output_Aerial& aerial,
-                               const Output_Terrestrial* terrestrial,
+    static float RunwayDistance(const Analysis_Aerial& aerial,
+                               const Analysis_Terrestrial* terrestrial,
                                float body_mass_kg);
     
     // Classification
@@ -288,8 +290,8 @@ struct Output_TakeoffAnalysis {
   //                                 const TakeoffAnalysis& analysis);
 };
 
-struct Output_Aerial {
-	struct Wing : public Output_Appendage {			
+struct Analysis_Aerial {
+	struct Wing : public Analysis_Appendage {			
 		float span_m{};
 		float area_m2{};
 		float chord_m{};
@@ -356,13 +358,13 @@ struct Output_Aerial {
 	float hovering_disk_loading_N_m2(float weight_N) const;		
 	float hovering_power_ideal_W(float weight_N, float air_density = 1.225f) const;
 	
-	Output_TakeoffAnalysis takeoff;
+	Analysis_TakeoffAnalysis takeoff;
 };
 
 // ============================================================================
 // AQUATIC LOCOMOTION (optional)
 // ============================================================================
-struct Output_Aquatic  {
+struct Analysis_Aquatic  {
 	enum class PropulsionMode : uint8_t {
 		BODY_CAUDAL_FIN,      // BCF - fish tail
 		MEDIAN_PAIRED_FIN,    // MPF - pectoral/dorsal fins
@@ -371,7 +373,7 @@ struct Output_Aquatic  {
 		DORSOVENTRAL_FLUKES   // Whales/dolphins
 	};
 
-	struct Fin  : public Output_Appendage {
+	struct Fin  : public Analysis_Appendage {
 		float chord_m{};
 		float area_m2{};
 
@@ -386,7 +388,7 @@ struct Output_Aquatic  {
 	};
 	immutable_array<Fin> propulsors{};
 
-	std::optional<Output_BodyWave> body_wave{};
+	std::optional<Analysis_BodyWave> body_wave{};
 
 	// Speed capabilities
 	float cruise_speed_m_s{};
@@ -439,8 +441,8 @@ struct Output_Aquatic  {
 // ============================================================================
 // CLIMBING (optional)
 // ============================================================================
-struct Output_Climbing {
-	immutable_array<Output_Manipulator> limbs{};
+struct Analysis_Climbing {
+	immutable_array<Analysis_Manipulator> limbs{};
 
 	float max_climb_speed_m_s{};
 	float max_climb_angle_rad{};        // from horizontal
@@ -459,8 +461,8 @@ struct Output_Climbing {
 // ============================================================================
 // BRACHIATION (optional) - arm-swinging locomotion (gibbons, spider monkeys)
 // ============================================================================
-struct Output_Brachiation {
-	struct Arm  : public Output_Appendage {
+struct Analysis_Brachiation {
+	struct Arm  : public Analysis_Appendage {
 		float reach_m{};
 		float grip_strength_N{};
 		float swing_speed_m_s{};
@@ -479,7 +481,7 @@ struct Output_Brachiation {
 // ============================================================================
 // JUMPING (optional)
 // ============================================================================
-struct Output_Jumping {
+struct Analysis_Jumping {
 	enum class MechanismType {
 		MUSCLE_DIRECT,      // Direct muscle power
 		ELASTIC_CATAPULT,   // Tendon energy storage
@@ -504,7 +506,7 @@ struct Output_Jumping {
 // SPECIALIZED BEHAVIORS
 // ============================================================================
 // Burrowing/fossorial
-struct Output_Digging {
+struct Analysis_Digging {
 	enum class Method { SCRATCH, HEAD_LIFT, INCISOR, HUMERAL_ROTATION };
 	Method method{};
 
@@ -514,14 +516,14 @@ struct Output_Digging {
 };
 
 // Constriction (snakes, tentacles)
-struct Output_Constriction {
+struct Analysis_Constriction {
 	float max_squeeze_pressure_Pa{};
 	float coil_diameter_range_min_m{};
 	float coil_diameter_range_max_m{};
 };
 
 
-struct  Output_Tail : public Output_Appendage // or tips for branching
+struct  Analysis_Tail : public Analysis_Appendage // or tips for branching
 {       
 	float mass_kg{};
 	float max_cross_section_m2{};
@@ -542,14 +544,14 @@ struct  Output_Tail : public Output_Appendage // or tips for branching
 	Flags used_for{0};
 	
 	// Branching support (for mythological creatures!)
-	immutable_array<Output_Tail> branches{};  // empty for single tail
-    std::optional<Output_Venom> venom{}; // how?
+	immutable_array<Analysis_Tail> branches{};  // empty for single tail
+    std::optional<Analysis_Venom> venom{}; // how?
 };
 
 // ============================================================================
 // BEHAVIORAL PROFILE (always present)
 // ============================================================================
-struct Output_Behavior {
+struct Analysis_Behavior {
 	// Derived AI hints
 	enum class AIArchetype : uint8_t {
 		SOLITARY_AMBUSH_HUNTER,
@@ -607,7 +609,7 @@ struct Output_Behavior {
 // ============================================================================
 // SENSORY SYSTEMS (always present, but may have low values)
 // ============================================================================
-struct Output_Vision {
+struct Analysis_Vision {
 	float acuity{};                 // 0=poor, 1=excellent
 	float binocular_overlap{};      // 0=none, 1=full overlap
 	float detection_range_m{};
@@ -623,7 +625,7 @@ struct Output_Vision {
 	bool has_uv_vision{};
 };
 
-struct Output_Hearing {
+struct Analysis_Hearing {
 	float sensitivity{};            // 0=poor, 1=excellent
 	float frequency_range_Hz_min{};
 	float frequency_range_Hz_max{};
@@ -635,7 +637,7 @@ struct Output_Hearing {
 	float substrate_vibration_sensitivity{};
 };
 
-struct Output_Olfaction {
+struct Analysis_Olfaction {
 	float sensitivity{};            // 0=poor, 1=excellent
 	float detection_range_m{};
 	int odor_discrimination_count{};
@@ -643,17 +645,17 @@ struct Output_Olfaction {
 };
 		
 template<template<typename> typename OPTIONAL>
-struct Output_Sensory {
-	OPTIONAL<Output_Vision> vision{};
-	OPTIONAL<Output_Hearing> hearing{};
-	OPTIONAL<Output_Olfaction> olfaction{};
-	immutable_array<Output_Chain> antennae{};
+struct Analysis_Sensory {
+	OPTIONAL<Analysis_Vision> vision{};
+	OPTIONAL<Analysis_Hearing> hearing{};
+	OPTIONAL<Analysis_Olfaction> olfaction{};
+	immutable_array<Analysis_Chain> antennae{};
 };
 
 // ============================================================================
 // CONFIDENCE & WARNINGS
 // ============================================================================
-struct Output_Diagnostics {
+struct Analysis_Diagnostics {
 	float overall_confidence{};         // 0-1, weighted average of predictions
 	
 	// Physics checks
@@ -671,7 +673,7 @@ struct Output_Diagnostics {
 };
 	
 struct Output  {
-using Sensory = Output_Sensory<optional>;
+using Sensory = Analysis_Sensory<optional>;
 
 	static counted_ptr<const Output> Factory(Input const& in);
 //	static counted_ptr<const Output> Scale(Output const& in, float scale);
@@ -680,31 +682,31 @@ using Sensory = Output_Sensory<optional>;
 	void AddRef() const { ++_refCount; };
 	void Release() const { if(--_refCount == 0) delete this; }
 	
-	Output_Physical physical{};
-	Output_Metabolic metabolic{};
-	Output_Behavior  behavior{};
-	Output_Sensory<optional> sensory{};
+	Analysis_Physical physical{};
+	Analysis_Metabolic metabolic{};
+	Analysis_Behavior  behavior{};
+	Analysis_Sensory<optional> sensory{};
 	
 	struct Appendages {
-		using Tail = Output_Tail;
-		immutable_array<Output_Tail> tails{};  // usually 1, but kitsune has 9!
-		immutable_array<Output_Manipulator> manipulation{};
+		using Tail = Analysis_Tail;
+		immutable_array<Analysis_Tail> tails{};  // usually 1, but kitsune has 9!
+		immutable_array<Analysis_Manipulator> manipulation{};
 	} appendages{};
 	
-	optional<Output_Terrestrial> terrestrial{};
-	optional<Output_Serpentine> serpentine{};
-	optional<Output_Aerial> aerial{};
-	optional<Output_Aquatic> aquatic{};
-	optional<Output_Climbing> climbing{};
-	optional<Output_Brachiation> brachiation{};
-	optional<Output_Jumping> jumping{};
+	optional<Analysis_Terrestrial> terrestrial{};
+	optional<Analysis_Serpentine> serpentine{};
+	optional<Analysis_Aerial> aerial{};
+	optional<Analysis_Aquatic> aquatic{};
+	optional<Analysis_Climbing> climbing{};
+	optional<Analysis_Brachiation> brachiation{};
+	optional<Analysis_Jumping> jumping{};
 	
 	struct SpecializedBehaviors {		
-		optional<Output_Digging> digging{};
-		optional<Output_Constriction> constriction{};
+		optional<Analysis_Digging> digging{};
+		optional<Analysis_Constriction> constriction{};
 	} specialized{};
 
-	Output_Diagnostics diagnostics;
+	Analysis_Diagnostics diagnostics;
 	
 private:
 	mutable std::atomic<int> _refCount{1};
@@ -714,4 +716,4 @@ private:
 
 }; // namespace TonTon
 
-#endif // TONTON_OUTPUT_H
+#endif // TONTON_ANALYSIS_H

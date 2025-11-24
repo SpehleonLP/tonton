@@ -5,11 +5,11 @@ namespace TonTon
 {
 struct Input;
 struct Scratch;
-struct Output_Metabolic;
-struct Output_Behavior;
+struct Analysis_Metabolic;
+struct Analysis_Behavior;
 
-Output_Metabolic    ComputeMetabolic(Input const& in, Scratch & s);
-Output_Behavior   ComputeBehavior(Input const& in, Scratch & s);
+Analysis_Metabolic    ComputeMetabolic(Input const& in, Scratch & s);
+Analysis_Behavior   ComputeBehavior(Input const& in, Scratch & s);
 
 }
 

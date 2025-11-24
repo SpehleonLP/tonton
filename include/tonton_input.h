@@ -1,167 +1,13 @@
 #ifndef TONTON_INPUT_H
 #define TONTON_INPUT_H
-#include "tonton_shared_array.hpp"
 #include "tonton_counted_ptr.hpp"
-#include "tonton_wordlist.h"
-#include <cmath>
-#include <glm/gtc/quaternion.hpp>
-#include <glm/vec3.hpp>
-#include <memory>
-#include <array>
-#include <span>
-#include <vector>
-
-namespace DoDeeDum
-{
-struct Primitive;
-using Mesh = std::vector<Primitive>;
-}
+#include <glm/common.hpp>
+#include <glm/fwd.hpp>
 
 namespace TonTon
 {
 
-struct Armature;
-struct SkinnedMesh;
-struct ArmatureMemo;
-struct MeshMemo;
-struct SkinnedMeshMemo;
-struct Environment;
-struct Input;
-
-struct Cube
-{
-	glm::vec3 min{0}, max{0};
-	Cube operator|(Cube const& it) const { return {glm::min(min, it.min), glm::max(max, it.max) }; }
-};
-
-struct Armature
-{
-	static counted_ptr<const Armature> Factory(
-		immutable_array<std::string> names, 
-		immutable_array<int> parents,
-		immutable_array<glm::vec3>	position,
-		immutable_array<glm::quat> rotation,
-		immutable_array<immutable_array<Word>> tags = {}); 
-	
-	inline void AddRef() const { ++_refCount; };
-	inline void Release() const { if(--_refCount == 0) delete this; } 
-	
-	ArmatureMemo * memo() const;
-	inline ArmatureMemo * operator->() const { return memo(); }
-	inline ArmatureMemo & operator*() const { return *memo(); }
-	
-	immutable_array<std::string> names;	
-	immutable_array<immutable_array<Word>> tags;	
-	immutable_array<int> parents;	
-	immutable_array<glm::vec3>	position;
-	immutable_array<glm::quat>	rotation;
-	
-private:
-	Armature();
-	~Armature();
-	
-	mutable std::atomic<int> _refCount{1};
-	mutable std::unique_ptr<ArmatureMemo> _memo;
-};
-
-struct Mesh
-{
-	static counted_ptr<const Mesh> Factory(DoDeeDum::Mesh &&); 
-
-	inline void AddRef() const { ++_refCount; };
-	inline void Release() const { if(--_refCount == 0) delete this; }
-	
-	MeshMemo * memo() const;
-	inline MeshMemo * operator->() const { return memo(); }
-	inline MeshMemo & operator*() const { return *memo(); }
-	
-	DoDeeDum::Mesh mesh;
-		
-private:
-	Mesh();
-	~Mesh();
-	
-	mutable std::atomic<int> _refCount{1};
-	mutable std::unique_ptr<MeshMemo> _memo;
-};
-
-struct SkinnedMesh
-{
-	static counted_ptr<const SkinnedMesh> Factory(
-		counted_ptr<const Mesh>	mesh, 
-		counted_ptr<const Armature> armature,
-		
-		immutable_array<Cube>		aabb,
-		immutable_array<float>		surfaceArea,
-			
-		immutable_array<float>		volume,
-		immutable_array<glm::vec3>	centroid,
-		immutable_array<std::array<float, 6>>	covariance
-	);
-
-	void AddRef() const { ++_refCount; };
-	void Release() const { if(--_refCount == 0) delete this; }
-	
-	SkinnedMeshMemo * memo() const;
-	inline SkinnedMeshMemo * operator->() const { return memo(); }
-	inline SkinnedMeshMemo & operator*() const { return *memo(); }
-	
-	counted_ptr<const Mesh>		mesh;
-	counted_ptr<const Armature>  skin;
-	
-	immutable_array<Cube>		aabb; 
-	immutable_array<float>		surfaceArea;
-		
-	immutable_array<float>		volume;
-	immutable_array<glm::vec3>	centroid;
-	immutable_array<std::array<float, 6>>	covariance;
-	
-	glm::dmat3 GetInertia(uint32_t i, glm::dvec3 scale) const;	
-	double EstimateCrossSection(uint32_t i, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
-	double EstimateCrossSection(std::span<uint16_t> joints, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
-	
-	glm::dvec3 GetCentroid(std::span<uint16_t> joints, glm::dvec3 const& scale, double * volume_out = nullptr) const;
-	glm::dmat3 GetInertia(std::span<uint16_t> joints, glm::dvec3 const& scale, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
-	
-	std::array<double, 6> GetCovariance(uint32_t i, glm::dvec3 scale) const;		
-	std::array<double, 6> GetCovariance(std::span<uint16_t> joints, glm::dvec3 const& scale, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
-	
-	double GetSurfaceArea(uint16_t i, double area_scale) const;
-	double GetSurfaceArea(std::span<uint16_t> joints, double area_scale) const;
-		
-	struct LimbMetrics
-	{
-		double volume{};
-		glm::dvec3 centroid{0};
-		glm::dmat3 unitInertia{1};
-		
-		glm::dmat3 GetInertia(glm::vec3 measured_at, float density) const;
-		double GetInertia(glm::vec3 measured_at, float density, glm::vec3 axis) const;
-	};	
-		
-	LimbMetrics GetMetrics(std::span<uint16_t> joints, glm::dvec3 const& scale) const;
-
-	struct StalkData
-	{
-		int root{};
-		int tip{};
-		
-		float thickestCrossSection_m2{};
-		float thinestCrossSection_m2{};
-		float length_m{};
-	};
-	
-	// find the subset of the chain between tip and root thats most stalk-y and get the data on it.
-	bool GetStalkData(StalkData & dst, int root, int tip, glm::vec3 scale) const;
-	
-private:
-	SkinnedMesh();
-	~SkinnedMesh();
-	
-	mutable std::atomic<int> _refCount{1};
-	mutable std::unique_ptr<SkinnedMeshMemo> _memo;
-};
-
+struct Builder;
 struct Environment
 {
     float fluidDensity_Kg_m3{1.225f};       // kg/m³ (water=1000, air=1.2, liquid methane=422)
@@ -173,13 +19,11 @@ struct Environment
 
 struct Input 
 {
-	counted_ptr<const SkinnedMesh> skinnedMesh;
+	counted_ptr<const Builder> builder;
 	Environment environment;
-	
 	
 	struct Behavior
 	{
-		glm::vec3 scale{1.0, 1.0, 1.0};
 		float coloration{}; // -1 -> camoflauge, +1 -> aposematism
 		
 		// BEHAVIORAL FINE-TUNING (0-1 sliders, auto-computed defaults)
@@ -194,8 +38,7 @@ struct Input
 		float activity_pattern = 0.5f;         // 0=diurnal, 1=nocturnal
 		float adaptability = 0.0f;      // 0=none, 1=advanced tool use	
 	
-		inline float volume_scale() const { return scale.x * scale.y * scale.z; }
-		inline float area_scale() const { return std::sqrt(scale.x * scale.y) * std::sqrt(scale.y * scale.z) * std::sqrt(scale.z * scale.x); }
+	//	inline float area_scale() const { return std::sqrt(scale.x * scale.y) * std::sqrt(scale.y * scale.z) * std::sqrt(scale.z * scale.x); }
 	} behavior;
 	
 	// Normalized artistic parameters (0-1)
@@ -209,11 +52,21 @@ struct Input
 	float scaling_strategy = 0.5f;       // how aggressively to combat size penalties
 	float climbing_ability = 0.5;        // 0=none, 1=vertical surfaces
 	
-	inline glm::vec3 position(int index) const { return skinnedMesh? skinnedMesh->skin->position[index] * behavior.scale : glm::vec3(0); };
-	inline float body_density() const { return glm::mix(700.0, 1050.0, average_density); }
-	 
+//	inline glm::vec3 position(int index) const { return skinnedMesh? skinnedMesh->skin->position[index] * behavior.scale : glm::vec3(0); };
+	float scale = 1.0;
+	
+	inline float body_density() const { return glm::mix(700.0, 1050.0, average_density); } 
+	float body_mass_kg() const;
+	float body_weight_N() const;
+	float cross_sectional_area_m2() const;
+	glm::mat3 inertia_restPose() const;
+	
+	inline float area_scale() const { return scale * scale; }
+	inline float volume_scale() const { return scale * scale * scale; }
+	inline float inertia_scale() const { return scale * scale * scale * scale * scale; }
 };
 
-}
+};
 
-#endif
+
+#endif // TONTON_INPUT_H

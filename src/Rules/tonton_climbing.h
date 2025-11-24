@@ -8,14 +8,14 @@ namespace TonTon
 
 struct Input;
 struct Scratch;
-struct Output_Manipulator;
-struct Output_Appendage;
-struct Output_Climbing;
-struct Output_Brachiation;
+struct Analysis_Manipulator;
+struct Analysis_Appendage;
+struct Analysis_Climbing;
+struct Analysis_Brachiation;
 
-std::optional<Output_Climbing>  ComputeClimbing(Input const& in, Scratch & s);
-std::optional<Output_Brachiation> ComputeBrachiation(Input const& in, Scratch & s);
-std::vector<Output_Manipulator>   ComputeManipulation(Input const& in, std::vector<Output_Appendage> & appendages);
+std::optional<Analysis_Climbing>  ComputeClimbing(Input const& in, Scratch & s);
+std::optional<Analysis_Brachiation> ComputeBrachiation(Input const& in, Scratch & s);
+std::vector<Analysis_Manipulator>   ComputeManipulation(Input const& in, std::vector<Analysis_Appendage> & appendages);
 
 }
 

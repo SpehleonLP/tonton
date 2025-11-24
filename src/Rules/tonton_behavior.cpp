@@ -2,10 +2,12 @@
 // Metabolic and Behavioral Inference System
 // Infers metabolic rates and behavioral traits from morphology and performance capabilities
 #include "tonton_behavior.h"
-#include "../../include/tonton_input.h"
-#include "../../include/tonton_output.h"
+#include "../../include/tonton_skinnedmesh.h"
+#include "../../include/tonton_analysis.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Rules/tonton_scratch.h"
+#include "tonton_builder.h"
+#include "tonton_input.h"
 #include <cmath>
 
 namespace TonTon {
@@ -13,105 +15,7 @@ namespace TonTon {
 // HELPER FUNCTIONS - Semantic Analysis
 // ============================================================================
 
-struct SemanticAnalysis {
-    bool has_sharp_teeth = false;
-    bool has_claws = false;
-    bool has_talons = false;
-    bool has_venom = false;
-    bool has_horns = false;
-    bool has_weapons = false;
-    bool is_predator = false;
-    bool has_hearing_organs = false;
-    bool has_good_vision = false;
-    float eye_body_ratio = 0.1f;
-    bool has_lateral_eyes = false;
-    bool has_forward_eyes = false;
-};
-
-static SemanticAnalysis AnalyzeSemantics(Input const& in, Scratch const& scratch) {
-    SemanticAnalysis result;
-    
-    auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
-    auto tags = in.skinnedMesh->skin->tags;
-    
-    // Scan all bones for relevant semantic flags
-    for (size_t i = 0; i < semantic_flags.size(); ++i) {
-        auto flags = semantic_flags[i];
-        
-        // Dental weapons
-        if (HasFlag(flags, SemanticFlags::TEETH)) {
-            // Check for predatory teeth types in tags
-            for (auto word : tags[i]) {
-                if (word == Word::fang || word == Word::canine || word == Word::incisor
-                || word == Word::carnivore || word == Word::predator) {
-                    result.has_sharp_teeth = true;
-                    result.has_weapons = true;
-                }
-            }
-        }
-        
-        // Claw weapons
-        if (HasFlag(flags, SemanticFlags::NAIL)) {
-            for (auto word : tags[i]) {
-                if (word == Word::claw || word == Word::talon) {
-                    result.has_claws = true;
-                    result.has_weapons = true;
-                    if (word == Word::talon) {
-                        result.has_talons = true;
-                    }
-                }
-            }
-        }
-        
-        // Horns/antlers
-        if (HasFlag(flags, SemanticFlags::HORN_ANTLER)) {
-            result.has_horns = true;
-            result.has_weapons = true;
-        }
-        
-        // Sensory organs
-        if (HasFlag(flags, SemanticFlags::HEARING)) {
-            result.has_hearing_organs = true;
-        }
-        
-        if (HasFlag(flags, SemanticFlags::VISION)) {
-            result.has_good_vision = true;
-            
-            // Determine eye position from flags
-            bool is_lateral = HasFlag(flags, SemanticFlags::LATERAL);
-            bool is_anterior = HasFlag(flags, SemanticFlags::ANTERIOR);
-            
-            if (is_lateral) {
-                result.has_lateral_eyes = true;
-            }
-            if (is_anterior) {
-                result.has_forward_eyes = true;
-            }
-        }
-    }
-    
-    // Check for venom in output structures
-    for (auto& tail : scratch.appendages.tails) {
-        if (tail.venom.has_value()) {
-            result.has_venom = true;
-            result.has_weapons = true;
-        }
-    }
-    
-    // Determine if predator from morphology
-    result.is_predator = result.has_sharp_teeth || result.has_talons || 
-                        (result.has_claws && !scratch.climbing);
-    
-    // Estimate eye size from head and vision system
-    if (scratch.sensory.vision) {
-        // Larger detection range suggests larger eyes
-        float detection = scratch.sensory.vision->detection_range_m;
-        float body_length = scratch.physical.body_length_m;
-        result.eye_body_ratio = glm::clamp(detection / (body_length * 100.0f), 0.05f, 0.25f);
-    }
-    
-    return result;
-}
+using SemanticAnalysis = Builder::SemanticAnalysis;
 
 // ============================================================================
 // TEMPERATURE SCALING
@@ -163,10 +67,10 @@ static bool InferEndothermy(Scratch const& scratch, SemanticAnalysis const& sem)
 // METABOLIC INFERENCE
 // ============================================================================
 
-TonTon::Output_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & scratch) {
-    Output_Metabolic result;
+TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & scratch) {
+    Analysis_Metabolic result;
     
-    SemanticAnalysis sem = AnalyzeSemantics(in, scratch);
+    Builder::SemanticAnalysis const& sem = in.builder->semanticAnalyisis; 
     
     float mass_kg = scratch.physical.body_mass_kg;
     bool is_endotherm = InferEndothermy(scratch, sem);
@@ -340,15 +244,16 @@ TonTon::Output_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & scr
 // BEHAVIORAL INFERENCE
 // ============================================================================
 
-TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scratch) {
-    Output_Behavior result;
+TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scratch) {
+    Analysis_Behavior result;
 
-    SemanticAnalysis sem = AnalyzeSemantics(in, scratch);
+    Builder::SemanticAnalysis const& sem = in.builder->semanticAnalyisis; 
+    
     bool is_endotherm = scratch.metabolic.is_endotherm();
     float mass_kg = scratch.physical.body_mass_kg;
 
     // Get niche flags from armature (ecological roles)
-    auto niche_flags = in.skinnedMesh->skin->memo()->GetNicheFlags();
+    auto niche_flags = in.builder->physical.niche;
 
     // Enhanced predator detection: morphology OR niche flags
     bool is_predator = sem.is_predator ||
@@ -781,30 +686,30 @@ TonTon::Output_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scrat
     // Decision tree based on key discriminators
     if (result.social_tendency > 0.7f) {
         if (is_predator) {
-            result.suggested_archetype = Output_Behavior::AIArchetype::PACK_COORDINATOR;
+            result.suggested_archetype = Analysis_Behavior::AIArchetype::PACK_COORDINATOR;
         } else {
             result.suggested_archetype = scratch.aquatic ?
-                Output_Behavior::AIArchetype::SCHOOLING_PREY :
-                Output_Behavior::AIArchetype::SOCIAL_FORAGER;
+                Analysis_Behavior::AIArchetype::SCHOOLING_PREY :
+                Analysis_Behavior::AIArchetype::SOCIAL_FORAGER;
         }
     } else if (result.territoriality > 0.7f) {
-        result.suggested_archetype = Output_Behavior::AIArchetype::TERRITORIAL_DEFENDER;
+        result.suggested_archetype = Analysis_Behavior::AIArchetype::TERRITORIAL_DEFENDER;
     } else if (result.ambush_vs_pursuit > 0.7f) {
-        result.suggested_archetype = Output_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER;
+        result.suggested_archetype = Analysis_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER;
     } else if (scratch.aerial && is_predator) {
         // Aerial predators: birds of prey, dragonflies, bats
         // No mass requirement - dragonflies are small but still aerial predators
-        result.suggested_archetype = Output_Behavior::AIArchetype::AERIAL_PREDATOR;
+        result.suggested_archetype = Analysis_Behavior::AIArchetype::AERIAL_PREDATOR;
     } else if (is_predator && mass_kg > 100.0f) {
-        result.suggested_archetype = Output_Behavior::AIArchetype::APEX_PREDATOR;
+        result.suggested_archetype = Analysis_Behavior::AIArchetype::APEX_PREDATOR;
     } else if (is_herbivore) {
         // Herbivores are social foragers by default
-        result.suggested_archetype = Output_Behavior::AIArchetype::SOCIAL_FORAGER;
+        result.suggested_archetype = Analysis_Behavior::AIArchetype::SOCIAL_FORAGER;
     } else if (is_predator) {
         // Small/medium predators that don't fit other categories
-        result.suggested_archetype = Output_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER;
+        result.suggested_archetype = Analysis_Behavior::AIArchetype::SOLITARY_AMBUSH_HUNTER;
     } else {
-        result.suggested_archetype = Output_Behavior::AIArchetype::OPPORTUNISTIC_SCAVENGER;
+        result.suggested_archetype = Analysis_Behavior::AIArchetype::OPPORTUNISTIC_SCAVENGER;
     }
     
     return result;

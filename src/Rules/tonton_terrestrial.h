@@ -6,14 +6,14 @@ namespace TonTon {
 
 struct Scratch;
 struct Scratch;
-struct Output_Appendage;
-struct Output_Terrestrial;
-struct Output_Jumping;
+struct Analysis_Appendage;
+struct Analysis_Terrestrial;
+struct Analysis_Jumping;
 struct Input;
 
 
-std::optional<Output_Terrestrial>  ComputeTerrestrial(Input const& in, Scratch &out);
-std::optional<Output_Jumping>  ComputeJumping(Input const& in, Scratch & s);
+std::optional<Analysis_Terrestrial>  ComputeTerrestrial(Input const& in, Scratch &out);
+std::optional<Analysis_Jumping>  ComputeJumping(Input const& in, Scratch & s);
 
 
 }

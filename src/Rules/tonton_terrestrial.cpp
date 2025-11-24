@@ -1,18 +1,21 @@
 #include "tonton_terrestrial.h"
-#include "../../include/tonton_output.h"
+#include "../../include/tonton_analysis.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Rules/tonton_climbing.h"
 #include "Rules/tonton_scratch.h"
 #include "tonton_input.h"
+#include "tonton_skinnedmesh.h"
 #include <cfloat>
 
 using SF = TonTon::SemanticFlags;
 
+namespace TonTon
+{
+static std::vector<Analysis_Aerial::Wing> GetLegs(Input const& in);
+}
 
-std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input const& in, Scratch &out)
+std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input const& in, Scratch &out)
 {	
-	auto position = in.skinnedMesh->skin->position.data();
-	auto children = in.skinnedMesh->skin->memo()->GetChildren();
 	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB, SF::CONTACT));
 	auto legs = ComputeManipulation(in, appendages);
 	
@@ -87,18 +90,6 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	leg_correction = std::clamp(leg_correction, 0.3f, 2.0f); // Don't go crazy with extremes
 
 	float base_sprint = allometric_speed_m_s * leg_correction;
-
-	// Detect aquatic-adapted body plans (penguins, seals, otters)
-	// These have flippers/fins AND disproportionately short legs
-	auto all_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
-	bool has_flippers = false;
-	for (size_t i = 0; i < all_flags.size(); ++i) {
-		if (HasFlag(all_flags[i], SF::FIN) ||
-		    (HasFlag(all_flags[i], SF::WING) && HasFlag(all_flags[i], SF::FORELIMB))) {
-			has_flippers = true;
-			break;
-		}
-	}
 
 	// Aquatic-adapted animals with short legs: poor terrestrial locomotion
 	if (has_flippers && leg_length_ratio < 0.6f) {
@@ -243,9 +234,9 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 		}
 	}
 
-	return Output_Terrestrial
+	return Analysis_Terrestrial
 	{
-		.legs=shared_array<Output_Manipulator>::FromArray(legs),
+		.legs=shared_array<Analysis_Manipulator>::FromArray(legs),
 		.posture=posture,
 		.max_sprint_speed_m_s=base_sprint,
 		.max_sustainable_speed_m_s=max_sustainable_speed_m_s,
@@ -258,7 +249,7 @@ std::optional<TonTon::Output_Terrestrial>  TonTon::ComputeTerrestrial(Input cons
 	};
 }
 
-std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, Scratch & s)
+std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in, Scratch & s)
 {
 	// Jumping requires terrestrial locomotion
 	if(!s.terrestrial.has_value())
@@ -273,7 +264,7 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 //	float body_weight_N = body_mass_kg * in.environment.gravity_m_s2;
 
 	// 1. DETERMINE JUMP MECHANISM
-	Output_Jumping::MechanismType mechanism = Output_Jumping::MechanismType::MUSCLE_DIRECT;
+	Analysis_Jumping::MechanismType mechanism = Analysis_Jumping::MechanismType::MUSCLE_DIRECT;
 
 	// 2. CALCULATE AVAILABLE JUMP FORCE
 	// Force comes from leg extension (quadriceps, gastrocnemius equivalents)
@@ -324,18 +315,18 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	if(avg_compression_ratio > 1.8f)
 	{
 		// High compression indicates elastic energy storage capability
-		mechanism = Output_Jumping::MechanismType::ELASTIC_CATAPULT;
+		mechanism = Analysis_Jumping::MechanismType::ELASTIC_CATAPULT;
 	}
 	else
 	{
-		mechanism = Output_Jumping::MechanismType::MUSCLE_DIRECT;
+		mechanism = Analysis_Jumping::MechanismType::MUSCLE_DIRECT;
 	}
 
 	// Hydraulic for very small arthropods (< 1g)
 	// Jumping spiders use hydraulic leg extension
 	if(body_mass_kg < 0.001f && HasFlag(s.physical.clade, CF::ARTHROPODA))
 	{
-		mechanism = Output_Jumping::MechanismType::HYDRAULIC;
+		mechanism = Analysis_Jumping::MechanismType::HYDRAULIC;
 	}
 
 	// Not all legs contribute equally - use ~70% of total force
@@ -354,12 +345,12 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	// Kinetic energy at takeoff = work - losses
 	float efficiency = 0.65f; // ~35% losses to heat, internal work
 
-	if(mechanism == Output_Jumping::MechanismType::ELASTIC_CATAPULT)
+	if(mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT)
 	{
 		// Elastic storage is more efficient
 		efficiency = 0.85f;
 	}
-	else if(mechanism == Output_Jumping::MechanismType::HYDRAULIC)
+	else if(mechanism == Analysis_Jumping::MechanismType::HYDRAULIC)
 	{
 		// Hydraulic is very efficient but limited by fluid volume
 		efficiency = 0.75f;
@@ -398,7 +389,7 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	float elastic_storage_J = 0;
 	float power_amplification_ratio = 1.0f;
 
-	if(mechanism == Output_Jumping::MechanismType::ELASTIC_CATAPULT)
+	if(mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT)
 	{
 		// Elastic tendons can store energy over longer prep time
 		// Then release it rapidly for high power output
@@ -424,17 +415,17 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 
 	float recovery_time_s = 2.0f; // Default: ~2 seconds
 
-	if(mechanism == Output_Jumping::MechanismType::MUSCLE_DIRECT)
+	if(mechanism == Analysis_Jumping::MechanismType::MUSCLE_DIRECT)
 	{
 		// Direct muscle: fast recovery if aerobic
 		recovery_time_s = 1.0f + (kinetic_energy_J / s.metabolic.available_muscle_power_W);
 	}
-	else if(mechanism == Output_Jumping::MechanismType::ELASTIC_CATAPULT)
+	else if(mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT)
 	{
 		// Elastic storage: slower recovery (need to re-stretch tendons)
 		recovery_time_s = 3.0f;
 	}
-	else if(mechanism == Output_Jumping::MechanismType::HYDRAULIC)
+	else if(mechanism == Analysis_Jumping::MechanismType::HYDRAULIC)
 	{
 		// Hydraulic: slow recovery (refill hemolymph pressure)
 		recovery_time_s = 5.0f;
@@ -447,7 +438,7 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	// Applied after generic physics to add biological constraints
 
 	// ARTHROPODA: Insect jumping uses elastic energy storage (catapult mechanism)
-	if (HasFlag(s.physical.clade, CF::ARTHROPODA) && mechanism == Output_Jumping::MechanismType::ELASTIC_CATAPULT) {
+	if (HasFlag(s.physical.clade, CF::ARTHROPODA) && mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT) {
 		// Burrows (2006, 2009): Insects use elastic protein (resilin) in cuticle
 		// Bennet-Clark & Lucey (1967): Resilin stores energy with 97% efficiency
 		// Alexander (1988): Elastic storage enables power amplification 10-100x
@@ -505,7 +496,7 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 	}
 
 	// AMPHIBIA: Frogs use elastic catapult when morphology supports it
-	if (HasFlag(s.physical.clade, CF::AMPHIBIA) && mechanism == Output_Jumping::MechanismType::ELASTIC_CATAPULT) {
+	if (HasFlag(s.physical.clade, CF::AMPHIBIA) && mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT) {
 		// Frogs use elastic tendons (not cuticle like insects)
 		// Marsh & John-Alder (1994): Frog jump performance scales M^0.17
 
@@ -537,7 +528,7 @@ std::optional<TonTon::Output_Jumping>  TonTon::ComputeJumping(Input const& in, S
 		takeoff_velocity_m_s *= std::sqrt(scale);
 	}
 
-	return Output_Jumping{
+	return Analysis_Jumping{
 		.mechanism = mechanism,
 		.max_jump_height_m = max_jump_height_m,
 		.max_jump_distance_m = max_jump_distance_m,
