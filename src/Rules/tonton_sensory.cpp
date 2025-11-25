@@ -1,8 +1,9 @@
 #include "tonton_sensory.h"
 #include "../include/tonton_input.h"
-#include "../include/tonton_output.h"
+#include "../include/tonton_analysis.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Rules/tonton_scratch.h"
+#include "tonton_skinnedmesh.h"
 
 namespace TonTon
 {
@@ -12,12 +13,12 @@ struct EyeInfo {
     glm::vec3 base_position;      // Where eyestalk attaches (if applicable)
     glm::vec3 pointing_direction; // Forward vector of this eye
     bool is_on_stalk;
-    float stalk_length_m;
-    float eye_diameter_m;
-    float mobility_rad;           // How much can it rotate? (stalk vs fixed)
+    auto stalk_length_m;
+    auto eye_diameter_m;
+    auto mobility_rad;           // How much can it rotate? (stalk vs fixed)
 };
 
-static std::vector<EyeInfo> FindEyes(Input const& in, Scratch const&) {
+static std::vector<EyeInfo> FindEyes(TonTon::SkinnedMesh const& sk) {
 	using SF = SemanticFlags;
 	
     auto & sk = *in.skinnedMesh;
@@ -107,16 +108,16 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
     // ACUITY - based on eye size
     // ===================================================================
     
-    float max_eye_diameter = 0.0f;
+    auto max_eye_diameter = 0.0f;
     for(auto const& eye : eyes) {
         max_eye_diameter = std::max(max_eye_diameter, eye.eye_diameter_m);
     }
     
     // Scale: 0.002m (ant) -> 0.05m (human) -> 0.1m (horse) -> 0.3m (giant squid)
-    float geometric_acuity = std::clamp(max_eye_diameter / 0.05f, 0.0f, 1.0f);
+    auto geometric_acuity = std::clamp(max_eye_diameter / 0.05f, 0.0f, 1.0f);
     
     // Behavioral modifier: diurnal animals need better vision
-    float activity_bonus = in.behavior.activity_pattern;
+    auto activity_bonus = in.behavior.activity_pattern;
     vision.acuity = geometric_acuity * glm::mix(0.7f, 1.3f, activity_bonus);
     vision.acuity = std::clamp(vision.acuity, 0.0f, 1.0f);
     
@@ -129,11 +130,11 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
         // (The ones with the most similar pointing directions)
         
         int best_pair[2] = {0, 1};
-        float best_alignment = -1.0f;
+        auto best_alignment = -1.0f;
         
         for(size_t i = 0; i < eyes.size(); ++i) {
             for(size_t j = i + 1; j < eyes.size(); ++j) {
-                float alignment = glm::dot(eyes[i].pointing_direction, 
+                auto alignment = glm::dot(eyes[i].pointing_direction, 
                                           eyes[j].pointing_direction);
                 if(alignment > best_alignment) {
                     best_alignment = alignment;
@@ -166,21 +167,21 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
         glm::vec3 right = glm::normalize(glm::cross(forward, plane_normal));
         
         // Angular separation between eyes (in the horizontal plane)
-        float angle_A = std::atan2(glm::dot(to_A, right), glm::dot(to_A, forward));
-        float angle_B = std::atan2(glm::dot(to_B, right), glm::dot(to_B, forward));
+        auto angle_A = std::atan2(glm::dot(to_A, right), glm::dot(to_A, forward));
+        auto angle_B = std::atan2(glm::dot(to_B, right), glm::dot(to_B, forward));
         
-        float angular_separation_rad = std::abs(angle_B - angle_A);
+        auto angular_separation_rad = std::abs(angle_B - angle_A);
         
         // Typical FOV per eye: ~90-180 degrees depending on eye type
         // Predators: narrow FOV (~60°), Prey: wide FOV (~180°)
-        float fov_per_eye_rad = glm::mix(glm::radians(60.0f), 
+        auto fov_per_eye_rad = glm::mix(glm::radians(60.0f), 
                                      glm::radians(150.0f),
                                      1.0f - in.behavior.aggression_adjustment);
         
         // Binocular overlap = (2 × FOV - separation) / FOV
         // If eyes are close together and pointing same direction: high overlap
         // If eyes are on sides of head: low/no overlap
-        float overlap_angle = 2.0f * fov_per_eye_rad - angular_separation_rad;
+        auto overlap_angle = 2.0f * fov_per_eye_rad - angular_separation_rad;
         vision.binocular_overlap = std::clamp(overlap_angle / fov_per_eye_rad, 0.0f, 1.0f);
         
         // ===============================================================
@@ -188,7 +189,7 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
         // ===============================================================
         
         // Check if eyes are on opposite sides (normal) or same side (flatfish)
-        float left_right_balance = (angle_A + angle_B) / 2.0f;
+        auto left_right_balance = (angle_A + angle_B) / 2.0f;
         
         // If both eyes are on left (negative) or both on right (positive): asymmetric
         vision.centering = std::clamp(left_right_balance / glm::radians(90.0f), -1.0f, 1.0f);
@@ -215,12 +216,12 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
     // DETECTION RANGE
     // ===================================================================
     
-    float scale_factor = std::cbrt(s.physical.body_volume_m3);
+    auto scale_factor = std::cbrt(s.physical.body_volume_m3);
     vision.detection_range_m = scale_factor * 100.0f * vision.acuity;
     
     // Eyestalks give better view distance (periscope effect)
     bool has_eyestalks = false;
-    float max_stalk_height = 0.0f;
+    auto max_stalk_height = 0.0f;
     for(auto const& eye : eyes) {
         if(eye.is_on_stalk) {
             has_eyestalks = true;
@@ -230,7 +231,7 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
     
     if(has_eyestalks) {
         // Higher eyes see further (horizon distance)
-        float horizon_bonus = 1.0f + std::sqrt(max_stalk_height * 2.0f); // Rough approximation
+        auto horizon_bonus = 1.0f + std::sqrt(max_stalk_height * 2.0f); // Rough approximation
         vision.detection_range_m *= horizon_bonus;
     }
     
@@ -250,13 +251,13 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
 
         // Estimate ommatidium count from eye surface area
         // Assuming ~20 μm diameter ommatidia (typical for insects)
-        float eye_area_m2 = 3.14159f * max_eye_diameter * max_eye_diameter;
-        float ommatidium_diameter_m = 0.00002f; // 20 microns
-        float ommatidium_area = 3.14159f * ommatidium_diameter_m * ommatidium_diameter_m;
-        float ommatidium_count = eye_area_m2 / ommatidium_area;
+        auto eye_area_m2 = 3.14159f * max_eye_diameter * max_eye_diameter;
+        auto ommatidium_diameter_m = 0.00002f; // 20 microns
+        auto ommatidium_area = 3.14159f * ommatidium_diameter_m * ommatidium_diameter_m;
+        auto ommatidium_count = eye_area_m2 / ommatidium_area;
 
         // Resolution scales with sqrt(N) (Land 1997)
-        float compound_acuity = std::sqrt(ommatidium_count / 10000.0f);
+        auto compound_acuity = std::sqrt(ommatidium_count / 10000.0f);
         vision.acuity = std::clamp(compound_acuity, 0.1f, 0.7f);
 
         // Compound eyes excel at motion detection but poor at detail
@@ -330,7 +331,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
     auto & physical = s.physical;
     
     // BASE VALUES from geometry
-    float ear_surface_area = 0.0f;
+    auto ear_surface_area = 0.0f;
     bool has_external_ears = false;
     
     for(uint32_t i = 0; i < in.skinnedMesh->skin->names.size(); ++i) {
@@ -344,7 +345,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
     }
         
     // SENSITIVITY: Blend geometry + social tendency + activity pattern
-    float geometric_sensitivity = 0.5f; // Default
+    auto geometric_sensitivity = 0.5f; // Default
     if(has_external_ears) {
         // Larger ears = better hearing (elephant ears = 2 m², mouse ears = 0.0001 m²)
         geometric_sensitivity = std::clamp(ear_surface_area / 0.01f, 0.3f, 1.0f);
@@ -352,9 +353,9 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
     
     // Social animals need good hearing (communication)
     // Nocturnal animals need good hearing (can't see)
-    float social_bonus = in.behavior.social_tendency;
-    float nocturnal_bonus = 1.0f - in.behavior.activity_pattern;
-    float behavioral_sensitivity = std::max(social_bonus, nocturnal_bonus);
+    auto social_bonus = in.behavior.social_tendency;
+    auto nocturnal_bonus = 1.0f - in.behavior.activity_pattern;
+    auto behavioral_sensitivity = std::max(social_bonus, nocturnal_bonus);
     
     hearing.sensitivity = (geometric_sensitivity + behavioral_sensitivity) * 0.5f;
     hearing.sensitivity = std::clamp(hearing.sensitivity, 0.0f, 1.0f);
@@ -362,7 +363,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
     // FREQUENCY RANGE: Allometric scaling from body mass
     // Small animals hear high frequencies (mice: 1-100 kHz)
     // Large animals hear low frequencies (elephants: 16-12000 Hz)
-    float body_mass_kg = physical.body_mass_kg;
+    auto body_mass_kg = physical.body_mass_kg;
     
     hearing.frequency_range_Hz_min = 20.0f * std::pow(body_mass_kg, -0.15f);
     hearing.frequency_range_Hz_max = 20000.0f * std::pow(body_mass_kg, -0.25f);
@@ -372,7 +373,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
     hearing.frequency_range_Hz_max = std::clamp(hearing.frequency_range_Hz_max, 1000.0f, 120000.0f);
     
     // DETECTION RANGE: Larger animals + better sensitivity = longer range
-    float size_factor = std::cbrt(body_mass_kg); // Cube root for volume->length
+    auto size_factor = std::cbrt(body_mass_kg); // Cube root for volume->length
     hearing.detection_range_m = size_factor * 50.0f * hearing.sensitivity;
     hearing.detection_range_m = std::clamp(hearing.detection_range_m, 5.0f, 5000.0f);
 
@@ -416,7 +417,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
         // Water acoustics: sound travels 4.3x faster than air
         // Detection range much greater in water
         // Sperm whales can detect giant squid from 500m+ (Madsen et al. 2005)
-        float echolocation_range = s.physical.body_length_m * 100.0f;
+        auto echolocation_range = s.physical.body_length_m * 100.0f;
         hearing.echolocation_range_m = std::clamp(echolocation_range, 50.0f, 1000.0f);
         hearing.detection_range_m = hearing.echolocation_range_m;
 
@@ -529,7 +530,7 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
     Analysis_Olfaction olfaction{};
     
     // BASE VALUES from geometry
-    float nasal_surface_area = 0.0f;
+    auto nasal_surface_area = 0.0f;
     bool has_snout = false;
     
     auto & sk = *in.skinnedMesh;
@@ -546,7 +547,7 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
     }
     
     // ANTENNAE contribution (invertebrate chemoreception)
-    float antennal_surface_area = 0.0f;
+    auto antennal_surface_area = 0.0f;
     bool has_sensory_antennae = false;
     
     if(!antennae.empty()) {
@@ -583,12 +584,12 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
     }
     
     // SENSITIVITY CALCULATION
-    float geometric_sensitivity = 0.0f;
+    auto geometric_sensitivity = 0.0f;
     
     if(has_snout) {
         // VERTEBRATE OLFACTION
         // Dog snout: ~150 cm² epithelium, Human: ~5 cm²
-        float surface_cm2 = nasal_surface_area * 10000.0f;
+        auto surface_cm2 = nasal_surface_area * 10000.0f;
         geometric_sensitivity = std::clamp(surface_cm2 / 150.0f, 0.2f, 1.0f);
     }
     
@@ -597,12 +598,12 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
         // Antennae are extremely sensitive - moths can detect pheromones at ppb
         // Surface area is key: more sensilla = better detection
         
-        float antennal_cm2 = antennal_surface_area * 10000.0f;
+        auto antennal_cm2 = antennal_surface_area * 10000.0f;
         
         // Insects have amazing olfaction despite small antennae
         // Scale differently than vertebrate noses
         // Ant antenna: ~0.01 cm², Moth antenna: ~1 cm²
-        float antennal_sensitivity = std::clamp(antennal_cm2 / 1.0f, 0.4f, 1.0f);
+        auto antennal_sensitivity = std::clamp(antennal_cm2 / 1.0f, 0.4f, 1.0f);
         
         // Antennae are often MORE sensitive than noses (for specific compounds)
         geometric_sensitivity = std::max(geometric_sensitivity, antennal_sensitivity);
@@ -611,15 +612,15 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
     // BEHAVIORAL MODIFIERS
     
     // Nocturnal animals rely more on smell
-    float nocturnal_bonus = 1.0f - in.behavior.activity_pattern;
+    auto nocturnal_bonus = 1.0f - in.behavior.activity_pattern;
     
     // Predators (high aggression) often have good smell for tracking prey
-    float predator_bonus = in.behavior.aggression_adjustment;
+    auto predator_bonus = in.behavior.aggression_adjustment;
     
     // Social animals may use pheromones (especially with antennae)
-    float social_bonus = has_sensory_antennae ? in.behavior.social_tendency * 0.5f : 0.0f;
+    auto social_bonus = has_sensory_antennae ? in.behavior.social_tendency * 0.5f : 0.0f;
     
-    float behavioral_sensitivity = std::max({
+    auto behavioral_sensitivity = std::max({
         nocturnal_bonus * 0.5f,
         predator_bonus * 0.3f,
         social_bonus
@@ -636,13 +637,13 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
         // Ants: 1-10m, Moths (pheromone): up to 10km for specific compounds
         
         // Base range on sensitivity and antenna length
-        float max_antenna_length = 0.0f;
+        auto max_antenna_length = 0.0f;
         for(auto const& antenna : antennae) {
             max_antenna_length = std::max(max_antenna_length, antenna.stretched_length_m);
         }
         
         // Longer antennae = better directionality and sampling volume
-        float length_factor = std::clamp(max_antenna_length / 0.1f, 0.5f, 2.0f);
+        auto length_factor = std::clamp(max_antenna_length / 0.1f, 0.5f, 2.0f);
         
         olfaction.detection_range_m = glm::mix(5.0f, 1000.0f, olfaction.sensitivity) * length_factor;
         
@@ -652,7 +653,7 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
         olfaction.detection_range_m = glm::mix(1.0f, 5000.0f, olfaction.sensitivity);
         
         // Size scaling: larger animals can detect scents from further away
-        float size_bonus = std::pow(s.physical.body_mass_kg, 0.2f);
+        auto size_bonus = std::pow(s.physical.body_mass_kg, 0.2f);
         olfaction.detection_range_m *= size_bonus;
     }
     

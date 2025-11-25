@@ -4,6 +4,7 @@
 #include "tonton_analysis.h"
 #include "tonton_shared_array.hpp"
 #include "tonton_skinnedmesh.h"
+#include "tonton_units.hpp"
 #include <glm/vec3.hpp>
 
 namespace TonTon
@@ -23,26 +24,27 @@ struct BuilderCommand
 
 struct Builder_Appendage : public Analysis_Appendage
 {
+using position_t = glm::vec<3, length_t>;
 	SemanticFlags semantic_flags{};
 	CladeFlags clade_flags{};
 	NicheFlags niche_flags{};
 	
-	float     area_m2{};	
-	float     volume_m3{};
-	glm::vec3 centroid{};
+	area_t    area{};	
+	volume_t  volume{};
+	position_t centroid;
 	
-	float minCrossSection_m2{};
-	float maxCrossSection_m2{};
-	float minMoment_m2{};
-	float maxMoment_m2{};
+	area_t minCrossSection_m2{};
+	area_t maxCrossSection_m2{};
+	length4_t minMoment_m2{};
+	length4_t maxMoment_m2{};
 	
 	glm::vec3 rootAxis{};
 	
 	// projection of smallest eigenvector.
 	struct Surface
 	{
-		float area_m2{};
-		float chord_m{};
+		area_t   area_m2{};
+		length_t chord_m{};
 		glm::vec3 normal{};
 	} surface;
 	
@@ -51,10 +53,10 @@ struct Builder_Appendage : public Analysis_Appendage
 		SemanticFlags subtree_flags{};
 		
 		int joint{};
-		float rest_length_m{};
-		float stretched_length_m{};
+		length_t rest_length_m{};
+		length_t stretched_length_m{};
 		
-		float area_m2{};
+		area_t area_m2{};
 		glm::vec3 normal{};
 				
 		bool has_suckers : 1;
@@ -64,9 +66,8 @@ struct Builder_Appendage : public Analysis_Appendage
 		bool has_wet_grip : 1; // frog!	
 	} contact;
 	
-	float distance_to_parent_m{};
-	float contactArea_m2{};
-	float unit_inertia_m5{}; // inertia at root/tangent axis.
+	length_t  distance_to_parent_m{};
+	length5_t unit_inertia_m5{}; // inertia at root/tangent axis.
 	
 	// AABB
 	Cube aabb{};
@@ -91,7 +92,6 @@ struct Builder
 	immutable_array<glm::vec3>		    gait_group_centers;
 	immutable_array<int16_t>			ipsilateral_inhibition_groups;
 	
-	Analysis_Physical physical;
 	int siphon_joint = -1;
 		
 	struct SemanticAnalysis {
@@ -109,6 +109,24 @@ struct Builder
 		bool has_forward_eyes = false;
 	} semanticAnalyisis;
 	
+	struct Physical {
+		length_t body_length{};
+		volume_t body_volume{};
+		length_t tail_length{};
+			
+		// Body plan characteristics
+		area_t surface_area{};
+		area_t cross_section_area{};
+		
+		int16_t		spine_root{};
+		bool		upright{};
+		CladeFlags  clade{CladeFlags::NONE};
+		NicheFlags  niche{NicheFlags::NONE};
+	
+		std::array<float, 6>  covariance_restPose{1.f, 1.f, 1.f, 0.f, 0.f, 0.f};
+	};
+	
+	Physical physical;
 	
 };
 

@@ -22,8 +22,8 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 	if(legs.empty())
 		return {};
 	
-	float functional_length{FLT_MAX};
-	float posture = 0.0f;
+	auto functional_length{FLT_MAX};
+	auto posture = 0.0f;
 
 	for(auto const& leg : legs)
 	{
@@ -46,8 +46,8 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 
 	using CF = CladeFlags;
 
-	float mass_exponent = 0.17f;
-	float base_constant = 0.9f; // Default for general vertebrates
+	auto mass_exponent = 0.17f;
+	auto base_constant = 0.9f; // Default for general vertebrates
 
 	// Clade-specific adjustments
 	if (HasFlag(out.physical.clade, CF::MAMMALIA)) {
@@ -59,7 +59,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 	}
 
 	// Base speed from mass allometry (in m/s)
-	float allometric_speed_m_s = std::pow(10.0f,
+	auto allometric_speed_m_s = std::pow(10.0f,
 		mass_exponent * std::log10(out.physical.body_mass_kg) + base_constant);
 
 	// Expected leg length from body mass (assuming isometric scaling)
@@ -80,16 +80,16 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 	 * (carnivoria R^2 = 0.78) 
 	 */ 
 
-	float expected_leg_m = 0.151f * std::pow(out.physical.body_mass_kg, 0.42);
+	auto expected_leg_m = 0.151f * std::pow(out.physical.body_mass_kg, 0.42);
 
 	// Leg length correction factor
 	// Short legs (penguins, seals): functional_length < expected → reduce speed
 	// Long legs (kangaroos, ostriches): functional_length > expected → increase speed
-	float leg_length_ratio = functional_length / expected_leg_m;
-	float leg_correction = std::sqrt(leg_length_ratio); // sqrt because speed ∝ sqrt(leg_length) from Froude
+	auto leg_length_ratio = functional_length / expected_leg_m;
+	auto leg_correction = std::sqrt(leg_length_ratio); // sqrt because speed ∝ sqrt(leg_length) from Froude
 	leg_correction = std::clamp(leg_correction, 0.3f, 2.0f); // Don't go crazy with extremes
 
-	float base_sprint = allometric_speed_m_s * leg_correction;
+	auto base_sprint = allometric_speed_m_s * leg_correction;
 
 	// Aquatic-adapted animals with short legs: poor terrestrial locomotion
 	if (has_flippers && leg_length_ratio < 0.6f) {
@@ -103,11 +103,11 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 	// Posture affects sustained speed more than sprint
 	auto max_sustainable_speed_m_s = base_sprint * glm::mix(0.6f, 0.3f,  posture);
 		
-	float max_sprint_duration_s = -1;
-	float recovery_time_s = -1;
+	auto max_sprint_duration_s = -1;
+	auto recovery_time_s = -1;
 	if (posture > 0.5f) { // sprawling
 		// Carrier's constraint: lateral bending -> breathing conflict
-		float mass_factor = glm::min(1.0f, out.physical.body_mass_kg / 50.0f); // worse for heavier animals
+		auto mass_factor = glm::min(1.0f, out.physical.body_mass_kg / 50.0f); // worse for heavier animals
 		
 		max_sprint_duration_s = glm::mix(30.0f, 3.0f, mass_factor); // heavy lizards tire fast
 		recovery_time_s = max_sprint_duration_s * 2.0f;
@@ -115,15 +115,15 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		
 	// Turning radius limited by centripetal force
 	// F_centripetal = m*v²/r, limited by friction coefficient * weight
-	float friction_coeff = glm::mix(0.8f, 0.6f, posture); // sprawling has lower CoM
-	float max_lateral_accel = friction_coeff * 9.81f;
+	auto friction_coeff = glm::mix(0.8f, 0.6f, posture); // sprawling has lower CoM
+	auto max_lateral_accel = friction_coeff * 9.81f;
 	
-	float min_turning_radius_m = (base_sprint * base_sprint) / max_lateral_accel;
+	auto min_turning_radius_m = (base_sprint * base_sprint) / max_lateral_accel;
 	
 	// Forward acceleration limited by muscle force
 	// Very rough: force ~ cross_sectional_area of muscles ~ mass^(2/3)
-	float force_to_mass_ratio = 15.0f * std::pow(out.physical.body_mass_kg, -0.33f); // N/kg
-	float max_acceleration_m_s2 = force_to_mass_ratio * glm::mix(1.0f, 0.7f, posture);
+	auto force_to_mass_ratio = 15.0f * std::pow(out.physical.body_mass_kg, -0.33f); // N/kg
+	auto max_acceleration_m_s2 = force_to_mass_ratio * glm::mix(1.0f, 0.7f, posture);
 
 	// ========== CLADE-SPECIFIC REFINEMENTS ==========
 	// Applied after generic terrestrial locomotion physics
@@ -136,7 +136,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		// Arthropod performance changes 2-3x per 10K temperature change
 		// Smaller arthropods have HIGHER Q10 due to lower thermal inertia
 
-		float q10 = 2.5f; // Typical mid-range (Huey & Kingsolver 1989)
+		auto q10 = 2.5f; // Typical mid-range (Huey & Kingsolver 1989)
 
 		// Thermal mass effect: smaller = faster heating/cooling
 		if (out.physical.body_mass_kg < 0.001f) {
@@ -144,11 +144,11 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		}
 
 		// Temperature difference from reference (25°C)
-		float reference_temp_K = 298.15f;
-		float temp_diff_K = in.environment.temperature_K - reference_temp_K;
+		auto reference_temp_K = 298.15f;
+		auto temp_diff_K = in.environment.temperature_K - reference_temp_K;
 
 		// Performance multiplier from Q10 (Huey & Stevenson 1979)
-		float q10_multiplier = std::pow(q10, temp_diff_K / 10.0f);
+		auto q10_multiplier = std::pow(q10, temp_diff_K / 10.0f);
 
 		// Apply to all speed/acceleration metrics
 		base_sprint *= q10_multiplier;
@@ -157,14 +157,14 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 
 		// Clamp to reasonable limits (arthropods inactive below ~5°C, above ~50°C)
 		if (in.environment.temperature_K < 278.15f) { // Below 5°C
-			float cold_penalty = (in.environment.temperature_K - 273.15f) / 5.0f;
+			auto cold_penalty = (in.environment.temperature_K - 273.15f) / 5.0f;
 			cold_penalty = std::max(cold_penalty, 0.1f);
 			base_sprint *= cold_penalty;
 			max_sustainable_speed_m_s *= cold_penalty;
 		}
 
 		if (in.environment.temperature_K > 323.15f) { // Above 50°C
-			float heat_penalty = (323.15f - in.environment.temperature_K) / 10.0f;
+			auto heat_penalty = (323.15f - in.environment.temperature_K) / 10.0f;
 			heat_penalty = std::clamp(heat_penalty, 0.1f, 1.0f);
 			base_sprint *= heat_penalty;
 			max_sustainable_speed_m_s *= heat_penalty;
@@ -179,7 +179,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 			// Square-cube law: strength ∝ area (M^0.67), weight ∝ volume (M^1.0)
 			// Large arthropods become strength-limited
 
-			float size_penalty = 0.1f / out.physical.body_mass_kg; // Linear penalty above 100g
+			auto size_penalty = 0.1f / out.physical.body_mass_kg; // Linear penalty above 100g
 			size_penalty = std::clamp(size_penalty, 0.1f, 1.0f);
 
 			base_sprint *= size_penalty;
@@ -192,19 +192,19 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		// Critical PO2 increases with body size and metabolic rate
 
 		// Estimate oxygen demand from metabolic rate
-		float O2_demand_ml_per_min = out.metabolic.max_rate_W * 12.0f; // ~12 ml O2 per watt-min
+		auto O2_demand_ml_per_min = out.metabolic.max_rate_W * 12.0f; // ~12 ml O2 per watt-min
 
 		// Tracheal system efficiency decreases with size (Kaiser et al. 2007)
 		// criticalPO2 = basePO2 × M^0.15 × sqrt(MMR/RMR)
-		float base_critical_PO2_Pa = 5000.0f; // ~5 kPa minimum for small insects
-		float size_factor = std::pow(out.physical.body_mass_kg * 1000.0f, 0.15f); // M in grams
-		float activity_factor = std::sqrt(out.metabolic.aerobic_scope);
-		float critical_O2_Pa = base_critical_PO2_Pa * size_factor * activity_factor;
+		auto base_critical_PO2_Pa = 5000.0f; // ~5 kPa minimum for small insects
+		auto size_factor = std::pow(out.physical.body_mass_kg * 1000.0f, 0.15f); // M in grams
+		auto activity_factor = std::sqrt(out.metabolic.aerobic_scope);
+		auto critical_O2_Pa = base_critical_PO2_Pa * size_factor * activity_factor;
 
 		// If atmospheric O2 is below critical, performance degrades
-		float atmospheric_O2_Pa = in.environment.pressure_Pa * 0.21f; // Assume 21% O2
+		auto atmospheric_O2_Pa = in.environment.pressure_Pa * 0.21f; // Assume 21% O2
 		if (atmospheric_O2_Pa < critical_O2_Pa) {
-			float hypoxia_penalty = atmospheric_O2_Pa / critical_O2_Pa;
+			auto hypoxia_penalty = atmospheric_O2_Pa / critical_O2_Pa;
 			hypoxia_penalty = std::max(hypoxia_penalty, 0.2f); // Can't drop below 20%
 
 			max_sustainable_speed_m_s *= hypoxia_penalty;
@@ -260,8 +260,8 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	if(terrestrial.legs.empty())
 		return {};
 
-	float body_mass_kg = s.physical.body_mass_kg;
-//	float body_weight_N = body_mass_kg * in.environment.gravity_m_s2;
+	auto body_mass_kg = s.physical.body_mass_kg;
+//	auto body_weight_N = body_mass_kg * in.environment.gravity_m_s2;
 
 	// 1. DETERMINE JUMP MECHANISM
 	Analysis_Jumping::MechanismType mechanism = Analysis_Jumping::MechanismType::MUSCLE_DIRECT;
@@ -272,21 +272,21 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	// For jumping, we need leg extension force which is much higher
 	// because the effective moment arm is much shorter (push through ankle/knee)
 
-	float total_leg_force_N = 0;
-	float avg_leg_length_m = 0;
+	auto total_leg_force_N = 0;
+	auto avg_leg_length_m = 0;
 	int leg_count = terrestrial.legs.size();
-	float min_rest_length = FLT_MAX;
-	float max_stretched_length = -FLT_MAX;
-	float min_stretched_length = FLT_MAX;
-	float max_rest_length = -FLT_MAX;
-	float total_compression_ratio = 0;
+	auto min_rest_length = FLT_MAX;
+	auto max_stretched_length = -FLT_MAX;
+	auto min_stretched_length = FLT_MAX;
+	auto max_rest_length = -FLT_MAX;
+	auto total_compression_ratio = 0;
 
 	for(auto const& leg : terrestrial.legs)
 	{
 		// For jumping, use grip force as proxy for leg extension force
 		// Grip force = muscle_cross_section * muscle_stress
 		// Leg extensors (quadriceps, gastrocnemius) are typically ~1.5-2x stronger than flexors
-		float leg_extension_force_N = leg.max_grip_force_N * 1.5f;
+		auto leg_extension_force_N = leg.max_grip_force_N * 1.5f;
 
 		total_leg_force_N += leg_extension_force_N;
 		avg_leg_length_m += leg.stretched_length_m;
@@ -296,13 +296,13 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		min_stretched_length = std::min(min_stretched_length, leg.stretched_length_m);
 		max_rest_length = std::max(max_rest_length, leg.rest_length_m);
 
-		float compression_ratio = leg.stretched_length_m / leg.rest_length_m;
+		auto compression_ratio = leg.stretched_length_m / leg.rest_length_m;
 		total_compression_ratio += compression_ratio;
 	}
 	avg_leg_length_m /= leg_count;
-	float avg_compression_ratio = total_compression_ratio / leg_count;
+	auto avg_compression_ratio = total_compression_ratio / leg_count;
 
-	float leg_length_asymmetry = max_stretched_length / min_stretched_length;
+	auto leg_length_asymmetry = max_stretched_length / min_stretched_length;
 	
 	// DETERMINE JUMP MECHANISM based on morphology
 	// Elastic catapult mechanism requires high leg compression for energy storage
@@ -330,20 +330,20 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	}
 
 	// Not all legs contribute equally - use ~70% of total force
-	float effective_force_N = total_leg_force_N * 0.7f;
+	auto effective_force_N = total_leg_force_N * 0.7f;
 
 	// 3. CALCULATE TAKEOFF VELOCITY
 	// Work-energy: F*d = 0.5*m*v²
 	// Stroke distance ≈ leg_length * extension_ratio
 
 	// Typical leg extension during jump
-	float stroke_distance_m =  max_stretched_length - (min_rest_length * 0.3f);
+	auto stroke_distance_m =  max_stretched_length - (min_rest_length * 0.3f);
 	
 	// Work done = force * distance
-	float work_J = effective_force_N * stroke_distance_m;
+	auto work_J = effective_force_N * stroke_distance_m;
 
 	// Kinetic energy at takeoff = work - losses
-	float efficiency = 0.65f; // ~35% losses to heat, internal work
+	auto efficiency = 0.65f; // ~35% losses to heat, internal work
 
 	if(mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT)
 	{
@@ -356,9 +356,9 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		efficiency = 0.75f;
 	}
 
-	float kinetic_energy_J = work_J * efficiency;
+	auto kinetic_energy_J = work_J * efficiency;
 	// v = sqrt(2 * KE / m)
-	float takeoff_velocity_m_s = std::sqrt(2.0f * kinetic_energy_J / body_mass_kg);
+	auto takeoff_velocity_m_s = std::sqrt(2.0f * kinetic_energy_J / body_mass_kg);
 
 	// Apply muscle quality scaling
 	takeoff_velocity_m_s *= glm::mix(0.7f, 1.3f, in.muscle_quality);
@@ -368,26 +368,26 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	// Optimal angle for maximum height: 90 degrees
 	// Most animals compromise: 60-70 degrees
 
-	float takeoff_angle_rad = M_PI / 3.0f; // 60 degrees
+	auto takeoff_angle_rad = M_PI / 3.0f; // 60 degrees
 
 	// Vertical component of velocity
-	float v_vertical = takeoff_velocity_m_s * std::sin(takeoff_angle_rad);
+	auto v_vertical = takeoff_velocity_m_s * std::sin(takeoff_angle_rad);
 
 	// Max height: h = v_y² / (2*g)
-	float max_jump_height_m = (v_vertical * v_vertical) / (2.0f * in.environment.gravity_m_s2);
+	auto max_jump_height_m = (v_vertical * v_vertical) / (2.0f * in.environment.gravity_m_s2);
 
 	// Horizontal component
-	float v_horizontal = takeoff_velocity_m_s * std::cos(takeoff_angle_rad);
+	auto v_horizontal = takeoff_velocity_m_s * std::cos(takeoff_angle_rad);
 
 	// Flight time: t = 2 * v_y / g
-	float flight_time_s = 2.0f * v_vertical / in.environment.gravity_m_s2;
+	auto flight_time_s = 2.0f * v_vertical / in.environment.gravity_m_s2;
 
 	// Horizontal distance
-	float max_jump_distance_m = v_horizontal * flight_time_s;
+	auto max_jump_distance_m = v_horizontal * flight_time_s;
 
 	// 5. ELASTIC ENERGY STORAGE (for catapult mechanism)
-	float elastic_storage_J = 0;
-	float power_amplification_ratio = 1.0f;
+	auto elastic_storage_J = 0;
+	auto power_amplification_ratio = 1.0f;
 
 	if(mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT)
 	{
@@ -398,8 +398,8 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 
 		// Power amplification = stored_energy / (muscle_power * contraction_time)
 		// Typical: 2-20x for various animals
-		float muscle_contraction_time_s = 0.1f; // ~100ms for direct muscle
-		float tendon_release_time_s = 0.01f;     // ~10ms for elastic release
+		auto muscle_contraction_time_s = 0.1f; // ~100ms for direct muscle
+		auto tendon_release_time_s = 0.01f;     // ~10ms for elastic release
 
 		power_amplification_ratio = muscle_contraction_time_s / tendon_release_time_s;
 
@@ -413,7 +413,7 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	// Time to recharge for next jump
 	// Based on metabolic recovery + muscle relaxation
 
-	float recovery_time_s = 2.0f; // Default: ~2 seconds
+	auto recovery_time_s = 2.0f; // Default: ~2 seconds
 
 	if(mechanism == Analysis_Jumping::MechanismType::MUSCLE_DIRECT)
 	{
@@ -446,35 +446,35 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		// Cuticle elastic modulus (Vincent & Wegst 2004)
 		// Resilin: 0.6-2 MPa (very elastic)
 		// Cuticle: 1-20 GPa (stiff for leverage)
-		float cuticle_modulus_Pa = glm::mix(1e9f, 20e9f, in.structure_vs_weight);
+		auto cuticle_modulus_Pa = glm::mix(1e9f, 20e9f, in.structure_vs_weight);
 
 		// Leg cross-section scales with (body_length)²
-		float leg_cross_section_m2 = avg_leg_length_m * avg_leg_length_m * 0.01f;
+		auto leg_cross_section_m2 = avg_leg_length_m * avg_leg_length_m * 0.01f;
 
 		// Spring stiffness k = EA/L where E=modulus, A=area, L=length
-		float leg_stiffness_N_m = (cuticle_modulus_Pa * leg_cross_section_m2) / avg_leg_length_m;
+		auto leg_stiffness_N_m = (cuticle_modulus_Pa * leg_cross_section_m2) / avg_leg_length_m;
 
 		// Maximum extension limited by joint geometry (typically 2-3x resting length)
-		float max_extension_m = avg_leg_length_m * 2.0f;
+		auto max_extension_m = avg_leg_length_m * 2.0f;
 
 		// Elastic energy stored: E = 0.5 * k * x²
 		elastic_storage_J = 0.5f * leg_stiffness_N_m * max_extension_m * max_extension_m;
 
 		// Bennet-Clark (1975): Fleas store ~10 μJ, achieve 50cm jumps from 1.5mm body
 		// Power amplification = energy_release_time / energy_storage_time
-		float storage_time_s = 0.5f; // Slow muscle contraction to load spring
-		float release_time_s = 0.001f; // Latch mechanism releases in ~1ms (Burrows 2006)
+		auto storage_time_s = 0.5f; // Slow muscle contraction to load spring
+		auto release_time_s = 0.001f; // Latch mechanism releases in ~1ms (Burrows 2006)
 		power_amplification_ratio = storage_time_s / release_time_s; // ~500x typical
 
 		// Takeoff velocity from elastic energy (97% efficient)
-		float efficiency = 0.97f; // Resilin efficiency (Bennet-Clark & Lucey 1967)
+		auto efficiency = 0.97f; // Resilin efficiency (Bennet-Clark & Lucey 1967)
 		takeoff_velocity_m_s = std::sqrt(2.0f * elastic_storage_J * efficiency / body_mass_kg);
 
 		// Geometric constraint: can't exceed cuticle yield stress
 		// Wainwright et al. (1976): Arthropod cuticle yields at ~100-400 MPa
-		float max_stress_Pa = 200e6f; // Conservative mid-range
-		float max_force_N = max_stress_Pa * leg_cross_section_m2;
-		float stress_limited_energy_J = 0.5f * max_force_N * max_extension_m;
+		auto max_stress_Pa = 200e6f; // Conservative mid-range
+		auto max_force_N = max_stress_Pa * leg_cross_section_m2;
+		auto stress_limited_energy_J = 0.5f * max_force_N * max_extension_m;
 		elastic_storage_J = std::min(elastic_storage_J, stress_limited_energy_J);
 
 		// Recalculate velocity with stress limit
@@ -484,11 +484,11 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		takeoff_velocity_m_s = std::min(takeoff_velocity_m_s, 5.0f);
 
 		// Recalculate jump height and distance
-		float v_vertical = takeoff_velocity_m_s * std::sin(takeoff_angle_rad);
+		auto v_vertical = takeoff_velocity_m_s * std::sin(takeoff_angle_rad);
 		max_jump_height_m = (v_vertical * v_vertical) / (2.0f * in.environment.gravity_m_s2);
 
-		float v_horizontal = takeoff_velocity_m_s * std::cos(takeoff_angle_rad);
-		float flight_time_s = 2.0f * v_vertical / in.environment.gravity_m_s2;
+		auto v_horizontal = takeoff_velocity_m_s * std::cos(takeoff_angle_rad);
+		auto flight_time_s = 2.0f * v_vertical / in.environment.gravity_m_s2;
 		max_jump_distance_m = v_horizontal * flight_time_s;
 
 		// Recovery time longer for elastic catapult (need to reload spring)
@@ -501,12 +501,12 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		// Marsh & John-Alder (1994): Frog jump performance scales M^0.17
 
 		// Frog tendon elastic modulus ~1-2 GPa (less than arthropod cuticle)
-		float tendon_modulus_Pa = 1.5e9f;
-		float tendon_area_m2 = avg_leg_length_m * avg_leg_length_m * 0.005f;
-		float spring_stiffness = (tendon_modulus_Pa * tendon_area_m2) / avg_leg_length_m;
+		auto tendon_modulus_Pa = 1.5e9f;
+		auto tendon_area_m2 = avg_leg_length_m * avg_leg_length_m * 0.005f;
+		auto spring_stiffness = (tendon_modulus_Pa * tendon_area_m2) / avg_leg_length_m;
 
 		// Frogs achieve ~70-90% efficiency (lower than insects)
-		float efficiency = 0.80f;
+		auto efficiency = 0.80f;
 		elastic_storage_J = 0.5f * spring_stiffness * (avg_leg_length_m * 3.0f) * (avg_leg_length_m * 3.0f);
 
 		// Peplowski & Marsh (1997): Frogs achieve 10-20x power amplification
@@ -518,11 +518,11 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 
 	// 7. SANITY CHECKS
 	// Jump height should be reasonable (< 50x body length for most animals)
-	float max_reasonable_height = s.physical.body_length_m * 50.0f;
+	auto max_reasonable_height = s.physical.body_length_m * 50.0f;
 	if(max_jump_height_m > max_reasonable_height)
 	{
 		// Scale back unrealistic jumps
-		float scale = max_reasonable_height / max_jump_height_m;
+		auto scale = max_reasonable_height / max_jump_height_m;
 		max_jump_height_m *= scale;
 		max_jump_distance_m *= scale;
 		takeoff_velocity_m_s *= std::sqrt(scale);

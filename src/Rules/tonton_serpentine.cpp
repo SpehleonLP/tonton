@@ -57,17 +57,17 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 
 		// Serpentine locomotion requires a minimum tail/body length to undulate
 		// Penguins, chickens, etc. with vestigial tails (< 5% body length) cannot undulate
-		float min_tail_length = s.physical.body_length_m * 0.05f;
+		auto min_tail_length = s.physical.body_length_m * 0.05f;
 		if(tail.stretched_length_m < min_tail_length) {
 			return false; // Tail too short for serpentine motion
 		}
 
 		// Calculate tail diameter from cross-section (assume circular)
 		// A = πr² → r = sqrt(A/π) → diameter = 2r
-		float cross_section_m2 = tail.max_cross_section_m2;
+		auto cross_section_m2 = tail.max_cross_section_m2;
 		if(cross_section_m2 > 0.0001f) {
-			float tail_diameter_m = 2.0f * std::sqrt(cross_section_m2 / M_PI);
-			float tail_aspect_ratio = tail.stretched_length_m / tail_diameter_m;
+			auto tail_diameter_m = 2.0f * std::sqrt(cross_section_m2 / M_PI);
+			auto tail_aspect_ratio = tail.stretched_length_m / tail_diameter_m;
 
 			// Snakes: aspect ratio ~40-80 (very flexible)
 			// Lizards: aspect ratio ~10-20 (moderately flexible)
@@ -87,15 +87,15 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 	}
 
 	// Check leg contribution vs tail length
-	float total_leg_length = 0.0f;
+	auto total_leg_length = 0.0f;
 	for(auto const& leg : terr.legs) {
 		total_leg_length += leg.stretched_length_m;
 	}
-	float avg_leg_length = total_leg_length / terr.legs.size();
+	auto avg_leg_length = total_leg_length / terr.legs.size();
 
 	// Serpentine is viable if tail >> legs (lamia pattern)
 	// or if body is very long relative to legs (lizard pattern)
-	float body_to_leg_ratio = s.physical.body_length_m / std::max(avg_leg_length, 0.01f);
+	auto body_to_leg_ratio = s.physical.body_length_m / std::max(avg_leg_length, 0.01f);
 
 	// Serpentine locomotion is possible if:
 	// - Body length > 5× leg length (skink-like)
@@ -146,7 +146,7 @@ static Analysis_BodyWave CalculateLateralUndulation(Input const& in, Scratch con
 		wave.noJoints = chain.size();
 
 		// Calculate chain length
-		float length = 0.0f;
+		auto length = 0.0f;
 		for(size_t i = 1; i < chain.size(); ++i) {
 			length += glm::distance(in.position(chain[i]), in.position(chain[i-1]));
 		}
@@ -154,22 +154,22 @@ static Analysis_BodyWave CalculateLateralUndulation(Input const& in, Scratch con
 		wave.rest_length_m = length * 0.95f;
 	}
 
-	float body_length = wave.stretched_length_m;
+	auto body_length = wave.stretched_length_m;
 
 	// WAVELENGTH: Typically 0.6-1.0 body lengths for terrestrial snakes
 	// Shorter wavelength = more push points but more energy
 	// Influenced by body flexibility and substrate
-	float wavelength_factor = 0.6f + 0.3f * in.muscle_quality; // 0.6-0.9 BL
+	auto wavelength_factor = 0.6f + 0.3f * in.muscle_quality; // 0.6-0.9 BL
 	wave.wavelength_ratio = wavelength_factor;
 
 	// AMPLITUDE: Typically 0.1-0.2 body lengths at the widest point
 	// Larger amplitude = more lateral force but requires more flexibility
-	float amplitude_factor = 0.1f + 0.1f * in.muscle_quality; // 0.1-0.2 BL
+	auto amplitude_factor = 0.1f + 0.1f * in.muscle_quality; // 0.1-0.2 BL
 	wave.amplitude_ratio = amplitude_factor;
 
 	// BODY FLEXIBILITY: How "eel-like" vs "rigid" the motion is
 	// Based on vertebral count and tail length relative to body
-	float tail_ratio = s.physical.tail_length_m / body_length;
+	auto tail_ratio = s.physical.tail_length_m / body_length;
 	wave.body_flexibility = glm::clamp(tail_ratio * 1.5f, 0.0f, 1.0f);
 
 	// Amplitude increases parabolically from head to tail
@@ -202,8 +202,8 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 
 	// Lateral friction (perpendicular): ventral scales catch
 	// Quality affects scale development and grip
-	float lateral_base = 0.6f;
-	float lateral_bonus = 0.4f * in.muscle_quality; // Better development = better scales
+	auto lateral_base = 0.6f;
+	auto lateral_bonus = 0.4f * in.muscle_quality; // Better development = better scales
 	result.lateral_friction_coef = lateral_base + lateral_bonus;
 
 	// Anisotropy ratio: critical for serpentine locomotion
@@ -215,23 +215,23 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 	// ========================================================================
 	result.lateral_undulation = CalculateLateralUndulation(in, s);
 
-	float body_length_m = s.physical.body_length_m;
-	float body_mass_kg = s.physical.body_mass_kg;
+	auto body_length_m = s.physical.body_length_m;
+	auto body_mass_kg = s.physical.body_mass_kg;
 
 	// Speed calculation based on wave mechanics
 	// Speed ≈ wavelength × frequency
 	// Frequency scales with size: f ∝ M^(-1/3) (similar to swimming)
-	float frequency_base_Hz = 2.0f / std::pow(body_mass_kg, 0.33f);
+	auto frequency_base_Hz = 2.0f / std::pow(body_mass_kg, 0.33f);
 
 	// Muscle quality affects sustainable frequency
-	float frequency_Hz = frequency_base_Hz * glm::mix(0.7f, 1.3f, in.muscle_quality);
+	auto frequency_Hz = frequency_base_Hz * glm::mix(0.7f, 1.3f, in.muscle_quality);
 
-	float wavelength_m = result.lateral_undulation.wavelength_ratio * body_length_m;
-	float lateral_speed_m_s = wavelength_m * frequency_Hz;
+	auto wavelength_m = result.lateral_undulation.wavelength_ratio * body_length_m;
+	auto lateral_speed_m_s = wavelength_m * frequency_Hz;
 
 	// Efficiency depends on friction anisotropy and substrate
 	// Better anisotropy = faster movement
-	float efficiency = glm::clamp(result.friction_anisotropy_ratio / 3.0f, 0.3f, 1.0f);
+	auto efficiency = glm::clamp(result.friction_anisotropy_ratio / 3.0f, 0.3f, 1.0f);
 	lateral_speed_m_s *= efficiency;
 
 	// ========================================================================
@@ -258,7 +258,7 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 	// SIDEWINDING: Desert specialist mode
 	// Requires very flexible body and works best on loose substrate
 	// Reduces contact area on hot surfaces
-	float flexibility_threshold = 0.6f;
+	auto flexibility_threshold = 0.6f;
 	if(result.lateral_undulation.body_flexibility > flexibility_threshold) {
 		result.capable_modes = Analysis_Serpentine::Mode(
 			int(result.capable_modes) | int(Analysis_Serpentine::Mode::SIDEWINDING)
@@ -287,7 +287,7 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 		Analysis_Serpentine::Concertina conc;
 		// Concertina is slow but powerful
 		// Speed ≈ body_length / (2 × cycle_time)
-		float cycle_time_s = 2.0f / frequency_Hz; // Slower than undulation
+		auto cycle_time_s = 2.0f / frequency_Hz; // Slower than undulation
 		conc.speed_m_s = body_length_m / (2.0f * cycle_time_s);
 
 		// Compression ratio: how much the body compresses during anchor phase
@@ -354,9 +354,9 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 		// Speed calculation for aquatic undulation
 		// Webb (1975): Speed = wavelength × frequency × slip_factor
 		// Slip factor ~0.7-0.9 (some backward slipping in water)
-		float frequency_Hz = 2.0f / std::pow(s.physical.body_mass_kg, 0.33f);
-		float wavelength_m = result.lateral_undulation.wavelength_ratio * body_length_m;
-		float aquatic_speed = wavelength_m * frequency_Hz * 0.8f; // 80% slip efficiency
+		auto frequency_Hz = 2.0f / std::pow(s.physical.body_mass_kg, 0.33f);
+		auto wavelength_m = result.lateral_undulation.wavelength_ratio * body_length_m;
+		auto aquatic_speed = wavelength_m * frequency_Hz * 0.8f; // 80% slip efficiency
 
 		// Eels are efficient swimmers
 		// Van Ginneken & Van Den Thillart (2000): Eels migrate 6000km

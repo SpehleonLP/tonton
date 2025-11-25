@@ -66,7 +66,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 				{
 					glm::vec3 center = (aabb.min + aabb.max) / 2.f;
 					
-					float offset = glm::dot(app.centroid - center, glm::vec3(0, 1, 0));
+					auto offset = glm::dot(app.centroid - center, glm::vec3(0, 1, 0));
 					offset = offset / (aabb.max.y - aabb.min.y);
 					
 	// therefore the tail generates lift and we don't have a swim bladder!				
@@ -96,13 +96,13 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		// Calculate tail momentum potential relative to body
 		for(auto const& tail : s.appendages.tails)
 		{
-			float tail_mass_ratio = tail.mass_kg / s.physical.body_mass_kg;
-			float tail_length_ratio = tail.stretched_length_m / s.physical.body_length_m;
+			auto tail_mass_ratio = tail.mass_kg / s.physical.body_mass_kg;
+			auto tail_length_ratio = tail.stretched_length_m / s.physical.body_length_m;
 
 			// Momentum factor: mass ratio × length ratio
 			// Crocodile: ~0.25 × ~0.5 = 0.125
 			// Cat: ~0.03 × ~0.5 = 0.015
-			float momentum_factor = tail_mass_ratio * tail_length_ratio;
+			auto momentum_factor = tail_mass_ratio * tail_length_ratio;
 
 			// Threshold: need significant momentum for propulsion
 			if(momentum_factor > 0.08f)
@@ -112,7 +112,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 				// Need Re > 1000 for effective undulation (inertial forces must dominate)
 
 				// Estimate tail thickness from cross-section
-				float tail_diameter_m = std::sqrt(4.0f * tail.max_cross_section_m2 / 3.14159f);
+				auto tail_diameter_m = std::sqrt(4.0f * tail.max_cross_section_m2 / 3.14159f);
 
 				// If cross-section data is missing, estimate from tail length
 				if(tail_diameter_m < 0.001f)
@@ -122,12 +122,12 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 				}
 
 				// Estimate swimming velocity (conservative: 1 body length/s)
-				float swim_velocity_m_s = s.physical.body_length_m * 1.0f;
+				auto swim_velocity_m_s = s.physical.body_length_m * 1.0f;
 
-				float fluid_density = in.environment.fluidDensity_Kg_m3;
-				float fluid_viscosity = in.environment.fluidViscosity_Pa_s;
+				auto fluid_density = in.environment.fluidDensity_Kg_m3;
+				auto fluid_viscosity = in.environment.fluidViscosity_Pa_s;
 
-				float reynolds = (fluid_density * swim_velocity_m_s * tail_diameter_m) / fluid_viscosity;
+				auto reynolds = (fluid_density * swim_velocity_m_s * tail_diameter_m) / fluid_viscosity;
 
 				// At Re < 1000, viscous forces dominate and undulation is ineffective
 				// Dragonfly abdomen: Re ~ 100 (too viscous)
@@ -192,17 +192,17 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	AQUATIC_DBG("Propulsion mode detected: " << (int)primary_mode);
 
 	// 2. HYDRODYNAMIC PARAMETERS
-	float body_mass_kg = s.physical.body_mass_kg;
-	float body_length_m = s.physical.body_length_m;
-	float body_volume_m3 = s.physical.body_volume_m3;
-	float cross_section_m2 = s.physical.cross_sectional_area_m2;
+	auto body_mass_kg = s.physical.body_mass_kg;
+	auto body_length_m = s.physical.body_length_m;
+	auto body_volume_m3 = s.physical.body_volume_m3;
+	auto cross_section_m2 = s.physical.cross_sectional_area_m2;
 
-	float fluid_density = in.environment.fluidDensity_Kg_m3;
-//	float fluid_viscosity = in.environment.fluidViscosity_Pa_s;
+	auto fluid_density = in.environment.fluidDensity_Kg_m3;
+//	auto fluid_viscosity = in.environment.fluidViscosity_Pa_s;
 
 	// 3. BUOYANCY
-	float body_density_kg_m3 = in.body_density();
-	float neutral_buoyancy_density = in.environment.fluidDensity_Kg_m3;
+	auto body_density_kg_m3 = in.body_density();
+	auto neutral_buoyancy_density = in.environment.fluidDensity_Kg_m3;
 
 	// Most fish have swim bladders to achieve neutral buoyancy
   // Line 239: BEFORE calculating requires_constant_motion
@@ -220,7 +220,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		requires_constant_motion = true;
 	}
 
-	float swim_bladder_adjust_time_s = -1;
+	auto swim_bladder_adjust_time_s = -1;
 	if(has_swim_bladder)
 	{
 		// Time to adjust buoyancy (diffusion-limited)
@@ -231,7 +231,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// 4. CALCULATE SWIMMING SPEEDS
 	// Using Strouhal number (St = f*A/U, optimal ≈ 0.25-0.35)
 
-	float strouhal_optimal = 0.3f;
+	auto strouhal_optimal = 0.3f;
 
 	// Beat frequency varies by propulsion mode:
 	// - BCF (body-caudal fin): Low frequency, high amplitude oscillation
@@ -239,7 +239,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// - Paddle limbs: Medium frequency, rowing motion
 	// - Dorsoventral flukes (cetaceans): Medium frequency, up-down motion
 	// Base scaling: f ∝ L^(-0.5) for cruising (from fish data)
-	float beat_frequency_Hz;
+	auto beat_frequency_Hz;
 
 	if(primary_mode == Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN)
 	{
@@ -273,7 +273,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// Solving for amplitude: A = (P / (4π³ × ρ × A_tail × f³ × C_d))^(1/3)
 
 	// Use actual tail fin area from computed fins
-	float tail_area_m2 = 0.0f;
+	auto tail_area_m2 = 0.0f;
 	for(size_t i = 0; i < fins.size(); ++i)
 	{
 		if(is_tail_fin[i])
@@ -285,12 +285,12 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// Fallback: estimate from cross-section if no tail fins detected
 	if(tail_area_m2 < 0.001f)
 	{
-		float estimated_cross_section = cross_section_m2;
+		auto estimated_cross_section = cross_section_m2;
 		if(estimated_cross_section < 0.001f)
 		{
 			// Estimate as cylinder: π × (diameter/2)²
 			// Diameter ≈ L / fineness_ratio, or roughly L/5 for typical fish
-			float body_diameter = body_length_m / 5.0f;
+			auto body_diameter = body_length_m / 5.0f;
 			estimated_cross_section = M_PI * (body_diameter / 2.0f) * (body_diameter / 2.0f);
 		}
 
@@ -299,7 +299,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		// Use tail cross-section if available
 		if(s.appendages.tails.size() > 0)
 		{
-			float tail_cross_section = s.appendages.tails[0].max_cross_section_m2;
+			auto tail_cross_section = s.appendages.tails[0].max_cross_section_m2;
 			if(tail_cross_section > 0.001f)
 			{
 				// Effective area for oscillation ≈ cross-section × amplitude range
@@ -314,8 +314,8 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// Available power for swimming - use metabolic rate, not peak muscle power
 	// Aerobic scope gives sustainable power for cruising
 	// Mechanical efficiency of swimming: ~20-25%
-	float aerobic_power_W = s.metabolic.basal_rate_W * float(s.metabolic.aerobic_scope);
-	float swim_power_W = s.metabolic.available_muscle_power_W * 0.08f; // 8% for efficient cruising
+	auto aerobic_power_W = s.metabolic.basal_rate_W * float(s.metabolic.aerobic_scope);
+	auto swim_power_W = s.metabolic.available_muscle_power_W * 0.08f; // 8% for efficient cruising
 //; aerobic_power_W * 0.2f; // 20% mechanical efficiency
 
 	AQUATIC_DBG("Metabolic: basal=" << s.metabolic.basal_rate_W << "W, aerobic_scope="
@@ -323,27 +323,27 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	            << "W, mechanical=" << swim_power_W << "W");
 
 	// Drag coefficient for oscillating surfaces (higher than steady-state)
-	float oscillation_drag_coef = 1.5f;
+	auto oscillation_drag_coef = 1.5f;
 
 	// Calculate amplitude from power requirements
 	// A³ = P / (4π³ × ρ × A_tail × f³ × C_d)
-	float amplitude_cubed = swim_power_W /
+	auto amplitude_cubed = swim_power_W /
 		(4.0f * M_PI * M_PI * M_PI * fluid_density * tail_area_m2 *
 		 std::pow(beat_frequency_Hz, 3.0f) * oscillation_drag_coef);
 
-	float tail_amplitude_m = std::pow(amplitude_cubed, 1.0f / 3.0f);
+	auto tail_amplitude_m = std::pow(amplitude_cubed, 1.0f / 3.0f);
 
 	AQUATIC_DBG("Calculated amplitude: " << tail_amplitude_m << "m from power=" << swim_power_W << "W, tail_area=" << tail_area_m2 << "m2, freq=" << beat_frequency_Hz << "Hz");
 
 	// PHYSICAL FEASIBILITY CHECK
 	// Maximum amplitude is limited by spine/body flexibility
-	float max_amplitude_ratio = 0.25f; // Typical fish: 0.2-0.3
+	auto max_amplitude_ratio = 0.25f; // Typical fish: 0.2-0.3
 	if(primary_mode == Analysis_Aquatic::PropulsionMode::BODY_CAUDAL_FIN)
 	{
 		max_amplitude_ratio = 0.35f; // Flexible swimmers (eels) can achieve higher
 	}
 
-	float max_amplitude_m = body_length_m * max_amplitude_ratio;
+	auto max_amplitude_m = body_length_m * max_amplitude_ratio;
 
 	AQUATIC_DBG("Max amplitude: " << max_amplitude_m << "m (" << max_amplitude_ratio << " × body_length)");
 	AQUATIC_DBG("Rejection threshold: " << (max_amplitude_m * 2.5f) << "m");
@@ -357,9 +357,9 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 		// Add helpful diagnostics about what would make swimming viable
 		// Since amplitude ∝ (1/ρ)^(1/3), to reduce amplitude we need to increase density
-		float required_fluid_density = fluid_density * std::pow(tail_amplitude_m / max_amplitude_m, 3.0f);
+		auto required_fluid_density = fluid_density * std::pow(tail_amplitude_m / max_amplitude_m, 3.0f);
 		// Since amplitude ∝ (1/A_tail)^(1/3), to reduce amplitude we need to increase tail area
-		float required_tail_area = tail_area_m2 * std::pow(tail_amplitude_m / max_amplitude_m, 3.0f);
+		auto required_tail_area = tail_area_m2 * std::pow(tail_amplitude_m / max_amplitude_m, 3.0f);
 
 		std::stringstream msg;
 		msg << "Aquatic locomotion not viable: required tail amplitude ("
@@ -379,7 +379,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 	// Clamp to physically achievable amplitude
 	tail_amplitude_m = std::min(tail_amplitude_m, max_amplitude_m);
-	float tail_amplitude_ratio = tail_amplitude_m / body_length_m;
+	auto tail_amplitude_ratio = tail_amplitude_m / body_length_m;
 
 	AQUATIC_DBG("Final amplitude: " << tail_amplitude_m << "m (" << tail_amplitude_ratio << " × body_length)");
 
@@ -417,11 +417,11 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	}
 
 	// Cruise speed from Strouhal: U = f*A/St
-	float cruise_speed_m_s = (beat_frequency_Hz * tail_amplitude_m) / strouhal_optimal;
+	auto cruise_speed_m_s = (beat_frequency_Hz * tail_amplitude_m) / strouhal_optimal;
 
 	// Drag-based speed limit
 	// Drag: D = 0.5 * ρ * v² * Cd * A
-	float drag_coefficient = 0.04f; // Streamlined fish
+	auto drag_coefficient = 0.04f; // Streamlined fish
 
 	if(s.physical.fineness_ratio < 3.0f)
 	{
@@ -431,7 +431,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// Max speed when power = drag * velocity
 	// P = D * v = 0.5 * ρ * v³ * Cd * A
 	// v = (2*P / (ρ * Cd * A))^(1/3)
-	float power_limited_speed = std::pow(
+	auto power_limited_speed = std::pow(
 		(2.0f * swim_power_W) / (fluid_density * drag_coefficient * cross_section_m2),
 		1.0f / 3.0f
 	);
@@ -441,23 +441,23 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 	// Burst speed (anaerobic, can use max muscle power for short duration)
 	// Use available muscle power for anaerobic bursts (5-10 seconds)
-	float burst_power_W = s.metabolic.available_muscle_power_W * 0.4f; // 40% mechanical efficiency for burst
-	float burst_power_limited_speed = std::pow(
+	auto burst_power_W = s.metabolic.available_muscle_power_W * 0.4f; // 40% mechanical efficiency for burst
+	auto burst_power_limited_speed = std::pow(
 		(2.0f * burst_power_W) / (fluid_density * drag_coefficient * cross_section_m2),
 		1.0f / 3.0f
 	);
 
 	// Burst can also be limited by Strouhal at higher amplitude
-//	float burst_strouhal_speed = (beat_frequency_Hz * tail_amplitude_m * 1.5f) / 0.2;
+//	auto burst_strouhal_speed = (beat_frequency_Hz * tail_amplitude_m * 1.5f) / 0.2;
 
-	float burst_speed_m_s = burst_power_limited_speed;
+	auto burst_speed_m_s = burst_power_limited_speed;
 
 	// Apply muscle quality
 	cruise_speed_m_s *= glm::mix(0.8f, 1.2f, in.muscle_quality);
 	burst_speed_m_s *= glm::mix(0.8f, 1.2f, in.muscle_quality);
 
 	// Minimum swim speed (to maintain control/lift)
-	float min_swim_speed_m_s = 0.0f;
+	auto min_swim_speed_m_s = 0.0f;
 	if(requires_constant_motion)
 	{
 		// Must swim fast enough to generate lift
@@ -477,7 +477,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	}
 
 	// Turning radius based on body flexibility and control surfaces
-	float agility_factor = 1.0f;
+	auto agility_factor = 1.0f;
 
 	if(has_flexible_body)
 		agility_factor = 2.0f; // More agile
@@ -487,8 +487,8 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 	// r = v² / (a_max)
 	// Max lateral acceleration ≈ 0.5*g for typical fish
-	float max_lateral_accel = in.environment.gravity_m_s2 * 0.5f * agility_factor;
-	float min_turning_radius_m = (cruise_speed_m_s * cruise_speed_m_s) / max_lateral_accel;
+	auto max_lateral_accel = in.environment.gravity_m_s2 * 0.5f * agility_factor;
+	auto min_turning_radius_m = (cruise_speed_m_s * cruise_speed_m_s) / max_lateral_accel;
 
 	// 6. C-START ESCAPE RESPONSE
 	// Most fish can perform C-starts for rapid acceleration
@@ -497,11 +497,11 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	if(has_flexible_body && primary_mode != Analysis_Aquatic::PropulsionMode::PADDLE_LIMBS)
 	{
 		// C-start: bend body into C-shape, then snap straight
-		float c_start_duration_s = 0.05f; // ~50ms typical
-		float max_curvature_rad = M_PI / 2.0f; // 90-degree bend
+		auto c_start_duration_s = 0.05f; // ~50ms typical
+		auto max_curvature_rad = M_PI / 2.0f; // 90-degree bend
 
 		// Acceleration = v / t, where v ≈ burst_speed
-		float c_start_acceleration = burst_speed_m_s / c_start_duration_s;
+		auto c_start_acceleration = burst_speed_m_s / c_start_duration_s;
 
 		c_start = Analysis_Aquatic::CStartResponse{
 			.duration_s = c_start_duration_s,
@@ -513,9 +513,9 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// 7. DEPTH CAPABILITIES
 	// Based on body structure and compressibility
 
-	float preferred_depth_min_m = 0.0f;
-	float preferred_depth_max_m = 100.0f; // Default shallow water
-	float crush_depth_m = -1.0f;
+	auto preferred_depth_min_m = 0.0f;
+	auto preferred_depth_max_m = 100.0f; // Default shallow water
+	auto crush_depth_m = -1.0f;
 
 	// Estimate from body structure
 	// Rigid bodies (shells, armor) can go deeper
@@ -594,7 +594,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 		// Jet velocity from momentum conservation
 		// m_jet * v_jet = m_body * v_body
-		float jet_mass_kg = jet.jet_pulse_volume_m3 * fluid_density;
+		auto jet_mass_kg = jet.jet_pulse_volume_m3 * fluid_density;
 		jet.jet_velocity_m_s = (body_mass_kg * cruise_speed_m_s) / jet_mass_kg;
 
 		jet.siphon_articulation_range_rad = M_PI; // 180-degree steering
@@ -616,10 +616,10 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 		// Burst capability depends on white muscle fraction
 		// Power-oriented fish (predators) have more white muscle
-		float white_muscle_fraction = glm::mix(0.3f, 0.7f, 1.0f - in.behavior.endurance_vs_power);
+		auto white_muscle_fraction = glm::mix(0.3f, 0.7f, 1.0f - in.behavior.endurance_vs_power);
 
 		// White muscle gives 2x power output of red muscle for short bursts
-		float burst_power_multiplier = 1.0f + white_muscle_fraction; // 1.3x to 1.7x
+		auto burst_power_multiplier = 1.0f + white_muscle_fraction; // 1.3x to 1.7x
 		burst_speed_m_s *= burst_power_multiplier;
 //		burst_speed_m_s = std::min(burst_speed_m_s, cruise_speed_m_s * 3.5f); // Cap at 3.5x
 
@@ -646,11 +646,11 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 		// Must surface to breathe (oxygen stores in muscle myoglobin + blood)
 		// Dive duration depends on lung volume and metabolic rate
-		float lung_volume_L = body_volume_m3 * 0.05f * 1000.0f; // ~5% body volume
-		float O2_storage_L = lung_volume_L * 0.9f; // ~90% usable O2
+		auto lung_volume_L = body_volume_m3 * 0.05f * 1000.0f; // ~5% body volume
+		auto O2_storage_L = lung_volume_L * 0.9f; // ~90% usable O2
 
 		// O2 consumption rate (Kleiber's law for mammals)
-		float O2_consumption_L_per_min = s.metabolic.max_rate_W * 0.05f; // ~0.05 L O2 per watt per minute
+		auto O2_consumption_L_per_min = s.metabolic.max_rate_W * 0.05f; // ~0.05 L O2 per watt per minute
 
 		// Maximum dive time before must surface
 
@@ -691,13 +691,13 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 	// HYDRODYNAMIC CALCULATIONS
 	// Calculate lift generation per meter swam (for negatively buoyant animals)
-	float lift_per_meter_N = 0.0f;
-	float sink_rate_m_s = 0.0f;
+	auto lift_per_meter_N = 0.0f;
+	auto sink_rate_m_s = 0.0f;
 
 	if(body_density_kg_m3 > fluid_density)
 	{
 		// Negatively buoyant - sinks without swimming
-		float weight_in_water_N = (body_density_kg_m3 - fluid_density) * body_volume_m3 * in.environment.gravity_m_s2;
+		auto weight_in_water_N = (body_density_kg_m3 - fluid_density) * body_volume_m3 * in.environment.gravity_m_s2;
 
 		// Sink rate from terminal velocity: v = sqrt(2*mg / (ρ*Cd*A))
 		sink_rate_m_s = std::sqrt((2.0f * weight_in_water_N) /
@@ -710,8 +710,8 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	}
 
 	// Reynolds number at cruise speed
-	float characteristic_length = body_length_m;
-	float reynolds = (fluid_density * cruise_speed_m_s * characteristic_length) / in.environment.fluidViscosity_Pa_s;
+	auto characteristic_length = body_length_m;
+	auto reynolds = (fluid_density * cruise_speed_m_s * characteristic_length) / in.environment.fluidViscosity_Pa_s;
 
 	return Analysis_Aquatic{
 		.propulsors = shared_array<Analysis_Aquatic::Fin>::FromArray(fins),
@@ -767,10 +767,10 @@ using SF = SemanticFlags;
 		fin.chord_m = appendage.surface.chord_m * in.scale;
 							
 		// Add this analysis before your flipper check
-		float percent_area = (appendage.surface.area_m2*2.0) / appendage.area_m2; // volume-to-area ratio
-	//	float thickness = surfaceArea / limb_metrics.volume;
+		auto percent_area = (appendage.surface.area_m2*2.0) / appendage.area_m2; // volume-to-area ratio
+	//	auto thickness = surfaceArea / limb_metrics.volume;
 		int joint_count = appendage.noJoints;
-		float aspect_ratio = fin.rest_length_m / fin.chord_m;
+		auto aspect_ratio = fin.rest_length_m / fin.chord_m;
 		
 		// Flipper characteristics
 		bool has_internal_structure = joint_count < 3; // flippers don't have digitgrade etc complexity. usually one bone. 

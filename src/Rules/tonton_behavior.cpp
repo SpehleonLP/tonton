@@ -21,10 +21,10 @@ using SemanticAnalysis = Builder::SemanticAnalysis;
 // TEMPERATURE SCALING
 // ============================================================================
 
-static float TemperatureScaling_Q10(float temp_K, float ref_temp_K = 303.15f) {
+static auto TemperatureScaling_Q10(auto temp_K, auto ref_temp_K = 303.15f) {
     // Q10 temperature coefficient (Makarieva et al. 2008)
     // Amphibians: 2.21, Reptiles: 2.44
-    const float Q10 = 2.3f;
+    const auto Q10 = 2.3f;
     return std::pow(Q10, (temp_K - ref_temp_K) / 10.0f);
 }
 
@@ -50,7 +50,7 @@ static bool InferEndothermy(Scratch const& scratch, SemanticAnalysis const& sem)
     
     // High sustained activity suggests endothermy
     if (scratch.terrestrial) {
-        float sustainable_fraction = scratch.terrestrial->max_sustainable_speed_m_s / 
+        auto sustainable_fraction = scratch.terrestrial->max_sustainable_speed_m_s / 
                                     scratch.terrestrial->max_sprint_speed_m_s;
         if (sustainable_fraction > 0.6f) {
             return true; // Endurance runners (mammals)
@@ -72,7 +72,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
     
     Builder::SemanticAnalysis const& sem = in.builder->semanticAnalyisis; 
     
-    float mass_kg = scratch.physical.body_mass_kg;
+    auto mass_kg = scratch.physical.body_mass_kg;
     bool is_endotherm = InferEndothermy(scratch, sem);
     
     // ========================================================================
@@ -83,25 +83,25 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
         // Kleiber's Law for endotherms: BMR ∝ M^0.75
         // Birds: ~4.1 W/kg at 1kg (Alexander 1992)
         // Mammals: ~3.5 W/kg at 1kg (White & Seymour 2003)
-        float base_coefficient = scratch.aerial ? 4.1f : 3.5f;
+        auto base_coefficient = scratch.aerial ? 4.1f : 3.5f;
         result.basal_rate_W = base_coefficient * std::pow(mass_kg, 0.75f);
         
         // Adjust for metabolic intensity from user input
-        float intensity = glm::mix(0.8f, 1.2f, in.metabolic_efficiency);
+        auto intensity = glm::mix(0.8f, 1.2f, in.metabolic_efficiency);
         result.basal_rate_W *= intensity;
         
     } else {
         // Ectotherms (Bennett & Dawson 1976, Pough 1980)
         // At 30°C: ~0.5 W/kg for reptiles
         // ~10-15% of mammal BMR
-        float base_rate = 0.5f * std::pow(mass_kg, 0.75f);
+        auto base_rate = 0.5f * std::pow(mass_kg, 0.75f);
         
         // Temperature scaling
-        float temp_factor = TemperatureScaling_Q10(in.environment.temperature_K);
+        auto temp_factor = TemperatureScaling_Q10(in.environment.temperature_K);
         result.basal_rate_W = base_rate * temp_factor;
         
         // Adjust for metabolic efficiency
-        float efficiency = glm::mix(0.7f, 1.3f, in.metabolic_efficiency);
+        auto efficiency = glm::mix(0.7f, 1.3f, in.metabolic_efficiency);
         result.basal_rate_W *= efficiency;
     }
     
@@ -109,7 +109,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
     // AEROBIC SCOPE & MAXIMUM METABOLIC RATE
     // ========================================================================
     
-    float aerobic_scope = 10.0f; // Default
+    auto aerobic_scope = 10.0f; // Default
     
     // Adjust based on locomotion mode and lifestyle
     if (scratch.aerial) {
@@ -153,7 +153,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
     // MUSCLE MASS
     // ========================================================================
     
-    float muscle_fraction = 0.40f; // Default: 40% of body mass
+    auto muscle_fraction = 0.40f; // Default: 40% of body mass
     
     if (scratch.aerial) {
         // Birds: pectoralis 15-35% alone (Tobalske et al. 2003, Hartman 1961)
@@ -195,7 +195,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
     
     // Theoretical maximum: ~400 W/kg (Rome et al. 1988)
     // Practical sustained: ~200-250 W/kg
-    float power_density_W_kg = 400.0f;
+    auto power_density_W_kg = 400.0f;
     
     // Adjust for muscle quality
     power_density_W_kg *= in.muscle_quality;
@@ -203,8 +203,8 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
     // Adjust for fiber type specialization
     // Sprint muscle (fast-twitch): higher peak power, lower endurance
     // Endurance muscle (slow-twitch): lower peak power, sustainable
-    float endurance_vs_power = in.behavior.endurance_vs_power;
-    float fiber_modifier = glm::mix(1.2f, 0.8f, endurance_vs_power);
+    auto endurance_vs_power = in.behavior.endurance_vs_power;
+    auto fiber_modifier = glm::mix(1.2f, 0.8f, endurance_vs_power);
     power_density_W_kg *= fiber_modifier;
     
     result.available_muscle_power_W = result.muscle_mass_kg * power_density_W_kg;
@@ -219,14 +219,14 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
         
         // Thermal Neutral Zone (Scholander et al. 1950)
         // Width inversely proportional to surface area / volume ratio
-        float sa_to_vol = scratch.physical.surface_area_m2 / 
+        auto sa_to_vol = scratch.physical.surface_area_m2 / 
                          scratch.physical.body_volume_m3;
         
         // Small animals have narrower TNZ (higher heat loss rate)
-        float tnz_width = 10.0f / (1.0f + sa_to_vol * 0.1f);
+        auto tnz_width = 10.0f / (1.0f + sa_to_vol * 0.1f);
         
         // TNZ center typically 3-5°C below body temperature
-        float tnz_center = result.body_temperature_K - 3.0f;
+        auto tnz_center = result.body_temperature_K - 3.0f;
         result.thermal_neutral_zone_min_K = tnz_center - tnz_width * 0.5f;
         result.thermal_neutral_zone_max_K = tnz_center + tnz_width * 0.5f;
         
@@ -250,7 +250,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     Builder::SemanticAnalysis const& sem = in.builder->semanticAnalyisis; 
     
     bool is_endotherm = scratch.metabolic.is_endotherm();
-    float mass_kg = scratch.physical.body_mass_kg;
+    auto mass_kg = scratch.physical.body_mass_kg;
 
     // Get niche flags from armature (ecological roles)
     auto niche_flags = in.builder->physical.niche;
@@ -289,7 +289,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     }
     
     // Large body size correlates with territoriality/aggression
-    float size_factor = glm::clamp(mass_kg / 10.0f, 0.0f, 0.2f);
+    auto size_factor = glm::clamp(mass_kg / 10.0f, 0.0f, 0.2f);
     result.aggression += size_factor;
 
     // Apex predators are more aggressive
@@ -431,7 +431,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     
     if (scratch.sensory.vision) {
         // Large eyes relative to body -> nocturnal (Kirk 2006)
-        float eye_ratio = sem.eye_body_ratio;
+        auto eye_ratio = sem.eye_body_ratio;
         
         if (eye_ratio > 0.15f) {
             result.diurnal_preference = 0.2f; // Nocturnal
@@ -452,7 +452,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     
     // Long-distance fliers may migrate (high aspect ratio wings)
     if (scratch.aerial) {
-        float avg_aspect_ratio = 0.0f;
+        auto avg_aspect_ratio = 0.0f;
         for (auto& wing : scratch.aerial->wings) {
             avg_aspect_ratio += wing.aspect_ratio();
         }
@@ -482,7 +482,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
         }
         
         // High endurance -> pursuit
-        float endurance_ratio = scratch.terrestrial->max_sustainable_speed_m_s /
+        auto endurance_ratio = scratch.terrestrial->max_sustainable_speed_m_s /
                                scratch.terrestrial->max_sprint_speed_m_s;
         if (endurance_ratio > 0.7f) {
             result.ambush_vs_pursuit -= 0.3f; // Pursuit hunter
@@ -502,7 +502,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     }
     
     // Body plan: stocky -> ambush, slender -> pursuit (Fulton et al. 2001)
-    float fineness = scratch.physical.fineness_ratio;
+    auto fineness = scratch.physical.fineness_ratio;
     if (fineness < 3.0f) {
         result.ambush_vs_pursuit += 0.2f; // Stocky
     } else if (fineness > 5.0f) {
@@ -589,7 +589,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
         result.territory_radius_m = -1.0f;
     } else {
         // Territory size ∝ M^1.0 for vertebrates (Davies & Houston 1984)
-        float base_radius = 10.0f * std::pow(mass_kg, 1.0f);
+        auto base_radius = 10.0f * std::pow(mass_kg, 1.0f);
 
         // Predators need larger territories
         if (is_predator) {
@@ -645,7 +645,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
         result.habitat.temperature_max_K = 323.15f; // 50°C
     } else {
         // Ectotherms have narrower optimal range (Huey & Stevenson 1979)
-        float optimal_temp = in.environment.temperature_K;
+        auto optimal_temp = in.environment.temperature_K;
         result.habitat.temperature_min_K = optimal_temp - 10.0f;
         result.habitat.temperature_max_K = optimal_temp + 15.0f;
     }

@@ -1,5 +1,6 @@
 #ifndef TONTON_INPUT_H
 #define TONTON_INPUT_H
+#include "tonton_units.hpp"
 #include "tonton_counted_ptr.hpp"
 #include <glm/common.hpp>
 #include <glm/fwd.hpp>
@@ -10,11 +11,11 @@ namespace TonTon
 struct Builder;
 struct Environment
 {
-    float fluidDensity_Kg_m3{1.225f};       // kg/m³ (water=1000, air=1.2, liquid methane=422)
-    float fluidViscosity_Pa_s{1.81e-5f};   // Pa·s (affects Reynolds numbers)
-    float gravity_m_s2{9.81};             // m/s² (affects buoyancy requirements)
-    float pressure_Pa{3068.167};          // Pa (affects swim bladder function)
-    float temperature_K{298.15};          // K (affects metabolic rates)
+    density_kg_m3     fluidDensity_Kg_m3{1.225f};       // kg/m³ (water=1000, air=1.2, liquid methane=422)
+    viscosity_Pa_s    fluidViscosity_Pa_s{1.81e-5f};   // Pa·s (affects Reynolds numbers)
+    acceleration_m_s2 gravity_m_s2{9.81};             // m/s² (affects buoyancy requirements)
+    pressure_Pa       pressure_Pa{3068.167};          // Pa (affects swim bladder function)
+    temp_K            temperature_K{298.15};          // K (affects metabolic rates)
 };
 
 struct Input 
@@ -53,17 +54,17 @@ struct Input
 	float climbing_ability = 0.5;        // 0=none, 1=vertical surfaces
 	
 //	inline glm::vec3 position(int index) const { return skinnedMesh? skinnedMesh->skin->position[index] * behavior.scale : glm::vec3(0); };
-	float scale = 1.0;
+	length_s scale = length_s(1.f);
 	
-	inline float body_density() const { return glm::mix(700.0, 1050.0, average_density); } 
-	float body_mass_kg() const;
-	float body_weight_N() const;
-	float cross_sectional_area_m2() const;
+	inline density_kg_m3 body_density() const { return density_kg_m3(glm::mix(700.0, 1050.0, average_density)); } 
+	mass_kg body_mass_kg() const;
+	force_N body_weight_N() const;
+	area_m2 cross_sectional_area_m2() const;
 	glm::mat3 inertia_restPose() const;
 	
-	inline float area_scale() const { return scale * scale; }
-	inline float volume_scale() const { return scale * scale * scale; }
-	inline float inertia_scale() const { return scale * scale * scale * scale * scale; }
+	inline area_s area_scale() const { return scale * scale; }
+	inline volume_s volume_scale() const { return scale * scale * scale; }
+	inline length5_s inertia_scale() const { return (scale * scale * scale) * (scale * scale); }
 };
 
 };

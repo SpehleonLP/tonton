@@ -9,7 +9,7 @@ struct Analysis_Appendage;
 struct Analysis_Aerial;
 struct Input;
 
-std::optional<Analysis_Aerial>  ComputeAerial(Input const& in);
+std::optional<Analysis_Aerial>  ComputeAerial(Input const& in, Scratch&);
 
 
 } // namespace TonTon

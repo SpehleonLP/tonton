@@ -1,5 +1,6 @@
 #ifndef TONTON_ANALYSIS_H
 #define TONTON_ANALYSIS_H
+#include "tonton_units.hpp"
 #include "tonton_counted_ptr.hpp"
 #include "tonton_shared_array.hpp"
 #include "tonton_optional.hpp"
@@ -27,8 +28,8 @@ struct Analysis_Chain
 	
 	int noJoints{};
 	
-	float stretched_length_m{};
-	float rest_length_m{};
+	length_m stretched_length_m{};
+	length_m rest_length_m{};
 };
 
 struct Analysis_Appendage : public Analysis_Chain
@@ -55,11 +56,11 @@ struct Analysis_Manipulator : public Analysis_Appendage {
 	
 	SemanticFlags subtree_flags{}; // TENTACLE, DIGIT, etc.
 	
-	float max_lift_force_N{};
-	float max_grip_force_N{};
-	float max_adhesion_force_N{};
+	force_N max_lift_force_N{};
+	force_N max_grip_force_N{};
+	force_N max_adhesion_force_N{};
 	
-	float surface_area_m2{};
+	area_m2 surface_area_m2{};
 	glm::vec3 surface_normal{}; // sign undefined
 	
 	bool has_suckers : 1;
@@ -83,16 +84,16 @@ struct Analysis_Manipulator : public Analysis_Appendage {
 // CORE PHYSICAL PROPERTIES (always present)
 // ============================================================================
 struct Analysis_Physical {
-	float body_mass_kg{};
-	float body_length_m{};
-	float body_volume_m3{};
-	float tail_length_m{};
+	mass_kg body_mass_kg{};
+	length_m body_length_m{};
+	volume_m3 body_volume_m3{};
+	length_m tail_length_m{};
 	
-	float svl_m() const { return body_length_m - tail_length_m; }
+	auto svl_m() const { return body_length_m - tail_length_m; }
 	
 	// Body plan characteristics
-	float surface_area_m2{};
-	float cross_sectional_area_m2{};
+	area_m2 surface_area_m2{};
+	area_m2 cross_section_area_m2{};
 	float fineness_ratio{};  // length / mean_diameter
 	
 	int16_t		spine_root{};
@@ -117,19 +118,19 @@ struct Analysis_Physical {
 // METABOLIC & ENERGETICS (always present)
 // ============================================================================
 struct Analysis_Metabolic {
-	float basal_rate_W{};
-	float max_rate_W{};
-	float aerobic_scope{};              // max/basal ratio
+	power_W basal_rate{};
+	power_W max_rate{};
+	float aerobic_scope() const { return max_rate / basal_rate; };              // max/basal ratio
 
-	float muscle_mass_kg{};
-	float available_muscle_power_W{};   // ~400 W/kg theoretical max
+	mass_kg muscle_mass_kg{};
+	power_W available_muscle_power_W{};   // ~400 W/kg theoretical max
 
 	// Thermal strategy
-	float body_temperature_K{-1};
-	float thermal_neutral_zone_min_K{-1};
-	float thermal_neutral_zone_max_K{-1};
+	temp_K body_temperature_K{-1};
+	temp_K thermal_neutral_zone_min_K{-1};
+	temp_K thermal_neutral_zone_max_K{-1};
 	
-	bool is_endotherm() const { return body_temperature_K > 0; } 
+	bool is_endotherm() const { return float(body_temperature_K) > 0; } 
 };
 
 
@@ -155,17 +156,17 @@ struct Analysis_Terrestrial {
 	float posture{};
 
 	// Speed capabilities
-	float max_sprint_speed_m_s{};
-	float max_sustainable_speed_m_s{};  // aerobic limit
-	float optimal_speed_m_s{};          // minimum cost of transport
+	velocity_m_s max_sprint_speed_m_s{};
+	velocity_m_s max_sustainable_speed_m_s{};  // aerobic limit
+	velocity_m_s optimal_speed_m_s{};          // minimum cost of transport
 
 	// Maneuverability
-	float min_turning_radius_m{};
-	float max_acceleration_m_s2{};
+	length_m min_turning_radius_m{};
+	acceleration_m_s2 max_acceleration_m_s2{};
 
 	// Endurance limits (especially important for sprawling posture)
-	float max_sprint_duration_s{-1};  // before exhaustion
-	float recovery_time_s{-1};        // after sprint
+	time_s max_sprint_duration{-1};  // before exhaustion
+	time_s recovery_time{-1};        // after sprint
 };
 
 // Serpentine locomotion (for SERPENTINE posture)
@@ -182,15 +183,15 @@ struct Analysis_Serpentine {
 	float forward_friction_coef{};       // Parallel to body
 	float lateral_friction_coef{};       // Perpendicular to body
 	float friction_anisotropy_ratio{};   // lateral/forward (1.5-3.0 typical)
-	float lateral_undulation_speed_m_s{};
+	velocity_m_s lateral_undulation_speed{};
 	
 	// Lateral undulation parameters
 	Analysis_BodyWave lateral_undulation{};
 
 	struct Rectilinear
 	{
-		float speed_m_s{};
-		float frequency_Hz{};
+		velocity_m_s speed{};
+		freq_Hz frequency_Hz{};
 	};
 
 	struct SideWinding : public Rectilinear
@@ -201,7 +202,7 @@ struct Analysis_Serpentine {
 
 	struct Concertina 
 	{
-		float speed_m_s{};
+		velocity_m_s speed{};
 		float compression_ratio{};
 	};
 	
@@ -229,19 +230,19 @@ struct Analysis_TakeoffAnalysis {
     TakeoffMode mode{TakeoffMode::IMPOSSIBLE};
     
     // Takeoff performance metrics
-    float takeoff_run_distance_m{-1};           // Required runway length (0 for vertical)
-    float required_jump_velocity_m_s{0};        // Initial upward velocity needed from legs
-    float time_to_flight_speed_s{-1};           // Time to reach min_flight_speed
-    float vertical_acceleration_m_s2{0};        // Net upward accel during takeoff
+    length_m takeoff_run_distance_m{-1};           // Required runway length (0 for vertical)
+    velocity_m_s required_jump_velocity_m_s{0};        // Initial upward velocity needed from legs
+    time_s time_to_flight_speed_s{-1};           // Time to reach min_flight_speed
+    acceleration_m_s2 vertical_acceleration_m_s2{0};        // Net upward accel during takeoff
     
     // Force analysis
-    float max_instantaneous_lift_N{0};          // Peak lift during power stroke
-    float max_instantaneous_thrust_N{0};        // Peak thrust from wing acceleration
-    float net_vertical_force_N{0};              // Total upward force available
-    float force_margin_percent{0};              // Safety margin above weight
+    force_N max_instantaneous_lift_N{0};          // Peak lift during power stroke
+    force_N max_instantaneous_thrust_N{0};        // Peak thrust from wing acceleration
+    force_N net_vertical_force_N{0};              // Total upward force available
+    float force_margin_percent{0};                // Safety margin above weight
     
     // Efficiency factors
-    float power_to_weight_W_kg{0};              // Critical for vertical launch
+    cost_W_kg power_to_weight_W_kg{0};           // Critical for vertical launch
     float takeoff_power_fraction{0};            // Fraction of max power needed
     float ground_effect_bonus{1.0f};            // Lift bonus near surface (1.0-1.3)
     
@@ -263,27 +264,27 @@ struct Analysis_TakeoffAnalysis {
     
     
     // Core force estimations
-    static float EstimateMaxLift(const Analysis_Aerial& aerial, 
-                                float body_mass_kg,
-                                float air_density = 1.225f);
+    static force_N EstimateMaxLift(const Analysis_Aerial& aerial, 
+                                mass_kg body_mass_kg,
+                                density_kg_m3 air_density);
     
-    static float EstimateMaxThrust(const Analysis_Aerial& aerial,
-                                  float body_mass_kg,
-                                  float air_density = 1.225f);
+    static force_N EstimateMaxThrust(const Analysis_Aerial& aerial,
+                                  mass_kg body_mass_kg,
+                                  density_kg_m3 air_density);
     
     // Ground effect modeling
-    static float GroundEffectBonus(float wing_span_m, float height_above_ground_m);
+    static float GroundEffectBonus(length_m wing_span_m, length_m height_above_ground_m);
     
     // Required jump velocity from legs
-    static float RequiredJumpVelocity(const Analysis_Aerial& aerial,
-                                     float body_mass_kg,
-                                     float max_lift_N,
-                                     float gravity_m_s2);
+    static velocity_m_s RequiredJumpVelocity(const Analysis_Aerial& aerial,
+                                     mass_kg body_mass_kg,
+                                     force_N max_lift_N,
+                                     acceleration_m_s2 gravity_m_s2);
     
     // Running takeoff distance
-    static float RunwayDistance(const Analysis_Aerial& aerial,
-                               const Analysis_Terrestrial* terrestrial,
-                               float body_mass_kg);
+	static length_m RunwayDistance(const Analysis_Aerial& aerial,
+								   const Analysis_Terrestrial* terrestrial,
+								   mass_kg body_mass_kg, density_kg_m3 air_density);
     
     // Classification
  //   static TakeoffMode ClassifyMode(const Output& output, 
@@ -292,52 +293,52 @@ struct Analysis_TakeoffAnalysis {
 
 struct Analysis_Aerial {
 	struct Wing : public Analysis_Appendage {			
-		float span_m{};
-		float area_m2{};
-		float chord_m{};
+		length_m span_m{};
+		area_m2 area_m2{};
+		length_m chord_m{};
 		// span is half span b/c only one wing.
 		// so span² * 2² / (area*2)
-		float aspect_ratio() const { return span_m*span_m*2.0 / area_m2; };   // span² / area
+		float aspect_ratio() const { return (span_m*span_m / area_m2) * 2.0; };   // span² / area
 
 		// Animation parameters
-		float beat_amplitude_rad{};    // stroke angle
-		float stroke_plane_angle_rad{}; // relative to body
+		angle_rad beat_amplitude_rad{};    // stroke angle
+		angle_rad stroke_plane_angle_rad{}; // relative to body
 		
-		float mass_kg{};
-		float inertia_kgm2{};
+		mass_kg wing_mass_kg{};
+		inertia_kgm2 wing_inertia_kgm2{};
 		
 		
-		float wing_tip_velocity(float wingbeat_frequency_Hz) const { 
-			return 3.14159265 * wingbeat_frequency_Hz * beat_amplitude_rad * span_m; };
+		velocity_m_s wing_tip_velocity(freq_Hz wingbeat_frequency_Hz) const { 
+			return (3.14159265 * float(beat_amplitude_rad)) * (wingbeat_frequency_Hz * span_m); };
 	};
 	immutable_array<Wing> wings{};
 
-	float wing_span_m{};
-	float wing_area_m2{};
+	length_m wing_span_m{};
+	area_m2 wing_area_m2{};
 
 	// Performance envelope
-	float wingbeat_frequency_Hz{};
-	float min_flight_speed_m_s{};       // stall speed
-	float cruise_speed_m_s{};           // optimal
-	float max_flight_speed_m_s{};
+	freq_Hz wingbeat_frequency_Hz{};
+	velocity_m_s min_flight_speed_m_s{};       // stall speed
+	velocity_m_s cruise_speed_m_s{};           // optimal
+	velocity_m_s max_flight_speed_m_s{};
 
-	float wing_loading_N_m2{};          // weight / wing_area
-	float power_loading_W_N{};          // power / weight
+	pressure_Pa wing_loading_N_m2{};          // weight / wing_area
+	cost_W_N power_loading_W_N{};          // power / weight
 
 	// Specialized capabilities
-	float max_altitude_m{};             // power/oxygen limit
-	float max_flight_duration_s{};      // endurance limit
+	length_m max_altitude_m{};             // power/oxygen limit
+	time_s max_flight_duration_s{};      // endurance limit
 
 	// Maneuverability
-	float min_turning_radius_m{};
+	length_m min_turning_radius_m{};
 	
 	// computed with rest pose inertia. 
-	float max_roll_rate_rad_s{};
-	float max_pitch_rate_rad_s{}; 
-	float max_yaw_rate_rad_s{}; 
+	omega_rad_s max_roll_rate_rad_s{};
+	omega_rad_s max_pitch_rate_rad_s{}; 
+	omega_rad_s max_yaw_rate_rad_s{}; 
 	
-	float flapping_cost_W_per_N{};      // Power per unit weight (lower = better)
-	float hovering_cost_W_per_N{};      // Extremely expensive
+	cost_W_N flapping_cost_W_per_N{};      // Power per unit weight (lower = better)
+	cost_W_N hovering_cost_W_per_N{};      // Extremely expensive
 			
 	// Relative efficiency (0-1, higher = better strategy for this animal)
 	float flapping_efficiency{};
@@ -349,15 +350,15 @@ struct Analysis_Aerial {
 	bool can_slow_descent{};          // Can flutter to slow fall, but not gain altitude
 			
 	// Steady glide: Lift = Weight
-	float gliding_CL(float weight_N, float speed_m_s, float air_density = 1.225f) const;
-	float flapping_CL_effective(float weight_N,
-								float forward_speed_m_s, 
-								float wingbeat_freq_Hz,
-								float beat_amplitude_rad,
-								float air_density = 1.225f) const;
-	float hovering_disk_loading_N_m2(float weight_N) const;		
-	float hovering_power_ideal_W(float weight_N, float air_density = 1.225f) const;
-	
+	float gliding_CL(force_N weight_N, velocity_m_s speed_m_s, density_kg_m3 air_density) const;
+	float flapping_CL_effective(force_N weight_N,
+								velocity_m_s forward_speed_m_s, 
+								freq_Hz wingbeat_freq_Hz,
+								angle_rad beat_amplitude_rad,
+								density_kg_m3 air_density) const;
+	load_N_m2 hovering_disk_loading_N_m2(force_N weight_N) const;		
+	power_W hovering_power_ideal_W(force_N weight_N, density_kg_m3 air_density) const;
+
 	Analysis_TakeoffAnalysis takeoff;
 };
 
@@ -374,7 +375,7 @@ struct Analysis_Aquatic  {
 	};
 
 	struct Fin  : public Analysis_Appendage {
-		float chord_m{};
+		length_m chord_m{};
 		float area_m2{};
 
 		// Animation - for undulating fins
@@ -400,7 +401,7 @@ struct Analysis_Aquatic  {
 	float sink_rate_m_s{};              // How fast they sink when stationary
 	float reynolds_number{};            // Swimming regime indicator
 	float drag_coefficient{};           // Cd for streamlining assessment
-	float tail_amplitude_m{};           // Actual tail oscillation amplitude
+	length_m tail_amplitude_m{};           // Actual tail oscillation amplitude
 	float beat_frequency_Hz{};          // Tail beat frequency
 
 	// Buoyancy control
@@ -412,12 +413,12 @@ struct Analysis_Aquatic  {
 	// Maneuverability
 	bool can_hover{};                   // station-keeping
 	bool requires_constant_motion{};    // sharks, tuna
-	float min_turning_radius_m{};
+	length_m min_turning_radius_m{};
 
 	// Depth capabilities
-	float preferred_depth_min_m{};
-	float preferred_depth_max_m{};
-	float crush_depth_m{-1};
+	length_m preferred_depth_min_m{};
+	length_m preferred_depth_max_m{};
+	length_m crush_depth_m{-1};
 
 
 	// C-start escape response
@@ -463,15 +464,15 @@ struct Analysis_Climbing {
 // ============================================================================
 struct Analysis_Brachiation {
 	struct Arm  : public Analysis_Appendage {
-		float reach_m{};
+		length_m reach_m{};
 		float grip_strength_N{};
 		float swing_speed_m_s{};
 	};
 	immutable_array<Arm> arms{};
 
 	float max_swing_speed_m_s{};
-	float max_gap_distance_m{};      // max distance between handholds
-	float pendulum_length_m{};       // effective pendulum for energy
+	length_m max_gap_distance_m{};      // max distance between handholds
+	length_m pendulum_length_m{};       // effective pendulum for energy
 
 	// Alternating arm pattern
 	float swing_frequency_Hz{};
@@ -489,8 +490,8 @@ struct Analysis_Jumping {
 	};
 	MechanismType mechanism{};
 
-	float max_jump_height_m{};
-	float max_jump_distance_m{};
+	length_m max_jump_height_m{};
+	length_m max_jump_distance_m{};
 	float takeoff_velocity_m_s{};
 	float takeoff_angle_rad{};
 
@@ -511,15 +512,15 @@ struct Analysis_Digging {
 	Method method{};
 
 	float max_dig_speed_m_s{};
-	float tunnel_diameter_m{};
+	length_m tunnel_diameter_m{};
 	float soil_force_N{};
 };
 
 // Constriction (snakes, tentacles)
 struct Analysis_Constriction {
 	float max_squeeze_pressure_Pa{};
-	float coil_diameter_range_min_m{};
-	float coil_diameter_range_max_m{};
+	length_m coil_diameter_range_min_m{};
+	length_m coil_diameter_range_max_m{};
 };
 
 
@@ -589,18 +590,18 @@ struct Analysis_Behavior {
 
 	// Social behavior
 	float optimal_group_size{-1};
-	float personal_space_radius_m{-1};
-	float territory_radius_m{-1};
+	length_m personal_space_radius_m{-1};
+	length_m territory_radius_m{-1};
 
 	// Environmental preferences
 	struct HabitatPreference {
-		float temperature_min_K{};
-		float temperature_max_K{};
+		temp_K temperature_min_K{};
+		temp_K temperature_max_K{};
 		float humidity_preference{};    // 0=arid, 1=humid
 
 		// Structural habitat
 		float open_vs_dense{};          // 0=open terrain, 1=dense cover
-		float canopy_height_preference_m{-1};
+		length_m canopy_height_preference_m{-1};
 	};
 	HabitatPreference habitat{};
 };
@@ -612,12 +613,12 @@ struct Analysis_Behavior {
 struct Analysis_Vision {
 	float acuity{};                 // 0=poor, 1=excellent
 	float binocular_overlap{};      // 0=none, 1=full overlap
-	float detection_range_m{};
+	length_m detection_range_m{};
 	float centering{}; // how centered are the eyes? -1 or +1 indicates flatfish
 	
 	float motion_sensitivity_bonus{};
-	float thermal_detection_range_m{};
-	float thermal_sensitivity_K{};
+	length_m thermal_detection_range_m{};
+	temp_K thermal_sensitivity_K{};
 	
 	bool has_color_vision{};
 	bool has_night_vision{};
@@ -627,19 +628,19 @@ struct Analysis_Vision {
 
 struct Analysis_Hearing {
 	float sensitivity{};            // 0=poor, 1=excellent
-	float frequency_range_Hz_min{};
-	float frequency_range_Hz_max{};
-	float detection_range_m{};
+	freq_Hz frequency_range_Hz_min{};
+	freq_Hz frequency_range_Hz_max{};
+	length_m detection_range{};
 	
 	bool has_echolocation{};
-	float echolocation_range_m{};
-	float directional_accuracy_deg{};
+	length_m echolocation_range_m{};
+	angle_rad directional_accuracy{};
 	float substrate_vibration_sensitivity{};
 };
 
 struct Analysis_Olfaction {
 	float sensitivity{};            // 0=poor, 1=excellent
-	float detection_range_m{};
+	length_m detection_range_m{};
 	int odor_discrimination_count{};
 	float directional_acuity{};
 };

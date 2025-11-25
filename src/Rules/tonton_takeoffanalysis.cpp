@@ -1,6 +1,6 @@
 #include "tonton_takeoffanalysis.h"
 #include "tonton_scratch.h"
-#include "../include/tonton_output.h"
+#include "../include/tonton_analysis.h"
 #include "../include/tonton_input.h"
 
 namespace TonTon {
@@ -22,9 +22,9 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     }
 
     const auto& aerial = output.aerial.value();
-    const float body_mass_kg = output.physical.body_mass_kg;
-    const float weight_N = body_mass_kg * in.environment.gravity_m_s2;
-    const float air_density = in.environment.fluidDensity_Kg_m3;
+    const auto body_mass_kg = output.physical.body_mass_kg;
+    const auto weight_N = body_mass_kg * in.environment.gravity_m_s2;
+    const auto air_density = in.environment.fluidDensity_Kg_m3;
     
     // ========================================================================
     // FORCE ANALYSIS
@@ -38,20 +38,20 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
                                   result.max_instantaneous_thrust_N * 0.7f;
     
     // Apply ground effect bonus (assume starting at 0.5m height)
-    result.ground_effect_bonus = T::GroundEffectBonus(aerial.wing_span_m, 0.5f);
+    result.ground_effect_bonus = T::GroundEffectBonus(aerial.wing_span_m, length_m(0.5f));
     result.net_vertical_force_N *= result.ground_effect_bonus;
     
     result.vertical_acceleration_m_s2 = (result.net_vertical_force_N - weight_N) / body_mass_kg;
     result.force_margin_percent = ((result.net_vertical_force_N / weight_N) - 1.0f) * 100.0f;
-    
+   
     // ========================================================================
     // POWER ANALYSIS
     // ========================================================================
     
     result.power_to_weight_W_kg = output.metabolic.available_muscle_power_W / body_mass_kg;
-    
+   
     // Estimate power needed for takeoff (hovering-like initially)
-    float takeoff_power_needed_W = aerial.hovering_cost_W_per_N * weight_N;
+    auto takeoff_power_needed_W = aerial.hovering_cost_W_per_N * weight_N;
     result.takeoff_power_fraction = takeoff_power_needed_W / output.metabolic.available_muscle_power_W;
     
     // ========================================================================
@@ -84,8 +84,9 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
                                                                  result.max_instantaneous_lift_N,
                                                                  in.environment.gravity_m_s2);
         
-        float estimated_jump_height_m = body_mass_kg * 0.1f;  // Rough: 10% body mass -> 0.1m
-        float estimated_jump_velocity = std::sqrt(2.0f * in.environment.gravity_m_s2 * estimated_jump_height_m);
+        // needs an R^2
+        length_m estimated_jump_height_m = length_m(float(body_mass_kg) * 0.1f);  // Rough: 10% body mass -> 0.1m
+        velocity_m_s estimated_jump_velocity = sqrt(2.0f * in.environment.gravity_m_s2 * estimated_jump_height_m);
         result.constraints.leg_strength_ok = estimated_jump_velocity >= result.required_jump_velocity_m_s;
     }
     
@@ -94,7 +95,7 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     // ========================================================================
     
     if (output.terrestrial.has_value()) {
-        result.takeoff_run_distance_m = T::RunwayDistance(aerial, &output.terrestrial.value(), body_mass_kg);
+        result.takeoff_run_distance_m = T::RunwayDistance(aerial, &output.terrestrial.value(), body_mass_kg, in.environment.fluidDensity_Kg_m3);
         result.can_use_water_taxi = output.aquatic.has_value();  // Waterfowl can paddle-run
     }
     
@@ -105,9 +106,9 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     if (result.vertical_acceleration_m_s2 > 0) {
         // Time to reach min flight speed vertically
         result.time_to_flight_speed_s = aerial.min_flight_speed_m_s / 
-                                       std::max(result.vertical_acceleration_m_s2, 0.1f);
+                                       std::max(result.vertical_acceleration_m_s2, acceleration_m_s2(0.1f));
     } else {
-        result.time_to_flight_speed_s = -1;  // Cannot accelerate vertically
+        result.time_to_flight_speed_s = time_s(-1);  // Cannot accelerate vertically
     }
     
     // ========================================================================
@@ -139,44 +140,44 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
 }
 
 
-inline float TakeoffAnalysis::EstimateMaxLift(const Analysis_Aerial& aerial,
-                                              float ,
-                                              float air_density) {
-    if (aerial.wings.empty()) return 0.0f;
+inline force_N TakeoffAnalysis::EstimateMaxLift(const Analysis_Aerial& aerial,
+                                              mass_kg ,
+                                              density_kg_m3 air_density) {
+    if (aerial.wings.empty()) return force_N(0.0f);
     
     // Peak CL during power stroke (downstroke) can reach 1.5-2.5
     // Use conservative 2.0 for biological wings
     const float max_CL_power_stroke = 2.0f;
     
     // Wing tip velocity from flapping
-    float tip_velocity = 0;
+    velocity_m_s tip_velocity;
     for (const auto& wing : aerial.wings) {
         tip_velocity += wing.wing_tip_velocity(aerial.wingbeat_frequency_Hz);
     }
     tip_velocity /= aerial.wings.size();  // Average
     
     // Dynamic pressure from tip velocity
-    float dynamic_pressure = 0.5f * air_density * tip_velocity * tip_velocity;
+    
+    pressure_Pa dynamic_pressure = 0.5f * air_density * (tip_velocity * tip_velocity);
     
     // Total lift from all wings
-    float max_lift_N = max_CL_power_stroke * dynamic_pressure * aerial.wing_area_m2;
+    force_N max_lift_N = max_CL_power_stroke * dynamic_pressure * aerial.wing_area_m2;
     
     return max_lift_N;
 }
 
-
-inline float TakeoffAnalysis::EstimateMaxThrust(const Analysis_Aerial& aerial,
-                                               float ,
-                                               float air_density) {
-    if (aerial.wings.empty()) return 0.0f;
+inline force_N TakeoffAnalysis::EstimateMaxThrust(const Analysis_Aerial& aerial,
+                                               mass_kg ,
+                                               density_kg_m3 air_density) {
+    if (aerial.wings.empty()) return force_N(0.0f);
     
     // Thrust from momentum theory: T = mass_flow * velocity_change
     
     // Wing disk area (swept by wings)
-    float disk_area = M_PI * aerial.wing_span_m * aerial.wing_span_m;
+    auto disk_area = M_PI * aerial.wing_span_m * aerial.wing_span_m;
     
     // Average wing tip velocity
-    float tip_velocity = 0;
+    velocity_m_s tip_velocity;
     for (const auto& wing : aerial.wings) {
         tip_velocity += wing.wing_tip_velocity(aerial.wingbeat_frequency_Hz);
     }
@@ -184,19 +185,18 @@ inline float TakeoffAnalysis::EstimateMaxThrust(const Analysis_Aerial& aerial,
     
     // Mass flow rate through disk per stroke
  //   float stroke_period_s = 1.0f / (2.0f * aerial.wingbeat_frequency_Hz);  // Half cycle
-    float mass_flow_rate = air_density * disk_area * tip_velocity;
+    auto mass_flow_rate = air_density * (disk_area * tip_velocity);
     
     // Downwash velocity (simplified: ~50% of tip velocity)
-    float downwash_velocity = tip_velocity * 0.5f;
+    velocity_m_s downwash_velocity = tip_velocity * 0.5f;
     
     // Thrust = mass flow * velocity change
-    float thrust_N = mass_flow_rate * downwash_velocity;
+    force_N thrust_N = mass_flow_rate * downwash_velocity;
     
     return thrust_N;
 }
 
-
-inline float TakeoffAnalysis::GroundEffectBonus(float wing_span_m, float height_m) {
+inline float TakeoffAnalysis::GroundEffectBonus(length_m wing_span_m, length_m height_m) {
     // Ground effect is significant within 1 wingspan of surface
     // Reduces induced drag and increases effective lift
     
@@ -214,63 +214,70 @@ inline float TakeoffAnalysis::GroundEffectBonus(float wing_span_m, float height_
 }
 
 
-inline float TakeoffAnalysis::RequiredJumpVelocity(const Analysis_Aerial& aerial,
-                                                   float body_mass_kg,
-                                                   float max_lift_N,
-                                                   float gravity_m_s2) {
-    const float weight_N = body_mass_kg * gravity_m_s2;
+inline velocity_m_s TakeoffAnalysis::RequiredJumpVelocity(const Analysis_Aerial& aerial,
+                                                   mass_kg body_mass_kg,
+                                                   force_N max_lift_N,
+                                                   acceleration_m_s2 gravity_m_s2) {
+    const force_N weight_N = body_mass_kg * gravity_m_s2;
 
     // If wings can already provide > weight, no jump needed
     if (max_lift_N >= weight_N * 1.1f) {
-        return 0.0f;
+        return velocity_m_s(0.0f);
     }
 
     // Otherwise, need to gain enough height/time for wings to build lift
     // Target: reach min flight speed or buy enough time for wing acceleration
 
- //   float lift_deficit_N = weight_N - max_lift_N;
+	velocity_m_s wing_tip_speed = aerial.wings[0].wing_tip_velocity(aerial.wingbeat_frequency_Hz);
 
-    // Time needed to reach min flight speed (assuming wings can eventually support)
-    float time_needed_s = std::max(0.3f, aerial.min_flight_speed_m_s / 5.0f);
+ //   float lift_deficit_N = weight_N - max_lift_N;
+ 
+	// Forward thrust ≈ some fraction of wing tip momentum per beat
+	// Very rough estimate: 10-20% of tip speed translates to forward acceleration per wingbeat period
+	time_s wingbeat_period = 1.0f / aerial.wingbeat_frequency_Hz;
+	acceleration_m_s2 forward_accel = (wing_tip_speed * 0.15f) / wingbeat_period;
+
+    time_s time_needed_s = std::max(time_s(0.3f), aerial.min_flight_speed_m_s / forward_accel);
 
     // Height needed = 0.5 * g * t²
-    float height_needed_m = 0.5f * gravity_m_s2 * time_needed_s * time_needed_s;
+    length_m height_needed_m = 0.5f * gravity_m_s2 * time_needed_s * time_needed_s;
 
     // Jump velocity: v = sqrt(2 * g * h)
-    float required_v_m_s = std::sqrt(2.0f * gravity_m_s2 * height_needed_m);
+    velocity_m_s required_v_m_s = sqrt(2.0f * gravity_m_s2 * height_needed_m);
 
     // Clamp to reasonable range
-    return std::min(required_v_m_s, 5.0f);  // Max 5 m/s jump (very strong)
+    return std::min(required_v_m_s, velocity_m_s(5.0f));  // Max 5 m/s jump (very strong)
 }
 
 
-inline float TakeoffAnalysis::RunwayDistance(const Analysis_Aerial& aerial,
+inline length_m TakeoffAnalysis::RunwayDistance(const Analysis_Aerial& aerial,
                                             const Analysis_Terrestrial* terrestrial,
-                                            float body_mass_kg) {
-    if (!terrestrial) return -1.0f;  // Cannot run
+                                            mass_kg body_mass_kg,
+                                            density_kg_m3 air_density) {
+    if (!terrestrial) return length_m(-1.0f);  // Cannot run
     
 //    const float weight_N = body_mass_kg * 9.81f;
-    const float target_speed_m_s = aerial.min_flight_speed_m_s;
-    
+    const velocity_m_s target_speed_m_s = aerial.min_flight_speed_m_s;
+   
     // Acceleration from legs + wings
-    float leg_acceleration = 0;
+    acceleration_m_s2 leg_acceleration;
     if (terrestrial->max_acceleration_m_s2 > 0) {
         leg_acceleration = terrestrial->max_acceleration_m_s2 * 0.7f;  // 70% while flapping
     } else if (terrestrial->max_sprint_speed_m_s > 0) {
         // Estimate from sprint speed
-        leg_acceleration = terrestrial->max_sprint_speed_m_s / 2.0f;
+        leg_acceleration = terrestrial->max_sprint_speed_m_s / time_s(2.0f);
     } else {
-        leg_acceleration = 2.0f;  // Default modest acceleration
+        leg_acceleration = acceleration_m_s2(2.0f);  // Default modest acceleration
     }
     
     // Wing thrust contribution (horizontal component)
-    float wing_thrust_N = EstimateMaxThrust(aerial, body_mass_kg, 1.225f);
-    float wing_acceleration = (wing_thrust_N * 0.3f) / body_mass_kg;  // 30% horizontal
+    force_N wing_thrust_N = EstimateMaxThrust(aerial, body_mass_kg, air_density);
+    acceleration_m_s2 wing_acceleration = (wing_thrust_N * 0.3f) / body_mass_kg;  // 30% horizontal
     
-    float total_acceleration = leg_acceleration + wing_acceleration;
+    acceleration_m_s2 total_acceleration = leg_acceleration + wing_acceleration;
     
     // Distance = v² / (2a)
-    float distance_m = (target_speed_m_s * target_speed_m_s) / (2.0f * total_acceleration);
+    length_m distance_m = (target_speed_m_s * target_speed_m_s) / (2.0f * total_acceleration);
     
     return distance_m;
 }
