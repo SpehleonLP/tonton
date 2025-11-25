@@ -93,8 +93,10 @@ struct Analysis_Physical {
 	
 	// Body plan characteristics
 	area_m2 surface_area_m2{};
-	area_m2 cross_section_area_m2{};
-	float fineness_ratio{};  // length / mean_diameter
+	area_m2 cross_sectional_area_m2{};
+	
+	length_m cross_sectional_diameter_m() const { return sqrt(cross_sectional_area_m2 / M_PI)*2.0; }
+	float fineness_ratio() const { auto dia = cross_sectional_diameter_m(); return (dia != 0? body_length_m / dia : 0.f); };  // length / mean_diameter
 	
 	int16_t		spine_root{};
 	bool		upright{};
@@ -118,9 +120,9 @@ struct Analysis_Physical {
 // METABOLIC & ENERGETICS (always present)
 // ============================================================================
 struct Analysis_Metabolic {
-	power_W basal_rate{};
-	power_W max_rate{};
-	float aerobic_scope() const { return max_rate / basal_rate; };              // max/basal ratio
+	power_W basal_rate_W{};
+	power_W max_rate_W{};
+	float aerobic_scope() const { return max_rate_W / basal_rate_W; };              // max/basal ratio
 
 	mass_kg muscle_mass_kg{};
 	power_W available_muscle_power_W{};   // ~400 W/kg theoretical max
@@ -165,8 +167,8 @@ struct Analysis_Terrestrial {
 	acceleration_m_s2 max_acceleration_m_s2{};
 
 	// Endurance limits (especially important for sprawling posture)
-	time_s max_sprint_duration{-1};  // before exhaustion
-	time_s recovery_time{-1};        // after sprint
+	time_s max_sprint_duration_s{-1};  // before exhaustion
+	time_s recovery_time_s{-1};        // after sprint
 };
 
 // Serpentine locomotion (for SERPENTINE posture)
@@ -190,7 +192,7 @@ struct Analysis_Serpentine {
 
 	struct Rectilinear
 	{
-		velocity_m_s speed{};
+		velocity_m_s speed_m_s{};
 		freq_Hz frequency_Hz{};
 	};
 
@@ -202,7 +204,7 @@ struct Analysis_Serpentine {
 
 	struct Concertina 
 	{
-		velocity_m_s speed{};
+		velocity_m_s speed_m_s{};
 		float compression_ratio{};
 	};
 	
@@ -292,18 +294,19 @@ struct Analysis_TakeoffAnalysis {
 };
 
 struct Analysis_Aerial {
-	struct Wing : public Analysis_Appendage {			
+	struct Wing : public Analysis_Appendage {				
 		length_m span_m{};
-		area_m2 area_m2{};
+		area_m2  wing_area_m2{};
 		length_m chord_m{};
 		// span is half span b/c only one wing.
 		// so span² * 2² / (area*2)
-		float aspect_ratio() const { return (span_m*span_m / area_m2) * 2.0; };   // span² / area
+		float aspect_ratio() const { return (span_m*span_m / wing_area_m2) * 2.0; };   // span² / area
 
 		// Animation parameters
 		angle_rad beat_amplitude_rad{};    // stroke angle
 		angle_rad stroke_plane_angle_rad{}; // relative to body
 		
+		// -Wchanges-meaning <- i hate it. 
 		mass_kg wing_mass_kg{};
 		inertia_kgm2 wing_inertia_kgm2{};
 		
@@ -630,11 +633,11 @@ struct Analysis_Hearing {
 	float sensitivity{};            // 0=poor, 1=excellent
 	freq_Hz frequency_range_Hz_min{};
 	freq_Hz frequency_range_Hz_max{};
-	length_m detection_range{};
+	length_m detection_range_m{};
 	
 	bool has_echolocation{};
 	length_m echolocation_range_m{};
-	angle_rad directional_accuracy{};
+	angle_rad directional_accuracy_rad{};
 	float substrate_vibration_sensitivity{};
 };
 

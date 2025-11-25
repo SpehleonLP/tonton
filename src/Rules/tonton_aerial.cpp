@@ -41,7 +41,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     length_m mean_chord_m = 0.0f;
         
     for (const auto& wing : r.wings) {
-        total_wing_area_m2 += wing.area_m2;
+        total_wing_area_m2 += wing.wing_area_m2;
         total_wing_span_m += wing.span_m; 
         wing_inertia_kg_m2 += wing.wing_inertia_kgm2; 
         mean_chord_m += wing.chord_m;
@@ -149,24 +149,24 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     auto muscle_mass_kg = body_mass_kg * muscle_mass_fraction;
     
     // Power density: 200-400 W/kg (Ellington et al. 1990)
-    auto power_density_W_kg = 200.0f + 200.0f * in.muscle_quality;
-    auto available_power_W = muscle_mass_kg * power_density_W_kg * in.metabolic_efficiency;
+    cost_W_kg power_density_W_kg = 200.0f + 200.0f * in.muscle_quality;
+    power_W available_power_W = muscle_mass_kg * power_density_W_kg * in.metabolic_efficiency;
     
     // --- FREQUENCY LIMITS ---
     // Power-limited frequency from inertial power: P = 0.5 * I * ω³ * A²
-    // Solving: ω = (2P / IA²)^(1/3), but using sqrt approximation for efficiency
-    auto power_limited_freq_Hz = sqrt(available_power_W / 
+    // Solving: ω = (2P / IA²)^(1/3)
+    freq_Hz power_limited_freq_Hz = cbrt((2 * available_power_W) / 
         (wing_inertia_kg_m2 * base_beat_amplitude_rad * base_beat_amplitude_rad));
     
     // Neural bandwidth limit (Sponberg et al. 2015)
     freq_Hz neural_limit_Hz = 200.0f;
     
-    r.wingbeat_frequency_Hz = std::min({base_frequency_Hz, power_limited_freq_Hz, neural_limit_Hz});
+    r.wingbeat_frequency_Hz = std::min<freq_Hz>({base_frequency_Hz, power_limited_freq_Hz, neural_limit_Hz});
     
     // --- STROUHAL NUMBER CONSTRAINT ---
     // Universal for efficient oscillatory locomotion: St = f·A/v ≈ 0.2-0.4
     // Use optimal Strouhal (0.3) to determine cruise speed
-    auto stroke_length_m = base_beat_amplitude_rad; // simplification
+    length_m stroke_length_m = base_beat_amplitude_rad; // simplification
     auto strouhal_optimal = 0.3f;
     r.cruise_speed_m_s = (r.wingbeat_frequency_Hz * stroke_length_m) / strouhal_optimal;
     
@@ -223,21 +223,21 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	// Small, fast flappers actually have LOWER inertial costs relative to aerodynamic
 	// because they have tiny wing inertia
 	auto base_inertial_fraction = 0.10f;
-	auto size_factor = std::pow(wing_inertia_kg_m2 / 1e-6, 0.3f);  // Scale with inertia
+	auto size_factor = std::pow(float(wing_inertia_kg_m2) / 1e-6, 0.3f);  // Scale with inertia
 	auto inertial_fraction = base_inertial_fraction * size_factor;
 
-	auto inertial_power_W = aerodynamic_power_W + inertial_fraction;
+	power_W inertial_power_W = aerodynamic_power_W + inertial_fraction;
 	
 	// Total mechanical power
-	auto mechanical_power_W = aerodynamic_power_W + inertial_power_W;
+	power_W mechanical_power_W = aerodynamic_power_W + inertial_power_W;
 	
 	// Convert to metabolic cost
 	auto muscle_efficiency = 0.20f + 0.03f * in.feather_quality;
-	auto flapping_power_W = mechanical_power_W / muscle_efficiency;
+	power_W flapping_power_W = mechanical_power_W / muscle_efficiency;
 	
 	r.flapping_cost_W_per_N = flapping_power_W / weight_N;
 		    // Flapping efficiency: can we sustain it?
-    r.flapping_efficiency = std::min(1.0f, available_power_W / flapping_power_W);
+    r.flapping_efficiency = std::min<float>(1.0f, available_power_W / flapping_power_W);
     if (r.flapping_efficiency < 0.5f) {
     //    r.flapping_efficiency = 0.0f; // Below 50% power margin = not viable
     } else {
@@ -271,7 +271,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 		auto wing_CD = CD_profile * 1.5f;  // Higher AoA in hover
 		auto wing_profile_power = 0.5f * rho * 
 								  pow3(mean_velocity) * 
-								  wing.area_m2 * wing_CD;
+								  wing.wing_area_m2 * wing_CD;
 		
 		hover_profile_power_W += wing_profile_power;
 	}
@@ -376,7 +376,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     r.min_turning_radius_m = (r.cruise_speed_m_s * r.cruise_speed_m_s) / 
                              (g * std::sqrt(max_load_factor * max_load_factor - 1.0f));
     
-    auto GetInertia = [I=in.inertia_restPose()](glm::vec3 const& axis)
+    auto GetInertia = [I=in.inertia_restPose()](glm::vec3 const& axis) -> inertia_kgm2
     {
 		return glm::dot(axis, I * axis);
     };
@@ -392,16 +392,16 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	auto differential_force = total_wing_force * 0.5; // max difference when fully asymmetric
 	
 	// Roll: left vs right wings (moment arm = half wingspan)
-	auto roll_torque = differential_force * (total_wing_span_m / 2.0);
+	torque_rad_s2 roll_torque = differential_force * (total_wing_span_m / 2.0);
 		
 	// Pitch: fore vs aft wings (moment arm = fore-aft separation)
-	auto forewing_aft_separation = 0.0056; // distance between fore and aft wing roots
-	auto pitch_torque = differential_force * (forewing_aft_separation);
+	length_m forewing_aft_separation = 0.0056; // distance between fore and aft wing roots
+	torque_rad_s2 pitch_torque = differential_force * (forewing_aft_separation);
 	
 	// Yaw: typically weaker, dominated by drag forces
 	// Dragonflies use counter-rotation and body drag
-	auto yaw_torque = differential_force * (total_wing_span_m / 2.0); // rough estimate, typically smaller
-	
+	torque_rad_s2 yaw_torque = differential_force * (total_wing_span_m / 2.0); // rough estimate, typically smaller
+
 	r.max_roll_rate_rad_s = (roll_torque / GetInertia({0, 0, 1})) / r.wingbeat_frequency_Hz;
 	r.max_pitch_rate_rad_s = (pitch_torque / GetInertia({1, 0, 0})) / r.wingbeat_frequency_Hz;
 	r.max_yaw_rate_rad_s = (yaw_torque / GetInertia({0, 1, 0})) / r.wingbeat_frequency_Hz;
@@ -427,7 +427,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Energy density of fat: 39 MJ/kg
     auto fat_fraction = 0.05f + 0.15f * in.behavior.endurance_vs_power;
     auto fat_mass_kg = body_mass_kg * fat_fraction;
-    auto energy_available_J = fat_mass_kg * 39.0e6f;
+    energy_J energy_available_J = float(fat_mass_kg) * 39.0e6f;
     
     r.max_flight_duration_s = energy_available_J / flight_metabolic_rate_W;
     
@@ -464,12 +464,11 @@ using SF = SemanticFlags;
 	std::vector<TonTon::Analysis_Aerial::Wing> r;
 	r.reserve(in.builder->appendages.size());
 	
-	double body_density=glm::mix(700.0, 1050.0, in.average_density);
+	auto body_density= in.body_density();
 	
 	auto area_scale = in.area_scale();
 	auto volume_scale = in.volume_scale();
 	auto inertia_scale = in.inertia_scale();
-	auto mass_scale = volume_scale * in.body_density();
 	
 	for(auto & appendage : in.builder->appendages)
 	{
@@ -477,17 +476,14 @@ using SF = SemanticFlags;
 			continue;
 			
 		TonTon::Analysis_Aerial::Wing wing;
-		(Analysis_Appendage&)wing = appendage;
-		
-		wing.stretched_length_m *= in.scale;
-		wing.rest_length_m *= in.scale;
-		
-		wing.span_m = wing.stretched_length_m + appendage.distance_to_parent_m * in.scale;
-		wing.area_m2 = appendage.surface.area_m2 * area_scale;
-		wing.chord_m = appendage.surface.chord_m * in.scale;
+		appendage.copy_into(wing, in.scale);
+				
+		wing.span_m = wing.stretched_length_m + scale_to<0>(appendage.distance_to_parent, in.scale);
+		wing.wing_area_m2 = scale_to<0>(appendage.surface.area, area_scale);
+		wing.chord_m = scale_to<0>(appendage.surface.chord, in.scale);
 					
-		wing.wing_mass_kg = appendage.volume_m3 * mass_scale;
-		wing.wing_inertia_kgm2 = appendage.unit_inertia_m5 * inertia_scale * body_density;
+		wing.wing_mass_kg = scale_to<0>(appendage.volume, volume_scale) * body_density;
+		wing.wing_inertia_kgm2 = scale_to<0>(appendage.unit_inertia, inertia_scale) * body_density;
 		
 		// --- WING INERTIA --- 
 		// Van Den Berg & Rayner (1995): I = k × m_wing × L² (R^2 = 0.97)

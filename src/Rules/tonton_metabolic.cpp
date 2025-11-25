@@ -14,11 +14,11 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 
 	// Multi-clade blending structure for hybrid creatures (pegasus, griffin, merfolk, etc.)
 	struct CladeContribution {
-		auto weight;           // Relative importance of this clade
-		auto rmr_coef;         // Coefficient in RMR = coef * M^exp
-		auto rmr_exp;          // Exponent in RMR = coef * M^exp
-		auto muscle_W_kg;      // Sustainable muscle power density
-		auto body_temp_K;      // Body temperature (if endotherm)
+		float weight;           // Relative importance of this clade
+		float rmr_coef;         // Coefficient in RMR = coef * M^exp
+		float rmr_exp;          // Exponent in RMR = coef * M^exp
+		cost_W_kg muscle_W_kg;      // Sustainable muscle power density
+		temp_K body_temp_K;      // Body temperature (if endotherm)
 		bool is_endotherm;      // Thermal strategy
 	};
 	std::vector<CladeContribution> contributions;
@@ -213,8 +213,8 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 
 	auto rmr_coefficient = 0.0f;
 	auto rmr_exponent = 0.0f;
-	auto muscle_power_W_kg = 0.0f;
-	auto body_temperature_K = 0.0f;
+	cost_W_kg muscle_power_W_kg = 0.0f;
+	temp_K body_temperature_K = 0.0f;
 
 	for (auto const& c : contributions) {
 		auto w = c.weight / total_weight;
@@ -231,13 +231,13 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	if (needs_endothermy && body_temperature_K < 300.0f) {
 		body_temperature_K = 310.15f;   // Force endotherm body temp
 		rmr_coefficient *= 5.0f;         // Boost to endotherm levels (~5x ectotherm)
-		muscle_power_W_kg = std::max(muscle_power_W_kg, 200.0f);
+		muscle_power_W_kg = std::max<cost_W_kg>(muscle_power_W_kg, 200.0f);
 	}
 
 	// ========== COMPUTE FINAL METABOLIC RATES ==========
 
 	// Basal metabolic rate (RMR = coefficient * M^exponent)
-	auto basal_rate_W = rmr_coefficient * std::pow(body_mass_kg, rmr_exponent);
+	power_W basal_rate_W = rmr_coefficient * std::pow(float(body_mass_kg), rmr_exponent);
 
 	// Aerobic scope (max/basal ratio)
 	// Endotherms: 5-15x (typical 10x)
@@ -263,14 +263,14 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	auto available_muscle_power_W = muscle_mass_kg * muscle_power_W_kg;
 
 	// Temperature regulation zone (for endotherms)
-	auto thermal_neutral_zone_min_K = -1.0f;
-	auto thermal_neutral_zone_max_K = -1.0f;
+	temp_K thermal_neutral_zone_min_K = -1.0f;
+	temp_K thermal_neutral_zone_max_K = -1.0f;
 
 	if (needs_endothermy) {
 		// Thermal neutral zone: ±5-15°C around body temperature
 		// Larger animals have narrower zones (better thermal inertia)
-		auto zone_width_K = 15.0f * std::pow(body_mass_kg, -0.2f);
-		zone_width_K = std::clamp(zone_width_K, 5.0f, 15.0f);
+		temp_K zone_width_K = 15.0f * std::pow(float(body_mass_kg), -0.2f);
+		zone_width_K = std::clamp<temp_K>(zone_width_K, 5.0f, 15.0f);
 
 		thermal_neutral_zone_min_K = body_temperature_K - zone_width_K;
 		thermal_neutral_zone_max_K = body_temperature_K + zone_width_K;
@@ -282,7 +282,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	if (!needs_endothermy) {
 		auto q10 = 2.5f; // Typical value
 		auto temp_diff_K = in.environment.temperature_K - 298.15f; // Relative to 25°C
-		auto temp_factor = std::pow(q10, temp_diff_K / 10.0f);
+		float temp_factor = std::pow(q10, float(temp_diff_K) / 10.0f);
 
 		basal_rate_W *= temp_factor;
 		max_rate_W *= temp_factor;
@@ -292,7 +292,6 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	return Analysis_Metabolic{
 		.basal_rate_W = basal_rate_W,
 		.max_rate_W = max_rate_W,
-		.aerobic_scope = aerobic_scope,
 		.muscle_mass_kg = muscle_mass_kg,
 		.available_muscle_power_W = available_muscle_power_W,
 		.body_temperature_K = needs_endothermy ? body_temperature_K : -1.0f,

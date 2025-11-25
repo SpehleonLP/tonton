@@ -21,11 +21,11 @@ using SemanticAnalysis = Builder::SemanticAnalysis;
 // TEMPERATURE SCALING
 // ============================================================================
 
-static auto TemperatureScaling_Q10(auto temp_K, auto ref_temp_K = 303.15f) {
+static auto TemperatureScaling_Q10(temp_K temperature, temp_K ref_temperature = 303.15f) {
     // Q10 temperature coefficient (Makarieva et al. 2008)
     // Amphibians: 2.21, Reptiles: 2.44
     const auto Q10 = 2.3f;
-    return std::pow(Q10, (temp_K - ref_temp_K) / 10.0f);
+    return std::pow(Q10, float(temperature - ref_temperature) / 10.0f);
 }
 
 // ============================================================================
@@ -84,7 +84,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
         // Birds: ~4.1 W/kg at 1kg (Alexander 1992)
         // Mammals: ~3.5 W/kg at 1kg (White & Seymour 2003)
         auto base_coefficient = scratch.aerial ? 4.1f : 3.5f;
-        result.basal_rate_W = base_coefficient * std::pow(mass_kg, 0.75f);
+        result.basal_rate_W = base_coefficient * std::pow(float(mass_kg), 0.75f);
         
         // Adjust for metabolic intensity from user input
         auto intensity = glm::mix(0.8f, 1.2f, in.metabolic_efficiency);
@@ -94,7 +94,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
         // Ectotherms (Bennett & Dawson 1976, Pough 1980)
         // At 30°C: ~0.5 W/kg for reptiles
         // ~10-15% of mammal BMR
-        auto base_rate = 0.5f * std::pow(mass_kg, 0.75f);
+        auto base_rate = 0.5f * std::pow(float(mass_kg), 0.75f);
         
         // Temperature scaling
         auto temp_factor = TemperatureScaling_Q10(in.environment.temperature_K);
@@ -146,7 +146,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
         aerobic_scope *= 0.7f;
     }
     
-    result.aerobic_scope = aerobic_scope;
+//    result.aerobic_scope = aerobic_scope;
     result.max_rate_W = result.basal_rate_W * aerobic_scope;
     
     // ========================================================================
@@ -195,7 +195,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
     
     // Theoretical maximum: ~400 W/kg (Rome et al. 1988)
     // Practical sustained: ~200-250 W/kg
-    auto power_density_W_kg = 400.0f;
+    cost_W_kg power_density_W_kg = 400.0f;
     
     // Adjust for muscle quality
     power_density_W_kg *= in.muscle_quality;
@@ -223,7 +223,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
                          scratch.physical.body_volume_m3;
         
         // Small animals have narrower TNZ (higher heat loss rate)
-        auto tnz_width = 10.0f / (1.0f + sa_to_vol * 0.1f);
+        float tnz_width = 10.0f / (1.0f + float(sa_to_vol) * 0.1f);
         
         // TNZ center typically 3-5°C below body temperature
         auto tnz_center = result.body_temperature_K - 3.0f;
@@ -250,7 +250,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     Builder::SemanticAnalysis const& sem = in.builder->semanticAnalyisis; 
     
     bool is_endotherm = scratch.metabolic.is_endotherm();
-    auto mass_kg = scratch.physical.body_mass_kg;
+    auto body_mass_kg = scratch.physical.body_mass_kg;
 
     // Get niche flags from armature (ecological roles)
     auto niche_flags = in.builder->physical.niche;
@@ -289,11 +289,11 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     }
     
     // Large body size correlates with territoriality/aggression
-    auto size_factor = glm::clamp(mass_kg / 10.0f, 0.0f, 0.2f);
+    auto size_factor = glm::clamp<float>(float(body_mass_kg) / 10.0f, 0.0f, 0.2f);
     result.aggression += size_factor;
 
     // Apex predators are more aggressive
-    if (is_predator && mass_kg > 50.0f) {
+    if (is_predator && body_mass_kg > 50.0f) {
         result.aggression += 0.15f;
     }
     
@@ -319,7 +319,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     }
     
     // Small, defenseless creatures seek safety in numbers
-    if (mass_kg < 1.0f && !sem.has_weapons) {
+    if (body_mass_kg < 1.0f && !sem.has_weapons) {
         result.social_tendency += 0.25f;
     }
     
@@ -329,7 +329,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     }
 
     // Aerial predators hunt alone (except cooperative hunters)
-    if (scratch.aerial && is_predator && mass_kg > 5.0f) {
+    if (scratch.aerial && is_predator && body_mass_kg > 5.0f) {
         result.social_tendency -= 0.2f;
     }
     
@@ -342,7 +342,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     result.activity_level = in.behavior.activity_adjustment;
     
     // High aerobic scope enables sustained activity
-    if (scratch.metabolic.aerobic_scope > 12.0f) {
+    if (scratch.metabolic.aerobic_scope() > 12.0f) {
         result.activity_level += 0.2f;
     }
     
@@ -399,7 +399,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     result.territoriality = 0.5f;
 
     // Large predators defend territories
-    if (mass_kg > 5.0f && is_predator) {
+    if (body_mass_kg > 5.0f && is_predator) {
         result.territoriality = 0.8f;
     }
     
@@ -459,7 +459,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
         avg_aspect_ratio /= scratch.aerial->wings.size();
         
         // High aspect ratio (>7) suggests soaring/long-distance flight
-        if (avg_aspect_ratio > 7.0f && mass_kg > 0.5f) {
+        if (avg_aspect_ratio > 7.0f && body_mass_kg > 0.5f) {
             result.is_migratory = true;
         }
     }
@@ -502,7 +502,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     }
     
     // Body plan: stocky -> ambush, slender -> pursuit (Fulton et al. 2001)
-    auto fineness = scratch.physical.fineness_ratio;
+    float fineness = scratch.physical.fineness_ratio();
     if (fineness < 3.0f) {
         result.ambush_vs_pursuit += 0.2f; // Stocky
     } else if (fineness > 5.0f) {
@@ -520,7 +520,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
 
     if (is_predator) {
         // Large predators take larger prey
-        if (mass_kg > 50.0f) {
+        if (body_mass_kg > 50.0f) {
             result.prey_size_preference = 0.6f;
         }
         
@@ -574,7 +574,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
             result.optimal_group_size = 5.0f; // Small packs (2-10)
         } else {
             // Prey form larger schools, inversely proportional to size
-            result.optimal_group_size = 50.0f * std::pow(mass_kg, -0.25f);
+            result.optimal_group_size = 50.0f * std::pow(float(body_mass_kg), -0.25f);
         }
         
         // Personal space: 0.5-1.0 body lengths (Partridge 1982)
@@ -589,7 +589,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
         result.territory_radius_m = -1.0f;
     } else {
         // Territory size ∝ M^1.0 for vertebrates (Davies & Houston 1984)
-        auto base_radius = 10.0f * std::pow(mass_kg, 1.0f);
+        auto base_radius = 10.0f * std::pow(float(body_mass_kg), 1.0f);
 
         // Predators need larger territories
         if (is_predator) {
@@ -614,7 +614,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     
     // Mobbing behavior (small birds harassing predators)
     result.uses_mobbing_behavior = result.social_tendency > 0.7f && 
-                                   mass_kg < 0.5f &&
+                                   body_mass_kg < 0.5f &&
                                    scratch.aerial.has_value();
     
     // Fight vs flight depends on size, weapons, social support
@@ -624,7 +624,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
         result.fight_vs_flight += 0.3f;
     }
     
-    if (mass_kg > 10.0f) {
+    if (body_mass_kg > 10.0f) {
         result.fight_vs_flight += 0.2f; // Size gives confidence
     }
     
@@ -700,7 +700,7 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
         // Aerial predators: birds of prey, dragonflies, bats
         // No mass requirement - dragonflies are small but still aerial predators
         result.suggested_archetype = Analysis_Behavior::AIArchetype::AERIAL_PREDATOR;
-    } else if (is_predator && mass_kg > 100.0f) {
+    } else if (is_predator && body_mass_kg > 100.0f) {
         result.suggested_archetype = Analysis_Behavior::AIArchetype::APEX_PREDATOR;
     } else if (is_herbivore) {
         // Herbivores are social foragers by default

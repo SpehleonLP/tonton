@@ -53,7 +53,7 @@ std::ostream& operator<<(std::ostream& os, const SemanticFlags& output);
 std::ostream& operator<<(std::ostream& os, const CladeFlags& output);
 
 template<typename T>
-std::ostream& operator<<(std::ostream& os, immutable_array<T> app) {
+inline std::ostream& operator<<(std::ostream& os, immutable_array<T> app) {
     os << '[';
     
     for(auto & item : app)
@@ -64,6 +64,11 @@ std::ostream& operator<<(std::ostream& os, immutable_array<T> app) {
 	os << ']';
 
     return os;
+}
+
+template<int M, int L, int T, int Temp, int Stage>
+inline std::ostream& operator<<(std::ostream& os, Quantity<M, L, T, Temp, Stage> app) {
+    return os << float(app);
 }
 
 }

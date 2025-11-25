@@ -2,6 +2,7 @@
 #include "Memos/tonton_armaturememo.h"
 #include "tonton_skinnedmesh.h"
 
+#if 0
 
 using SF = TonTon::SemanticFlags;
 
@@ -1031,3 +1032,91 @@ static SemanticAnalysis AnalyzeSemantics(SkinnedMesh const& skinnedMesh, Scratch
     
     return result;
 }
+
+
+struct EyeInfo {
+    uint16_t joint_index;
+    glm::vec3 position;           // In rest pose
+    glm::vec3 base_position;      // Where eyestalk attaches (if applicable)
+    glm::vec3 pointing_direction; // Forward vector of this eye
+    bool is_on_stalk;
+    length_m stalk_length_m;
+    length_m eye_diameter_m;
+    angle_rad mobility_rad;           // How much can it rotate? (stalk vs fixed)
+};
+
+static std::vector<EyeInfo> FindEyes(TonTon::SkinnedMesh const& sk) {
+	using SF = SemanticFlags;
+	
+    auto parents = sk.skin->parents.data();
+    auto semantic_flags = sk.skin->memo()->GetSemanticFlags();
+    
+    std::vector<EyeInfo> eyes;
+    
+    for(uint32_t i = 0; i < sk.skin->names.size(); ++i) 
+    {      
+        if(!HasFlag(semantic_flags[i], SF::VISION)) continue;
+        
+        EyeInfo eye;
+        eye.joint_index = i;
+        eye.position = in.position(i);
+        
+        // Estimate eye size
+        double eye_volume = sk.volume[i] * in.behavior.volume_scale();
+        eye.eye_diameter_m = std::cbrt(eye_volume * 6.0 / 3.14159);
+        
+        // ===================================================================
+        // DETECT EYESTALK - find nearest body attachment
+        // ===================================================================
+        
+        // Walk up to find head/body (not tagged as appendage)
+        int body_attachment = -1;
+        for(int j = parents[i]; j >= 0; j = parents[j]) {
+        
+            if(HasFlag(semantic_flags[i], SF::HEAD|SF::SPINE|SF::ABDOMEN|SF::LIMB|SF::TAIL))
+            {
+                body_attachment = j;
+                break;
+            }
+        }
+        
+        if(body_attachment < 0) {
+            body_attachment = parents[i]; // Fallback to parent
+        }
+        
+        // Check if there's a stalk between body and eye
+        SkinnedMesh::StalkData stalk;
+        eye.is_on_stalk = sk.GetStalkData(stalk, body_attachment, i, in.behavior.scale);
+        
+        if(eye.is_on_stalk) {
+            eye.base_position = in.position(stalk.root);
+            eye.stalk_length_m = stalk.length_m;
+            
+            // Eye points away from base
+            eye.pointing_direction = glm::normalize(eye.position - eye.base_position);
+            
+            // Stalks are mobile
+            eye.mobility_rad = glm::radians(90.0f);
+            
+        } else {
+            // Fixed eye
+            eye.base_position = in.position(body_attachment);
+            
+            // Eye points radially + respects local rotation
+            glm::vec3 radial = glm::normalize(eye.position - eye.base_position);
+            glm::quat local_rot = sk.skin->rotation[i];
+            glm::vec3 local_forward = local_rot * glm::vec3(0, 0, 1);
+            
+            eye.pointing_direction = glm::normalize(radial * 0.3f + local_forward * 0.7f);
+            eye.mobility_rad = glm::radians(15.0f);
+            eye.stalk_length_m = 0.0f;
+        }
+        
+        eyes.push_back(eye);
+    }
+    
+    return eyes;
+}
+
+
+#endif

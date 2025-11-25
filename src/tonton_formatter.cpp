@@ -11,7 +11,8 @@ static void print_optional(std::ostream& os, const char* name, const std::option
 }
 
 // Helper for optional values
-static void print_optional(std::ostream& os, const char* name, const float& opt) {
+template<typename T>
+static void print_optional(std::ostream& os, const char* name, const T& opt) {
     if (opt > 0) {
         os << "  " << name << ": " << opt << "\n";
     }
@@ -27,8 +28,8 @@ std::ostream& operator<<(std::ostream& os, const Analysis_Physical& p) {
       // << "  center_of_mass: (" << p.center_of_mass.x << ", " << p.center_of_mass.y << ", " << p.center_of_mass.z << ")\n"
        << "  surface_area_m2: " << p.surface_area_m2 << "\n"
        << "  cross_sectional_area_m2: " << p.cross_sectional_area_m2 << "\n"
-       << "  cross_sectional_diameter: " << std::sqrt(p.cross_sectional_area_m2 / M_PI)*2.0 << "\n"
-       << "  fineness_ratio: " << p.fineness_ratio << "\n";
+       << "  cross_sectional_diameter: " << p.cross_sectional_diameter_m() << "\n"
+       << "  fineness_ratio: " << p.fineness_ratio() << "\n";
     return os;
 }
 
@@ -37,7 +38,7 @@ std::ostream& operator<<(std::ostream& os, const Analysis_Metabolic& m) {
     os << "Metabolic:\n"
        << "  basal_rate_W: " << m.basal_rate_W << "\n"
        << "  max_rate_W: " << m.max_rate_W << "\n"
-       << "  aerobic_scope: " << m.aerobic_scope << "\n"
+       << "  aerobic_scope: " << m.aerobic_scope() << "\n"
        << "  muscle_mass_kg: " << m.muscle_mass_kg << "\n"
        << "  available_muscle_power_W: " << m.available_muscle_power_W << "\n"
        << "  is_endotherm: " << (m.is_endotherm() ? "true" : "false") << "\n";
@@ -204,7 +205,7 @@ std::ostream& operator<<(std::ostream& os, const Analysis_Terrestrial& t) {
 // Aerial::Wing
 std::ostream& operator<<(std::ostream& os, const Analysis_Aerial::Wing& wing) {
     os << "    Wing(root:" << static_cast<int>(wing.root) << " tip:" << static_cast<int>(wing.tip)
-       << " span:" << wing.span_m << "m area:" << wing.area_m2 << "m²"
+       << " span:" << wing.span_m << "m area:" << wing.wing_area_m2 << "m²"
        << " chord length:" << wing.chord_m << "m " 
        << " AR:" << wing.aspect_ratio() << ")";
     return os;
