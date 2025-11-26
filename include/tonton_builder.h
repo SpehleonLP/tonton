@@ -52,7 +52,7 @@ struct Builder_Appendage : public Builder_Chain
 	CladeFlags clade_flags{};
 	NicheFlags niche_flags{};
 	
-	area_b    area{};	
+	area_b    surface_area{};	
 	volume_b  volume{};
 	position_b centroid;
 	
@@ -93,13 +93,16 @@ struct Builder_Appendage : public Builder_Chain
 	length5_b unit_inertia{}; // inertia at root/tangent axis.
 	
 	// AABB
-	Cube aabb{};
+	struct AABB
+	{
+		position_b min, max;
+	} aabb;
 };
 
 struct Builder
 {
 	static counted_ptr<const Builder> Factory(
-		counted_ptr<SkinnedMesh> const&,
+		SkinnedMesh const&,
 		glm::vec3 body_scale = glm::vec3(1),
 		immutable_array<glm::vec3> bone_scales = {}	
 	);
@@ -130,6 +133,7 @@ struct Builder
 		float eye_body_ratio = 0.1f;
 		bool has_lateral_eyes = false;
 		bool has_forward_eyes = false;
+		bool has_incisor_teeth = false;
 	} semanticAnalyisis;
 	
 	struct Physical {
@@ -315,6 +319,17 @@ struct Builder
         }
     }*/
 	} sensory;
+	
+	struct Specialized
+	{
+		struct Digging
+		{
+			bool has_incisor_teeth{};
+			bool has_digging_claws{};
+			bool has_strong_forelimbs{};
+		} digging;
+	
+	} specialized;
 	
 };
 

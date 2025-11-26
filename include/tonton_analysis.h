@@ -185,7 +185,7 @@ struct Analysis_Serpentine {
 	float forward_friction_coef{};       // Parallel to body
 	float lateral_friction_coef{};       // Perpendicular to body
 	float friction_anisotropy_ratio{};   // lateral/forward (1.5-3.0 typical)
-	velocity_m_s lateral_undulation_speed{};
+	velocity_m_s lateral_undulation_speed_m_s{};
 	
 	// Lateral undulation parameters
 	Analysis_BodyWave lateral_undulation{};
@@ -379,11 +379,11 @@ struct Analysis_Aquatic  {
 
 	struct Fin  : public Analysis_Appendage {
 		length_m chord_m{};
-		float area_m2{};
+		area_m2 fin_area_m2{};
 
 		// Animation - for undulating fins
-		float beat_frequency_Hz{0};
-		float beat_amplitude_rad{0};
+		freq_Hz beat_frequency_Hz{0};
+		angle_rad beat_amplitude_rad{0};
 		float wave_speed_ratio{0};  // wave_speed / swim_speed
 		
 		glm::vec3 normal_vector{0, 0, 0}; // sign is not defined. 
@@ -395,21 +395,21 @@ struct Analysis_Aquatic  {
 	std::optional<Analysis_BodyWave> body_wave{};
 
 	// Speed capabilities
-	float cruise_speed_m_s{};
-	float burst_speed_m_s{};
-	float min_swim_speed_m_s{};         // to maintain lift/control
+	velocity_m_s cruise_speed_m_s{};
+	velocity_m_s burst_speed_m_s{};
+	velocity_m_s min_swim_speed_m_s{};         // to maintain lift/control
 
 	// Hydrodynamics
-	float lift_per_meter_swam_N{};      // For negatively buoyant animals
-	float sink_rate_m_s{};              // How fast they sink when stationary
+	lift_N_per_m lift_per_meter_swam_N{};      // For negatively buoyant animals
+	velocity_m_s sink_rate_m_s{};              // How fast they sink when stationary
 	float reynolds_number{};            // Swimming regime indicator
 	float drag_coefficient{};           // Cd for streamlining assessment
 	length_m tail_amplitude_m{};           // Actual tail oscillation amplitude
-	float beat_frequency_Hz{};          // Tail beat frequency
+	freq_Hz beat_frequency_Hz{};          // Tail beat frequency
 
 	// Buoyancy control
-	float neutral_buoyancy_density_kg_m3{};
-	float swim_bladder_adjust_time_s{-1};
+	density_kg_m3 neutral_buoyancy_density_kg_m3{};
+	time_s swim_bladder_adjust_time_s{-1};
 	PropulsionMode primary_mode{};
 	bool has_swim_bladder{};
 
@@ -426,18 +426,18 @@ struct Analysis_Aquatic  {
 
 	// C-start escape response
 	struct CStartResponse {
-		float duration_s{};
-		float max_body_curvature_rad{};
-		float acceleration_m_s2{};
+		time_s duration_s{};
+		angle_rad max_body_curvature_rad{};
+		acceleration_m_s2 c_acceleration_m_s2{};
 	};
 	std::optional<CStartResponse> c_start{};
 	
 	struct JetPropulsion {
-		float mantle_contraction_frequency_Hz{};
-		float jet_pulse_volume_m3{};
-		float jet_velocity_m_s{};
+		freq_Hz mantle_contraction_frequency_Hz{};
+		volume_m3 jet_pulse_volume_m3{};
+		velocity_m_s jet_velocity_m_s{};
 		int32_t siphon_joint{};
-		float siphon_articulation_range_rad{};
+		angle_rad siphon_articulation_range_rad{};
 	};
 	std::optional<JetPropulsion> jet_propulsion{};
 };
@@ -448,8 +448,8 @@ struct Analysis_Aquatic  {
 struct Analysis_Climbing {
 	immutable_array<Analysis_Manipulator> limbs{};
 
-	float max_climb_speed_m_s{};
-	float max_climb_angle_rad{};        // from horizontal
+	velocity_m_s max_climb_speed_m_s{};
+	angle_rad max_climb_angle_rad{};        // from horizontal
 	bool can_descend_head_first{};
 	bool can_climb_inverted{};
 	bool can_climb_smooth_wet_surfaces{};
@@ -473,12 +473,12 @@ struct Analysis_Brachiation {
 	};
 	immutable_array<Arm> arms{};
 
-	float max_swing_speed_m_s{};
+	velocity_m_s max_swing_speed_m_s{};
 	length_m max_gap_distance_m{};      // max distance between handholds
 	length_m pendulum_length_m{};       // effective pendulum for energy
 
 	// Alternating arm pattern
-	float swing_frequency_Hz{};
+	freq_Hz swing_frequency_Hz{};
 	float arm_phase_offset{};        // phase difference between arms (usually 0.5)
 };
 
@@ -495,15 +495,15 @@ struct Analysis_Jumping {
 
 	length_m max_jump_height_m{};
 	length_m max_jump_distance_m{};
-	float takeoff_velocity_m_s{};
-	float takeoff_angle_rad{};
+	velocity_m_s takeoff_velocity_m_s{};
+	angle_rad takeoff_angle_rad{};
 
 	// Energy storage
-	float elastic_storage_J{0};
+	energy_J elastic_storage_J{0};
 	float power_amplification_ratio{0};
 
 	// Recovery
-	float recovery_time_s{};            // between jumps
+	time_s recovery_time_s{};            // between jumps
 };
 
 // ============================================================================
@@ -514,14 +514,14 @@ struct Analysis_Digging {
 	enum class Method { SCRATCH, HEAD_LIFT, INCISOR, HUMERAL_ROTATION };
 	Method method{};
 
-	float max_dig_speed_m_s{};
+	velocity_m_s max_dig_speed_m_s{};
 	length_m tunnel_diameter_m{};
-	float soil_force_N{};
+	force_N soil_force_N{};
 };
 
 // Constriction (snakes, tentacles)
 struct Analysis_Constriction {
-	float max_squeeze_pressure_Pa{};
+	pressure_Pa max_squeeze_pressure_Pa{};
 	length_m coil_diameter_range_min_m{};
 	length_m coil_diameter_range_max_m{};
 };
@@ -529,12 +529,12 @@ struct Analysis_Constriction {
 
 struct  Analysis_Tail : public Analysis_Appendage // or tips for branching
 {       
-	float mass_kg{};
-	float max_cross_section_m2{};
-	float min_cross_section_m2{};
+	mass_kg tail_mass_kg{};
+	area_m2 max_cross_section_m2{};
+	area_m2 min_cross_section_m2{};
 
 	// Animation
-	float natural_sway_frequency_Hz{};
+	freq_Hz natural_sway_frequency_Hz{};
 	
 	enum Flags : uint8_t
 	{

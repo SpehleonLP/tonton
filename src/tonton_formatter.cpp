@@ -240,7 +240,7 @@ std::ostream& operator<<(std::ostream& os, const Analysis_Aerial& a) {
 // Aquatic::Fin
 std::ostream& operator<<(std::ostream& os, const Analysis_Aquatic::Fin& fin) {
     os << "    Fin(root:" << static_cast<int>(+fin.root) << " tip:" << static_cast<int>(+fin.tip)
-       << " area:" << fin.area_m2 << "m²)";
+       << " area:" << fin.fin_area_m2 << "m²)";
     return os;
 }
 
@@ -249,7 +249,7 @@ std::ostream& operator<<(std::ostream& os, const Analysis_Aquatic::CStartRespons
     os << "  CStartResponse:\n"
        << "    duration_s: " << cstart.duration_s << "\n"
        << "    max_body_curvature_rad: " << cstart.max_body_curvature_rad << "\n"
-       << "    acceleration_m_s2: " << cstart.acceleration_m_s2 << "\n";
+       << "    acceleration_m_s2: " << cstart.c_acceleration_m_s2 << "\n";
     return os;
 }
 

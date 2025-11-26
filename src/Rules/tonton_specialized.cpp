@@ -1,4 +1,5 @@
 #include "tonton_specialized.h"
+#include "tonton_builder.h"
 #include "tonton_scratch.h"
 #include "../include/tonton_input.h"
 #include "../include/tonton_analysis.h"
@@ -18,10 +19,6 @@ using SF = TonTon::SemanticFlags;
 
 std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch & s)
 {
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo();
-	auto semantic_flags = sk_memo->GetSemanticFlags();
-
 	// Need manipulators (forelimbs) to dig
 	if(s.appendages.manipulation.empty())
 		return {};
@@ -29,25 +26,25 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 	// Analyze forelimbs for digging adaptations
 	bool has_digging_claws = false;
 	bool has_strong_forelimbs = false;
-	bool has_incisor_teeth = false;
-	auto max_forelimb_force = 0.0f;
-	auto avg_forelimb_area = 0.0f;
+	bool has_incisor_teeth = in.builder->semanticAnalyisis.has_incisor_teeth;
+	force_N max_forelimb_force = 0.0f;
+	area_m2 avg_forelimb_area = 0.0f;
 	int forelimb_count = 0;
 
 	// Check manipulators for digging capability
-	for(auto const& manip : s.appendages.manipulation)
+	for(auto const& manip : in.builder->appendages)
 	{
 		// Check if this is a forelimb (anterior)
-		bool is_forelimb = HasFlag(semantic_flags[manip.root], SF::ANTERIOR | SF::LIMB);
+		bool is_forelimb = HasFlag(manip.semantic_flags, SF::ANTERIOR | SF::LIMB);
 
 		if(is_forelimb)
 		{
 			++forelimb_count;
 			max_forelimb_force = std::max(max_forelimb_force, manip.max_lift_force_N);
-			avg_forelimb_area += manip.surface_area_m2;
+			avg_forelimb_area += scale_to<0>(manip.surface_area, in.area_scale());
 
 			// Claws are critical for scratch digging
-			if(manip.has_claws)
+			if(manip.contact.has_claws)
 			{
 				has_digging_claws = true;
 			}
@@ -65,22 +62,6 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 	if(forelimb_count > 0)
 	{
 		avg_forelimb_area /= forelimb_count;
-	}
-
-	// Check for incisor-based digging (rodents, some fossorial mammals)
-	for(auto i = 0u; i < sk.skin->tags.size(); ++i)
-	{
-		if(HasFlag(semantic_flags[i], SF::TEETH))
-		{
-			for(auto word : sk.skin->tags[i])
-			{
-				if(word == Word::incisor || word == Word::tooth)
-				{
-					has_incisor_teeth = true;
-					break;
-				}
-			}
-		}
 	}
 
 	// Determine if this creature can dig
@@ -116,7 +97,7 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 	if(relative_limb_strength > 0.5f && avg_forelimb_area > 0.0f)
 	{
 		// Check if body is cylindrical (fineness ratio < 5 = stocky digger)
-		if(s.physical.fineness_ratio < 5.0f)
+		if(s.physical.fineness_ratio() < 5.0f)
 		{
 			result.method = Analysis_Digging::Method::HUMERAL_ROTATION;
 		}
@@ -188,7 +169,7 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 
 	// Allometric scaling: smaller animals dig relatively faster
 	// From Casinos et al. 1993: digging rate ∝ M^(-0.2)
-	auto size_factor = std::pow(s.physical.body_mass_kg, -0.2f);
+	auto size_factor = std::pow(float(s.physical.body_mass_kg), -0.2f);
 	result.max_dig_speed_m_s *= size_factor;
 
 	// Apply muscle quality and endurance factors
@@ -196,13 +177,13 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 	result.max_dig_speed_m_s *= glm::mix(0.8f, 1.2f, in.behavior.endurance_vs_power);
 
 	// Clamp to realistic values (0.0001-0.01 m/s = 0.36-36 m/hour)
-	result.max_dig_speed_m_s = glm::clamp(result.max_dig_speed_m_s, 0.0001f, 0.01f);
+	result.max_dig_speed_m_s = std::clamp<velocity_m_s>(result.max_dig_speed_m_s, 0.0001f, 0.01f);
 
 	// ========================================================================
 	// TUNNEL DIAMETER
 	// ========================================================================
 	// Tunnel is typically 1.2-1.5x body diameter to allow turning
-	auto body_diameter_m = std::sqrt(s.physical.cross_sectional_area_m2 / 3.14159f) * 2.0f;
+	auto body_diameter_m = sqrt(s.physical.cross_sectional_area_m2 / 3.14159f) * 2.0f;
 	result.tunnel_diameter_m = body_diameter_m * 1.3f;
 
 	return result;
@@ -223,7 +204,7 @@ std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in
 	// Fineness ratio = length / diameter
 	// Snakes typically have fineness ratio > 15-20
 
-	bool is_elongate = s.physical.fineness_ratio > 10.0f;
+	bool is_elongate = s.physical.fineness_ratio() > 10.0f;
 	bool has_limbs = !s.appendages.manipulation.empty();
 
 	// Limbless and elongate = likely constrictor candidate
@@ -266,7 +247,7 @@ std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in
 
 	// Constriction pressure = (muscle stress) × (muscle fraction) × (coil overlap factor)
 	// Multiple coils increase pressure
-	auto typical_coils = std::max(3.0f, s.physical.body_length_m / (2.0f * s.physical.cross_sectional_area_m2));
+	auto typical_coils = std::max<float>(3.0f, float(s.physical.body_length_m / (2.0f * s.physical.cross_sectional_area_m2)));
 	typical_coils = std::min(typical_coils, 12.0f); // Cap at ~12 coils
 
 	// Each coil adds pressure, but with diminishing returns
@@ -278,7 +259,7 @@ std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in
 
 	// Empirical data: Python constriction reaches ~30 kPa (Boback et al. 2012)
 	// Adjust our calculation to match empirical range
-	result.max_squeeze_pressure_Pa = glm::clamp(
+	result.max_squeeze_pressure_Pa = std::clamp<pressure_Pa>(
 		result.max_squeeze_pressure_Pa,
 		5000.0f,   // Min: 5 kPa (weak constrictors)
 		60000.0f   // Max: 60 kPa (exceptional constrictors, >2× python)
@@ -294,7 +275,7 @@ std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in
 	// Minimum diameter: typically can't constrict prey much smaller than body diameter
 	// Maximum diameter: limited by body length and flexibility
 
-	auto body_diameter_m = std::sqrt(s.physical.cross_sectional_area_m2 / 3.14159f) * 2.0f;
+	length_m body_diameter_m = sqrt(s.physical.cross_sectional_area_m2 / 3.14159f) * 2.0f;
 
 	// Minimum coil: ~1-2× body diameter
 	result.coil_diameter_range_min_m = body_diameter_m * 1.5f;

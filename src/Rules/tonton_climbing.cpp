@@ -32,8 +32,8 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 	// BUT exclude wings/flippers - they can't grip surfaces!
 	auto body_weight_N = s.physical.body_mass_kg * in.environment.gravity_m_s2;
 
-	auto total_grip_force = 0;
-	auto total_adhesion_force = 0;
+	force_N total_grip_force = 0;
+	force_N total_adhesion_force = 0;
 	bool any_claws = false;
 	bool any_wet_grip = false;
 	bool any_setae = false;
@@ -47,8 +47,10 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 		// Exception: birds with zygodactyl feet (parrots, woodpeckers) can climb
 		bool is_wing = HasFlag(limb.subtree_flags, SF::WING);
 		bool is_fin = HasFlag(limb.subtree_flags, SF::FIN);
+		//
+		bool is_grasper = HasFlag(limb.subtree_flags, SF::GRASPER|SF::DIGIT);
 
-		if(is_wing || is_fin) {
+		if((is_wing || is_fin) && !(is_grasper)) {
 			continue; // Skip flippers and wings
 		}
 
@@ -81,7 +83,7 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 	// Based on Alexander (2003) - climbing speed ~ limb_length * frequency
 	// Frequency limited by force-to-weight ratio and limb reach
 
-	auto avg_limb_length = 0;
+	length_m avg_limb_length = 0;
 	for(auto const& limb : limbs)
 		avg_limb_length += limb.stretched_length_m;
 	avg_limb_length /= limb_count;
@@ -102,9 +104,9 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 	auto max_frequency_Hz = effective_power_W / work_per_stroke_J;
 
 	// But also limited by limb dynamics (can't move faster than ~3 Hz for most animals)
-	max_frequency_Hz = std::min(max_frequency_Hz, 3.0f);
+	max_frequency_Hz = std::min<freq_Hz>(max_frequency_Hz, 3.0f);
 
-	auto max_climb_speed_m_s = stroke_height_m * max_frequency_Hz;
+	velocity_m_s max_climb_speed_m_s = stroke_height_m * max_frequency_Hz;
 
 	// Adjust for climbing ability input
 	max_climb_speed_m_s *= glm::mix(0.3f, 1.0f, in.climbing_ability);
@@ -113,7 +115,7 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 	// Vertical climbing requires safety_margin >= 2.0
 	// Horizontal requires safety_margin >= 1.5
 	// Interpolate between
-	auto max_angle_rad = M_PI / 2.0f; // vertical
+	angle_rad max_angle_rad = M_PI / 2.0f; // vertical
 
 	if(safety_margin < 2.0f)
 	{
@@ -122,7 +124,7 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 		// Need: grip_force >= weight * sin(θ) + friction_needed
 		// Simplified: max angle when total_force = safety_margin * weight
 
-		auto angle_factor = (safety_margin - 1.5f) / 0.5f; // 0 at 1.5, 1 at 2.0
+		float angle_factor = (safety_margin - 1.5f) / 0.5f; // 0 at 1.5, 1 at 2.0
 		angle_factor = glm::clamp(angle_factor, 0.0f, 1.0f);
 		max_angle_rad = glm::mix(M_PI / 4.0f, M_PI / 2.0f, angle_factor);
 	}
@@ -263,7 +265,7 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 
 			// Geckos are exceptional climbers
 			// Autumn et al. (2006): Tokay gecko climbs 1 m/s vertically
-			result.max_climb_speed_m_s = std::max(result.max_climb_speed_m_s, 0.8f);
+			result.max_climb_speed_m_s = std::max<velocity_m_s>(result.max_climb_speed_m_s, 0.8f);
 			result.max_climb_angle_rad = M_PI / 2.0f; // Can climb overhangs
 			result.can_descend_head_first = true;
 
@@ -285,7 +287,7 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 		if (!s.terrestrial.has_value() || s.terrestrial->legs.empty()) {
 			// Snakes climb via concertina and lateral wedging
 			// Astley & Jayne (2007): Snakes climb at 0.05-0.15 m/s
-			result.max_climb_speed_m_s = 0.1f * s.physical.body_length_m;
+			result.max_climb_speed_m_s = s.physical.body_length_m / time_s(10.0f);
 			result.min_roughness_required = 0.6f; // Need rough bark
 			result.can_descend_head_first = true; // Excellent control
 
@@ -437,11 +439,11 @@ std::optional<TonTon::Analysis_Brachiation>  TonTon::ComputeBrachiation(Input co
 	// - Sufficient grip strength to support body weight with one arm
 	// - Prehensile hands (thumb or strong grip)
 
-	auto body_weight_N = s.physical.body_mass_kg * in.environment.gravity_m_s2;
-	auto body_length = s.physical.body_length_m;
+	force_N body_weight_N = s.physical.body_mass_kg * in.environment.gravity_m_s2;
+	length_m body_length = s.physical.body_length_m;
 
-	auto avg_arm_length = 0;
-	auto min_grip_strength = FLT_MAX;
+	length_m avg_arm_length = 0;
+	force_N min_grip_strength = FLT_MAX;
 	bool has_prehensile_hands = false;
 
 	for(auto const& arm : arms)
@@ -474,7 +476,7 @@ std::optional<TonTon::Analysis_Brachiation>  TonTon::ComputeBrachiation(Input co
 	auto pendulum_length_m = avg_arm_length + shoulder_to_com;
 
 	// Natural frequency: f = (1/2π) * sqrt(g/L)
-	auto natural_frequency_Hz = (1.0f / (2.0f * M_PI)) * std::sqrt(in.environment.gravity_m_s2 / pendulum_length_m);
+	auto natural_frequency_Hz = (1.0f / (2.0f * M_PI)) * sqrt(in.environment.gravity_m_s2 / pendulum_length_m);
 
 	// Actual swing frequency is typically 70-90% of natural frequency
 	auto swing_frequency_Hz = natural_frequency_Hz * 0.8f;
@@ -487,10 +489,10 @@ std::optional<TonTon::Analysis_Brachiation>  TonTon::ComputeBrachiation(Input co
 
 	// Height drop during swing ≈ pendulum_length * (1 - cos(swing_angle))
 	// Typical swing angle for brachiation: 30-45 degrees
-	auto swing_angle_rad = M_PI / 6.0f; // 30 degrees
-	auto height_drop_m = pendulum_length_m * (1.0f - std::cos(swing_angle_rad));
+	angle_rad swing_angle_rad = M_PI / 6.0f; // 30 degrees
+	auto height_drop_m = pendulum_length_m * (1.0f - std::cos(float(swing_angle_rad)));
 
-	auto max_swing_speed_m_s = std::sqrt(2.0f * in.environment.gravity_m_s2 * height_drop_m);
+	auto max_swing_speed_m_s = sqrt(2.0f * in.environment.gravity_m_s2 * height_drop_m);
 
 	// Adjust for muscle quality (affects ability to maintain speed)
 	max_swing_speed_m_s *= glm::mix(0.7f, 1.3f, in.muscle_quality);
@@ -595,8 +597,8 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 		}
 		
 		auto counter = 0;
-		auto accumulator = 0;
-		auto accumulator_2nd_moment = 0;
+		area_m2 accumulator = 0;
+		moment_m4 accumulator_2nd_moment = 0;
 		for(auto j = manipulators[i].tip; j != manipulators[i].root; j = parents[j])
 		{
 			auto p =  parents[j];
@@ -611,7 +613,7 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 		
 		if(counter)
 		{
-			auto avg_area = accumulator / counter;
+			area_m2 avg_area = accumulator / counter;
 			auto avg_moment = accumulator_2nd_moment / counter;
 			
 			// 1. MUSCLE VOLUME ESTIMATION
@@ -623,17 +625,17 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 			// 2. GRIP FORCE (from finger/digit flexors)
 			// Peak muscle stress: 20-40 N/cm² (200,000-400,000 Pa)
 			// Quality affects max stress achievable
-			auto muscle_stress_Pa = glm::mix(200000.0f, 400000.0f, in.muscle_quality);
+			pressure_Pa muscle_stress_Pa = glm::mix(200000.0f, 400000.0f, in.muscle_quality);
 			
 			// Effective cross-sectional area (perpendicular to force direction)
 			// For grip, this is roughly the cross-section of the muscles
-			auto grip_muscle_area_m2 = avg_area * muscle_fraction;
-			auto base_grip_force_N = muscle_stress_Pa * grip_muscle_area_m2;
+			area_m2 grip_muscle_area_m2 = avg_area * muscle_fraction;
+			force_N base_grip_force_N = muscle_stress_Pa * grip_muscle_area_m2;
 
 			// Grip force depends on mechanical advantage / limb geometry
 			// Short thick limbs (penguin legs) have poor leverage despite high muscle mass
 			// Compare limb length to thickness (sqrt of cross-sectional area)
-			auto limb_thickness_m = std::sqrt(avg_area); // Characteristic thickness
+			auto limb_thickness_m = sqrt(avg_area); // Characteristic thickness
 			auto aspect_ratio = manipulators[i].stretched_length_m / std::max(0.001f, limb_thickness_m);
 			// Typical limb: aspect_ratio ~5-15 (length is 5-15x thickness)
 			// Penguin legs: aspect_ratio ~2-3 (short and thick), poor mechanical advantage
@@ -645,7 +647,7 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 			// 3. LIFT FORCE (constrained by joint torque limits)
 			// Torque = Force × moment_arm
 			// Max torque ≈ muscle_PCSA × muscle_stress × moment_arm
-			auto moment_arm_m = std::sqrt(avg_moment / avg_area); // Radius of gyration
+			length_m moment_arm_m = sqrt(avg_moment / avg_area); // Radius of gyration
 			auto max_torque_Nm = muscle_stress_Pa * grip_muscle_area_m2 * moment_arm_m;
 			
 			// Convert torque to force at tip (lever arm = chain length)
@@ -710,7 +712,7 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 		if(has_suckers) {
 			// Suction force: F = ΔP × Area
 			// Assume can create ~0.8 atm (80 kPa) pressure differential
-			auto suction_pressure_Pa = 80000.0f;
+			pressure_Pa suction_pressure_Pa = 80000.0f;
 			
 			// Estimate sucker area from surface area
 			auto sucker_coverage = 0.3f; // ~30% of surface is actual suction cups
@@ -722,7 +724,7 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 		if(has_setae) {
 			// Van der Waals adhesion (gecko-like)
 			// ~10 N/cm² for optimal setae density
-			auto setae_stress_Pa = 100000.0f; // 10 N/cm²
+			pressure_Pa setae_stress_Pa = 100000.0f; // 10 N/cm²
 			
 			// Assume setae cover the contact surface
 			manipulators[i].max_adhesion_force_N += 
@@ -733,7 +735,7 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 			// Tree frog adhesion: capillary forces + mucus adhesion
 			// ~1-5 N/cm² depending on surface wetness
 			// Formula: F = 2πRγ (capillary) + μ×Area (mucus)
-			auto wet_adhesion_Pa = 30000.0f; // ~3 N/cm² typical
+			pressure_Pa wet_adhesion_Pa = 30000.0f; // ~3 N/cm² typical
 			
 			// Pad coverage (tree frogs have ~60% of toe surface as pad)
 			auto pad_coverage = 0.6f;
@@ -762,7 +764,7 @@ std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input co
 		
 		// Apply conservative allometric scaling
 		// Smaller animals have relatively stronger muscles (force/mass ratio)
-		auto allometric_factor = std::pow(size_scale, 0.67f); // Between area (1.0) and volume (0.67)
+		auto allometric_factor = std::pow(float(size_scale), 0.67f); // Between area (1.0) and volume (0.67)
 		
 		manipulators[i].max_lift_force_N *= allometric_factor;
 		manipulators[i].max_grip_force_N *= allometric_factor;

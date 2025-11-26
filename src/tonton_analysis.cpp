@@ -58,40 +58,40 @@ counted_ptr<const TonTon::Output> TonTon::Output::Factory(Input const& in)
 	
 
 // Steady glide: Lift = Weight
-float TonTon::Analysis_Aerial::gliding_CL(float weight_N, float speed_m_s, float air_density) const {
-	float dynamic_pressure = 0.5f * air_density * speed_m_s * speed_m_s;
+float TonTon::Analysis_Aerial::gliding_CL(force_N weight_N, velocity_m_s speed_m_s, density_kg_m3 air_density) const {
+	pressure_Pa dynamic_pressure = 0.5f * air_density * speed_m_s * speed_m_s;
 	return weight_N / (dynamic_pressure * wing_area_m2);
 }
 
 // Simplified flapping CL estimation
-float TonTon::Analysis_Aerial::flapping_CL_effective(float weight_N,
-							float forward_speed_m_s, 
-							float wingbeat_freq_Hz,
-							float beat_amplitude_rad,
-							float air_density) const {
+float TonTon::Analysis_Aerial::flapping_CL_effective(force_N weight_N,
+							velocity_m_s forward_speed_m_s, 
+							freq_Hz wingbeat_freq_Hz,
+							angle_rad beat_amplitude_rad,
+							density_kg_m3 air_density) const {
 	// Wing tip velocity from flapping
-	float tip_velocity = wing_span_m * beat_amplitude_rad * wingbeat_freq_Hz * 2.0f * M_PI;
+	velocity_m_s tip_velocity = wing_span_m * beat_amplitude_rad * wingbeat_freq_Hz * 2.0f * M_PI;
 	
 	// Effective velocity combines forward and flapping
-	float effective_velocity = sqrt(forward_speed_m_s * forward_speed_m_s + 
+	velocity_m_s effective_velocity = sqrt(forward_speed_m_s * forward_speed_m_s + 
 								   tip_velocity * tip_velocity);
 	
 	// During power stroke, CL can be much higher (1.5-2.5)
 	// averaged over full cycle, use similar to gliding
-	float dynamic_pressure = 0.5f * air_density * effective_velocity * effective_velocity;
+	auto dynamic_pressure = 0.5f * air_density * effective_velocity * effective_velocity;
 	return weight_N / (dynamic_pressure * wing_area_m2);
 }
 
-float TonTon::Analysis_Aerial::hovering_disk_loading_N_m2(float weight_N) const {
+TonTon::load_N_m2 TonTon::Analysis_Aerial::hovering_disk_loading_N_m2(force_N weight_N) const {
 	// Total disk area (both wings sweep a circle)
-	float disk_area = M_PI * wing_span_m * wing_span_m;
+	area_m2 disk_area = M_PI * wing_span_m * wing_span_m;
 	return weight_N / disk_area;  // N/m²
 }
 
 // Momentum theory for hovering
-float TonTon::Analysis_Aerial::hovering_power_ideal_W(float weight_N, float air_density_kg_m3) const {	
+TonTon::power_W TonTon::Analysis_Aerial::hovering_power_ideal_W(force_N weight_N, density_kg_m3 air_density_kg_m3) const {	
 	// Induced velocity needed to hover
-	float v_induced = sqrt(hovering_disk_loading_N_m2(weight_N) / (2.0f * air_density_kg_m3));
+	auto v_induced = sqrt(hovering_disk_loading_N_m2(weight_N) / (2.0f * air_density_kg_m3));
 	
 	// Ideal power (real power is ~1.2-1.5x this due to profile drag)
 	// N * sqrt(N/m2 / Kg_m3)

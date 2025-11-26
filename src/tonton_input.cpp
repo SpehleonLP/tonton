@@ -6,48 +6,51 @@ namespace TonTon
 
 mass_kg TonTon::Input::body_mass_kg() const
 {
-	if(builder)
-	{
-		return volume_scale()
-		     * builder->physical.body_volume * body_density();
-	}
+	volume_m3 volume = builder?
+		  scale_to<0>(builder->physical.body_volume, volume_scale())
+		: volume_m3(0);
 	
-	return volume_t(1) * volume_scale() * body_density();
+	return volume * body_density();
 }
 
 force_N TonTon::Input::body_weight_N() const
 {
-	if(builder)
-	{
-		return volume_scale()
-			  * builder->physical.body_volume 
-			  * (body_density() - environment.fluidDensity_Kg_m3)
-			  * environment.gravity_m_s2;
-	}
-	
-	return volume_t(1) * volume_scale() * 
-		   (body_density() - environment.fluidDensity_Kg_m3)
+	volume_m3 volume = builder?
+		  scale_to<0>(builder->physical.body_volume, volume_scale())
+		: volume_m3(0);
+
+	return volume
+		  * (body_density() - environment.fluidDensity_Kg_m3)
 		  * environment.gravity_m_s2;
 }
 
 area_m2 TonTon::Input::cross_sectional_area_m2() const
 {
-	return (builder? builder->physical.cross_section_area : area_t(1.f)) * (scale*scale); 
+	return builder? scale_to<0>(builder->physical.cross_section_area, scale*scale) : 0.f; 
 }
 
 glm::mat3 TonTon::Input::inertia_restPose() const
 {
-	std::array<float, 6>  covariance{1.f, 1.f, 1.f, 0.f, 0.f, 0.f};
+	std::array<float, 6>  I{0.5f, 0.5f, 0.5f, 0.f, 0.f, 0.f};
 	if(builder)
-		covariance = builder->physical.covariance_restPose;
+		I = builder->physical.covariance_restPose;
 		
-	auto inertia = builder?
-		builder->physical.inertia_restPose()
-		: glm::mat3(1);
+	float dens = float(body_density()) * float((scale*scale*scale*(scale*scale)));
 	
-	auto conv =  (scale*scale*scale*(scale*scale)) * body_density();
+	I = {
+		(I[1]+I[2]) * dens,
+		(I[0]+I[2]) * dens,
+		(I[0]+I[1]) * dens,
+		(I[3]) * dens,
+		(I[4]) * dens,
+		(I[5]) * dens,	
+	};
 	
-	return (inertia * (scale*scale*scale*(scale*scale))) * body_density();	
+	return glm::mat3{ 
+		 I[1] +I[2],-I[3],-I[4],
+		-I[3], I[0] +I[2],-I[5],
+		-I[4],-I[5], I[0] +I[1] 
+	};
 }
 
 }

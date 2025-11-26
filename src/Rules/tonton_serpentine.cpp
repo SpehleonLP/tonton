@@ -87,7 +87,7 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 	}
 
 	// Check leg contribution vs tail length
-	auto total_leg_length = 0.0f;
+	length_m total_leg_length = 0.0f;
 	for(auto const& leg : terr.legs) {
 		total_leg_length += leg.stretched_length_m;
 	}
@@ -95,7 +95,7 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 
 	// Serpentine is viable if tail >> legs (lamia pattern)
 	// or if body is very long relative to legs (lizard pattern)
-	auto body_to_leg_ratio = s.physical.body_length_m / std::max(avg_leg_length, 0.01f);
+	auto body_to_leg_ratio = s.physical.body_length_m / std::max(avg_leg_length, length_m(0.01f));
 
 	// Serpentine locomotion is possible if:
 	// - Body length > 5× leg length (skink-like)
@@ -221,7 +221,7 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 	// Speed calculation based on wave mechanics
 	// Speed ≈ wavelength × frequency
 	// Frequency scales with size: f ∝ M^(-1/3) (similar to swimming)
-	auto frequency_base_Hz = 2.0f / std::pow(body_mass_kg, 0.33f);
+	freq_Hz frequency_base_Hz = 2.0f / std::pow(float(body_mass_kg), 0.33f);
 
 	// Muscle quality affects sustainable frequency
 	auto frequency_Hz = frequency_base_Hz * glm::mix(0.7f, 1.3f, in.muscle_quality);
@@ -249,7 +249,7 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 
 		Analysis_Serpentine::Rectilinear recti;
 		// Rectilinear is very slow: ~0.02-0.05 m/s for most snakes
-		recti.speed_m_s = 0.02f * body_length_m;
+		recti.speed_m_s = freq_Hz(0.02f) * body_length_m;
 		recti.frequency_Hz = recti.speed_m_s / body_length_m;
 
 		result.rectilinear = recti;
@@ -354,7 +354,7 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 		// Speed calculation for aquatic undulation
 		// Webb (1975): Speed = wavelength × frequency × slip_factor
 		// Slip factor ~0.7-0.9 (some backward slipping in water)
-		auto frequency_Hz = 2.0f / std::pow(s.physical.body_mass_kg, 0.33f);
+		freq_Hz frequency_Hz = 2.0f / std::pow(float(s.physical.body_mass_kg), 0.33f);
 		auto wavelength_m = result.lateral_undulation.wavelength_ratio * body_length_m;
 		auto aquatic_speed = wavelength_m * frequency_Hz * 0.8f; // 80% slip efficiency
 
@@ -389,7 +389,7 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 		if (s.aquatic.has_value()) {
 			result.lateral_undulation_speed_m_s *= 1.3f; // Good swimmers
 		}
-	}
+	} 
 
 	// ANNELIDA: Worms (if we ever add this clade)
 	// Earthworms use peristaltic waves (more like concertina)
