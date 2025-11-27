@@ -468,8 +468,8 @@ struct Analysis_Climbing {
 struct Analysis_Brachiation {
 	struct Arm  : public Analysis_Appendage {
 		length_m reach_m{};
-		float grip_strength_N{};
-		float swing_speed_m_s{};
+		force_N grip_strength_N{};
+		velocity_m_s swing_speed_m_s{};
 	};
 	immutable_array<Arm> arms{};
 

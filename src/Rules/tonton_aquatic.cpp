@@ -747,7 +747,6 @@ using SF = SemanticFlags;
 	r.reserve(in.builder->appendages.size());
 	
 	auto area_scale = in.area_scale();
-	auto volume_scale = in.volume_scale();
 	
 	for(auto & appendage : in.builder->appendages)
 	{
@@ -761,25 +760,28 @@ using SF = SemanticFlags;
 		fin.normal_vector = appendage.surface.normal;
 		fin.fin_area_m2 = scale_to<0>(appendage.surface.area, area_scale);
 		fin.chord_m = scale_to<0>(appendage.surface.chord, in.scale);
-							
-		// Add this analysis before your flipper check
-		auto percent_area = (fin.fin_area_m2*2.0) / scale_to<0>(appendage.surface_area, area_scale); // projected area to surface area ratio
-	//	auto thickness = surfaceArea / limb_metrics.volume;
-		int joint_count = appendage.noJoints;
-		auto aspect_ratio = fin.rest_length_m / fin.chord_m;
-		
-		// Flipper characteristics
-		bool has_internal_structure = joint_count < 3; // flippers don't have digitgrade etc complexity. usually one bone. 
-		bool is_thick_enough = percent_area > 0.75; // tune this value
-		bool is_paddle_shaped = aspect_ratio < 3.0f; // flippers are relatively short and wide
-		
-		bool is_flipper = has_internal_structure && is_thick_enough && is_paddle_shaped;
 
 		if(HasFlag(fin.type, SF::FIN) 
-		|| is_flipper)
+		|| IsFlipper(appendage))
 			r.push_back(fin);
 	}
 	
 	return r;
 }
 
+
+bool TonTon::IsFlipper(TonTon::Builder_Appendage const& app)
+{
+	// Add this analysis before your flipper check
+	auto percent_area = (app.surface.area*2.0) / (app.surface_area); // projected area to surface area ratio
+//	auto thickness = surfaceArea / limb_metrics.volume;
+	int joint_count = app.noJoints;
+	auto aspect_ratio = app.rest_length / app.surface.chord;
+	
+	// Flipper characteristics
+	bool has_internal_structure = joint_count < 3; // flippers don't have digitgrade etc complexity. usually one bone. 
+	bool is_thick_enough = percent_area > 0.75; // tune this value
+	bool is_paddle_shaped = aspect_ratio < 3.0f; // flippers are relatively short and wide
+	
+	return has_internal_structure && is_thick_enough && is_paddle_shaped;
+}

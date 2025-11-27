@@ -57,8 +57,10 @@ struct Builder_Appendage : public Builder_Chain
 	position_b centroid;
 	
 	area_b minCrossSection{};
+	area_b avgCrossSection{};
 	area_b maxCrossSection{};
 	length4_b minMoment{};
+	length4_b avgMoment{};
 	length4_b maxMoment{};
 	
 	glm::vec3 rootAxis{};

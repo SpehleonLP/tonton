@@ -148,7 +148,7 @@ using pressure_Pa = Quantity<1, -1, -2>;   // Pa (N/m² = kg/(m⋅s²))
 using viscosity_Pa_s = Quantity<1, -1, -1>; // Pa⋅s
 using cost_W_kg = Quantity<0, 2, -3>; // W / N
 using cost_W_N =  Quantity<0, 1, -1>; // same as velocity... weird.
-using load_N_m2 = Quantity<1, 1, -4>;
+using load_N_m2 = Quantity<1, -1, -2>;
 using lift_N_per_m = Quantity<1, 0, -2>;       // N (kg⋅m/s²)
 
 

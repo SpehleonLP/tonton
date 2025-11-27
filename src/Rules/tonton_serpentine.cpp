@@ -66,7 +66,7 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 		// A = πr² → r = sqrt(A/π) → diameter = 2r
 		auto cross_section_m2 = tail.max_cross_section_m2;
 		if(cross_section_m2 > 0.0001f) {
-			auto tail_diameter_m = 2.0f * std::sqrt(cross_section_m2 / M_PI);
+			auto tail_diameter_m = 2.0f * sqrt(cross_section_m2 / M_PI);
 			auto tail_aspect_ratio = tail.stretched_length_m / tail_diameter_m;
 
 			// Snakes: aspect ratio ~40-80 (very flexible)

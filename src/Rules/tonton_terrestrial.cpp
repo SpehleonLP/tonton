@@ -1,8 +1,10 @@
 #include "tonton_terrestrial.h"
 #include "../../include/tonton_analysis.h"
 #include "Memos/tonton_armaturememo.h"
+#include "Rules/tonton_aquatic.h"
 #include "Rules/tonton_climbing.h"
 #include "Rules/tonton_scratch.h"
+#include "tonton_builder.h"
 #include "tonton_input.h"
 #include "tonton_skinnedmesh.h"
 #include <cfloat>
@@ -16,20 +18,22 @@ static std::vector<Analysis_Aerial::Wing> GetLegs(Input const& in);
 
 std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input const& in, Scratch &out)
 {	
-	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB, SF::CONTACT));
-	auto legs = ComputeManipulation(in, appendages);
+	auto legs = ComputeManipulation(in, SF::CONTACT);
 	
 	if(legs.empty())
 		return {};
 	
 	length_m functional_length{FLT_MAX};
-	auto posture = 0.0f;
+	float posture = 0.0f;
+	bool has_flippers{};
 
 	for(auto const& leg : legs)
 	{
 		functional_length = std::min(functional_length, leg.stretched_length_m);
-		auto vec = glm::normalize(position[leg.tip] - position[leg.root]);
-		posture = std::max(posture, 1.f - std::abs(vec.y));
+		auto & original = in.builder->appendages[leg.id];
+		
+		posture = std::max(posture, 1.f - std::abs(original.rootAxis.y));
+		has_flippers |= IsFlipper(original);
 	}
 
 	// HYBRID SPEED SCALING: Mass allometry + leg length correction

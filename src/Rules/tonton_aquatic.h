@@ -8,8 +8,10 @@ namespace TonTon
 struct Input;
 struct Scratch;
 struct Analysis_Aquatic;
+struct Builder_Appendage;
 
 std::optional<Analysis_Aquatic>   ComputeAquatic(Input const& in, Scratch &s);
+bool IsFlipper(Builder_Appendage const&);
 
 }
 
