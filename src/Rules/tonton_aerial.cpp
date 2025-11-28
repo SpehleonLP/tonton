@@ -20,7 +20,6 @@ struct GaitGroupSpan
 static std::vector<Analysis_Aerial::Wing> GetWings(Input const& in);
 std::vector<GaitGroupSpan> GetGaitGroupSpan(Analysis_Aerial::Wing * data, size_t size);
 // Forward declaration for GetGaitGroupCenters
-std::vector<glm::vec3> GetGaitGroupCenters(Input const& in, std::span<Analysis_Aerial::Wing> wings);
 }
 
 std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Scratch&)
@@ -252,7 +251,10 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	// if we have 5 then 5 centers etc.
 	// centers represnent a group of wings that are symmetrical, bilaterially, penta- whatever.	
 	std::span<TonTon::Analysis_Aerial::Wing> as_span(wings);
-    auto centers = TonTon::GetGaitGroupCenters(in, as_span); // Added TonTon:: prefix
+    auto centers = shared_array<glm::vec3>::Build(in.builder->gait_group_centers.size(), [&](int i)
+    {
+		return glm::vec3(in.builder->gait_group_centers[i]) * float(in.scale);
+    });
     
     // HOVERING FLIGHT
 	// Use disk area (swept area) not wing planform area

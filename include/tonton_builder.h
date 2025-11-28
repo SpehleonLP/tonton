@@ -17,14 +17,6 @@ using position_b = glm::vec<3, length_b>;
 
 // input is really heavy so we try to construct something faster.
 
-struct BuilderCommand
-{
-	counted_ptr<const SkinnedMesh> skinnedMesh;
-	glm::vec3 body_scale{1};
-	immutable_array<glm::vec3> bone_scales;
-};
-
-
 struct Builder_Chain
 {
 	// stop ik chain here
@@ -40,6 +32,8 @@ struct Builder_Chain
 	void copy_into(Analysis_Chain &, length_b_to_m) const;
 };
 
+struct Builder_Tail;
+
 struct Builder_Appendage;
 
 struct Builder
@@ -47,21 +41,8 @@ struct Builder
 	static counted_ptr<const Builder> Factory(
 		SkinnedMesh const&,
 		glm::vec3 body_scale = glm::vec3(1),
-		immutable_array<glm::vec3> bone_scales = {}	
+		std::span<const glm::vec3> bone_scales = {}	
 	);
-	
-	// if two immutable arrays in the builders are identical then 
-	// the one with the lower refcount gets replaced by the one
-	// with the higher ref count. 
-	int Merge(const Builder&) const;
-	
-// appendages found in model...
-	immutable_array<Builder_Appendage> appendages;
-// list of gait groups, -1 to separate lists of groups. 
-	immutable_array<glm::vec3>		    gait_group_centers;
-	immutable_array<int16_t>			ipsilateral_inhibition_groups;
-	
-	int siphon_joint = -1;
 		
 	struct SemanticAnalysis {
 		bool has_sharp_teeth = false;
@@ -77,7 +58,7 @@ struct Builder
 		bool has_lateral_eyes = false;
 		bool has_forward_eyes = false;
 		bool has_incisor_teeth = false;
-	} semanticAnalyisis;
+	};
 	
 	struct Physical {
 		length_b body_length{};
@@ -96,28 +77,6 @@ struct Builder
 		std::array<float, 6>  covariance_restPose{1.f, 1.f, 1.f, 0.f, 0.f, 0.f};
 	};
 	
-	Physical physical;
-	Builder_Chain serpentine;
-	
-		/*
-		wave.tip = tail_tip;
-		wave.noJoints = 0;
-		wave.stretched_length_m = s.physical.body_length_m;
-		wave.rest_length_m = s.physical.body_length_m * 0.95f;*/
-		
-	/*
-	 * 
-    // Scan for vertebrate olfactory structures
-    for(uint32_t i = 0; i < sk.skin->names.size(); ++i) {
-        for(auto word : sk.skin->tags[i]) {
-            if(word == Word::snout || word == Word::nose || word == Word::nostril) {
-                has_snout = true;
-                nasal_surface_area += sk.surfaceArea[i] * in.behavior.area_scale();
-                break;
-            }
-        }
-    }*/
-    
 	struct Sensory
 	{
 		bool has_snout{};
@@ -268,7 +227,7 @@ struct Builder
             }
         }
     }*/
-	} sensory;
+	};
 	
 	struct Specialized
 	{
@@ -279,12 +238,57 @@ struct Builder
 			bool has_strong_forelimbs{};
 		} digging;
 	
-	} specialized;
+	};
+	
+	// if two immutable arrays in the builders are identical then 
+	// the one with the lower refcount gets replaced by the one
+	// with the higher ref count. 
+	int Merge(const Builder&) const;
+		
+	SemanticAnalysis  semanticAnalyisis;	
+	Physical physical;
+	Sensory sensory;
+	
+	Builder_Chain serpentine;
+	immutable_array<Builder_Tail> tails;
+	
+// appendages found in model...
+	immutable_array<Builder_Appendage> appendages;
+// list of gait groups, -1 to separate lists of groups. 
+	immutable_array<glm::vec3>		    gait_group_centers;
+	immutable_array<int16_t>			ipsilateral_inhibition_groups;
+	
+	Specialized specialized;
+	int siphon_joint = -1;
+	
+		/*
+		wave.tip = tail_tip;
+		wave.noJoints = 0;
+		wave.stretched_length_m = s.physical.body_length_m;
+		wave.rest_length_m = s.physical.body_length_m * 0.95f;*/
+		
+	/*
+	 * 
+    // Scan for vertebrate olfactory structures
+    for(uint32_t i = 0; i < sk.skin->names.size(); ++i) {
+        for(auto word : sk.skin->tags[i]) {
+            if(word == Word::snout || word == Word::nose || word == Word::nostril) {
+                has_snout = true;
+                nasal_surface_area += sk.surfaceArea[i] * in.behavior.area_scale();
+                break;
+            }
+        }
+    }*/
+    
+	
 	
 	void AddRef() const { ++_refCount; };
 	void Release() const { if(--_refCount == 0) delete this; }
 	
 private:
+	struct BuilderCommand;
+	Builder(BuilderCommand&);
+
 	mutable std::atomic<int> _refCount{1};
 };
 
@@ -349,6 +353,27 @@ struct Builder_Appendage : public Builder_Chain
 	{
 		position_b min, max;
 	} aabb;
+};
+
+struct Builder_Tail : public Builder_Chain
+{
+	volume_b volume;
+	
+	int common_ancestor{};
+	
+	area_b minCrossSection{};
+	area_b avgCrossSection{};
+	area_b maxCrossSection{};
+	length4_b minMoment{};
+	length4_b avgMoment{};
+	length4_b maxMoment{};
+
+	using Flags = Analysis_Tail::Flags;
+	Flags used_for{0};
+	
+	immutable_array<Builder_Tail> branches{};  // empty for single tail
+    int venom_joint{}; // how?
+	volume_b venom_joint_volume{};
 };
 
 };

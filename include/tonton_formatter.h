@@ -69,9 +69,15 @@ std::string format(const NicheFlags& flags);
 // Single generic operator<< that works for ANY TonTon type with format()
 template<typename T>
 auto operator<<(std::ostream& os, const T& value)
-  -> decltype(format(value), os)  // SFINAE: only exists if format(value) is valid
+  -> decltype(TonTon::format(value), os)  // SFINAE: only exists if format(value) is valid
 {
   return os << format(value);
+}
+// Single generic operator<< that works for ANY TonTon type with format()
+template<int M, int L, int T, int Temp, int Stage>
+std::ostream& operator<<(std::ostream& os, const Quantity<M, L, T, Temp, Stage>& value)
+{
+  return os << float(value);
 }
 
 }

@@ -1,23 +1,17 @@
 #include "tonton_scratch.h"
-#include "Memos/tonton_armaturememo.h"
 #include "Rules/tonton_aerial.h"
 #include "Rules/tonton_sensory.h"
 #include "Rules/tonton_specialized.h"
 #include "Rules/tonton_climbing.h"
 #include "Rules/tonton_serpentine.h"
 #include "Rules/tonton_metabolic.h"
-#include "tonton_formatter.h"
 #include "../include/tonton_input.h"
 
-#include "Memos/tonton_armaturememo.h"
-#include "Memos/tonton_skinnedmeshmemo.h"
-#include "Memos/tonton_meshmemo.h"
 #include "Rules/tonton_behavior.h"
 #include "Rules/tonton_aquatic.h"
 #include "Rules/tonton_terrestrial.h"
-#include "dodeedum.h"
+#include "tonton_builder.h"
 #include <cfloat>
-#include <functional>
 
 using Warning = TonTon::Analysis_Diagnostics::Warning::Severity;
 using SF = TonTon::SemanticFlags;
@@ -26,8 +20,7 @@ namespace TonTon
 {
 static	Analysis_Physical ComputePhysical(Input const& in, Scratch & s);
 
-static	std::vector<Analysis_Manipulator>   ComputeManipulation(Input const& in);
-static	std::vector<Analysis_Tail>   ComputeTails(Input const& in);
+static	shared_array<Analysis_Tail>   ComputeTails(Input const& in);
 
 }
 
@@ -38,8 +31,8 @@ Analysis_TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch&
 
 TonTon::Scratch::Scratch(Input const& in)
 {
-	appendages.manipulation = shared_array<Analysis_Manipulator>::FromArray(ComputeManipulation(in));
-	appendages.tails = shared_array<Analysis_Tail>::FromArray(ComputeTails(in));
+	appendages.manipulation = shared_array<Analysis_Manipulator>::FromArray(ComputeManipulation(in, SF::GRASPER));
+	appendages.tails = ComputeTails(in);
 
 	physical    = ComputePhysical(in, *this);
 	sensory     = ComputeSensory(in, *this);
@@ -203,6 +196,75 @@ TonTon::Scratch::Scratch(Input const& in)
 	}
 };
 
-using namespace TonTon;
+static	TonTon::Analysis_Physical TonTon::ComputePhysical(Input const& in, Scratch & s)
+{
+	auto & ph = in.builder->physical;
+	auto body_volume_m3 = scale_to<0>(ph.body_volume, in.volume_scale());
+	auto & I = ph.covariance_restPose;
+	float cov_scale = float(in.inertia_scale()) * float(in.body_density()); 
+	
+	return {
+		.body_mass_kg=body_volume_m3 * in.body_density(),
+		.body_length_m=scale_to<0>(ph.body_length, in.scale),
+		.body_volume_m3=body_volume_m3,
+		.tail_length_m=scale_to<0>(ph.tail_length, in.scale),
+		
+		.surface_area_m2=scale_to<0>(ph.surface_area, in.area_scale()),
+		.cross_sectional_area_m2=scale_to<0>(ph.cross_section_area, in.area_scale()),
+	
+		.spine_root=ph.spine_root,
+		.upright=ph.upright,
+		.clade=ph.clade,
+		.niche=ph.niche,
+		
+		.covariance_restPose ={
+			I[0]*cov_scale,
+			I[1]*cov_scale,
+			I[2]*cov_scale,
+			I[3]*cov_scale,
+			I[4]*cov_scale,
+			I[5]*cov_scale
+		}
+	};
+}
+
+static	TonTon::Analysis_Tail ComputeTail(TonTon::Input const& in, TonTon::Builder_Tail const& it)
+{
+	TonTon::Analysis_Tail r;
+	it.copy_into(r, in.scale);
+	
+	r.common_ancestor=it.common_ancestor;
+	r.tail_mass_kg=scale_to<0>(it.volume, in.volume_scale()) * in.body_density();
+	r.max_cross_section_m2=scale_to<0>(it.maxCrossSection, in.area_scale());
+	r.min_cross_section_m2=scale_to<0>(it.minCrossSection, in.area_scale());
+	
+	r.used_for=it.used_for;
+	auto branches = shared_array<TonTon::Analysis_Tail>(it.branches.size());
+	
+	TonTon::length_m max_length = 0;
+	for(auto i = 0u; i < branches.size(); ++i)
+	{
+		branches[i] = ComputeTail(in, it.branches[i]);
+		max_length = std::max(max_length, branches[i].stretched_length_m);
+	}
+	
+	r.branches = branches;
+	r.natural_sway_frequency_Hz = sqrt(in.environment.gravity_m_s2 / (r.stretched_length_m + max_length)) / M_PI;
+	
+	return r;
+} 
+
+static	shared_array<TonTon::Analysis_Tail>   TonTon::ComputeTails(Input const& in)
+{
+	auto branches = in.builder->tails;
+	auto r = shared_array<TonTon::Analysis_Tail>(branches.size());
+	
+	for(auto i = 0u; i < branches.size(); ++i)
+	{
+		r[i] = ComputeTail(in, branches[i]);
+	}
+	
+	return r;
+}
 
 

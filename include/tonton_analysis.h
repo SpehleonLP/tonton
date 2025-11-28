@@ -527,8 +527,9 @@ struct Analysis_Constriction {
 };
 
 
-struct  Analysis_Tail : public Analysis_Appendage // or tips for branching
+struct  Analysis_Tail : public Analysis_Chain // or tips for branching
 {       
+	int     common_ancestor{};
 	mass_kg tail_mass_kg{};
 	area_m2 max_cross_section_m2{};
 	area_m2 min_cross_section_m2{};

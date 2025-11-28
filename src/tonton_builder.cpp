@@ -1,14 +1,210 @@
 #include "../include/tonton_builder.h"
 #include "Memos/tonton_armaturememo.h"
+#include "Memos/tonton_skinnedmeshmemo.h"
 #include "tonton_skinnedmesh.h"
-
-#if 0
 
 using SF = TonTon::SemanticFlags;
 
-static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& in, Builder & out)
+struct TonTon::Builder::BuilderCommand
 {
-	auto & sk = *in.skinnedMesh;
+	BuilderCommand(SkinnedMesh const& skinnedMesh, immutable_array<glm::vec3> scale);
+	
+	SkinnedMesh const& skinnedMesh;
+	
+	shared_array<glm::vec3> scale;
+	shared_array<glm::vec3> positions;
+	shared_array<glm::vec3> bone_tails;
+	
+	SemanticAnalysis GetSemanticAnalysis() const;
+	Physical GetPhysicalAnalysis();
+	Sensory GetSensory();	
+	
+	Builder_Chain GetBodyWave();
+	immutable_array<Builder_Tail> GetTails();
+	
+	immutable_array<Builder_Appendage> GetAppendages();
+	immutable_array<glm::vec3> GetGroupCenters();
+	immutable_array<int16_t> GetInhibitionGroups();
+	
+	Specialized GetSpecialized();
+	int32_t GetSiphonJoint() const;
+};
+
+counted_ptr<const TonTon::Builder> TonTon::Builder::Factory(
+	SkinnedMesh const& skinnedMesh,
+	glm::vec3 body_scale,
+	std::span<const glm::vec3> bone_scales	
+)
+{
+	if(skinnedMesh.mesh == nullptr
+	|| skinnedMesh.skin == nullptr)
+		throw std::invalid_argument("skinnedMesh");
+		
+	shared_array<glm::vec3> scales(skinnedMesh.skin->position.size(), glm::vec3(1));
+	
+	if(bone_scales.size() != 0 && bone_scales.size() != scales.size())	
+		throw std::invalid_argument("bone_scales");
+		
+	if(bone_scales.size())	
+		memcpy(scales.data(), bone_scales.data(), scales.byteLength());	
+			
+	for(auto i = 0u; i < scales.size(); ++i)
+	{
+		scales[i] *= body_scale;
+	}
+	
+	BuilderCommand cmd(skinnedMesh, scales);
+	return UncountedWrap(new Builder(cmd));
+};
+
+
+TonTon::Builder::Builder(BuilderCommand & cmd) :
+	semanticAnalyisis(cmd.GetSemanticAnalysis()),
+	physical(cmd.GetPhysicalAnalysis()),
+	sensory(cmd.GetSensory()),	
+	
+	serpentine(cmd.GetBodyWave()),
+	tails(cmd.GetTails()),
+	
+	appendages(cmd.GetAppendages()),
+	gait_group_centers(cmd.GetGroupCenters()),
+	ipsilateral_inhibition_groups(cmd.GetInhibitionGroups()),
+	
+	specialized(cmd.GetSpecialized()),
+	siphon_joint(cmd.GetSiphonJoint())
+{
+}
+
+void TonTon::Builder_Chain::copy_into(Analysis_Chain & dst, length_b_to_m scale) const
+{
+	dst.root = root;
+	dst.tip = tip;
+	dst.noJoints = noJoints;
+	dst.rest_length_m = scale_to<0>(rest_length, scale);
+	dst.stretched_length_m = scale_to<0>(stretched_length, scale);
+}
+
+void TonTon::Builder_Appendage::copy_into(Analysis_Appendage & dst, length_b_to_m scale) const
+{
+	Builder_Chain::copy_into(dst, scale);
+		
+	dst.common_ancestor = common_ancestor;
+	dst.gait_group = gait_group;
+	dst.id = id;
+	dst.phase_offset = phase_offset;
+}
+
+TonTon::Builder::SemanticAnalysis TonTon::Builder::BuilderCommand::GetSemanticAnalysis() const {
+    SemanticAnalysis result;
+    
+    auto semantic_flags = skinnedMesh.skin->memo()->GetSemanticFlags();
+    auto tags = skinnedMesh.skin->tags;
+    
+    // Scan all bones for relevant semantic flags
+    for (size_t i = 0; i < semantic_flags.size(); ++i) {
+        auto flags = semantic_flags[i];
+        
+        // Dental weapons
+        if (HasFlag(flags, SemanticFlags::TEETH)) {
+            // Check for predatory teeth types in tags
+            for (auto word : tags[i]) {
+                if (word == Word::fang || word == Word::canine || word == Word::incisor
+                || word == Word::carnivore || word == Word::predator) {
+                    result.has_sharp_teeth = true;
+                    result.has_weapons = true;
+                }
+                if (word == Word::incisor) {
+                    result.has_sharp_teeth = true;
+                    result.has_incisor_teeth = true;
+                }
+            }
+        }
+        
+        // Claw weapons
+        if (HasFlag(flags, SemanticFlags::NAIL)) {
+            for (auto word : tags[i]) {
+                if (word == Word::claw || word == Word::talon) {
+                    result.has_claws = true;
+                    result.has_weapons = true;
+                    if (word == Word::talon) {
+                        result.has_talons = true;
+                    }
+                }
+            }
+        }
+        
+        // Horns/antlers
+        if (HasFlag(flags, SemanticFlags::HORN_ANTLER)) {
+            result.has_horns = true;
+            result.has_weapons = true;
+        }
+        
+        // Sensory organs
+        if (HasFlag(flags, SemanticFlags::HEARING)) {
+            result.has_hearing_organs = true;
+        }
+        
+        if (HasFlag(flags, SemanticFlags::VISION)) {
+            result.has_good_vision = true;
+            
+            // Determine eye position from flags
+            bool is_lateral = HasFlag(flags, SemanticFlags::LATERAL);
+            bool is_anterior = HasFlag(flags, SemanticFlags::ANTERIOR);
+            
+            if (is_lateral) {
+                result.has_lateral_eyes = true;
+            }
+            if (is_anterior) {
+                result.has_forward_eyes = true;
+            }
+        }
+    }
+    
+	for(auto i = 0u; i < skinnedMesh.skin->tags.size(); ++i)
+	{
+		for(auto tag : skinnedMesh.skin->tags[i])
+			if(tag == Word::stinger
+			|| tag == Word::venom)
+			{
+				result.has_venom = true;
+				result.has_weapons = true;
+			}
+	}
+    
+    // Determine if predator from morphology
+    result.is_predator = HasFlag(skinnedMesh.skin->memo()->GetNicheFlags(), NicheFlags::PREDATOR);
+    
+    float eye_volume = 0.0;
+    float body_volume = 0.0;
+    
+	for(auto i = 0u; i < skinnedMesh.skin->tags.size(); ++i)
+	{
+		for(auto tag : skinnedMesh.skin->tags[i])
+			if(tag == Word::stinger
+			|| tag == Word::venom)
+			{
+				result.has_venom = true;
+				result.has_weapons = true;
+			}
+			
+		float bone_scale = scale[i].x * scale[i].y	* scale[i].z;
+		float volume = skinnedMesh.volume[i] * bone_scale;
+		
+		body_volume += volume;
+		if(HasFlag(semantic_flags[i], SemanticFlags::VISION))
+		{
+			eye_volume+= volume;
+		}
+	}
+	
+    result.eye_body_ratio = eye_volume / body_volume;
+    
+    return result;
+}
+
+TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis()
+{
+	auto & sk = skinnedMesh;
 	auto * sk_memo = sk.skin->memo();
 	
 	auto parents = sk.skin->parents.data();
@@ -18,14 +214,13 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 	
 	for(auto i = 0u; i < sk.volume.size(); ++i)
 	{
-		volume += sk.volume[i];
-		surfaceArea += sk.surfaceArea[i]; 
+		float volume_scale = scale[i].x * scale[i].y	* scale[i].z;
+		float area_scale = std::cbrt(scale[i].x * scale[i].y) * std::cbrt(scale[i].y*scale[i].z) * std::cbrt(scale[i].x*scale[i].z);
+		
+		volume += sk.volume[i] * volume_scale;
+		surfaceArea += sk.surfaceArea[i] * area_scale; 
 	}
 	
-	volume *= in.behavior.volume_scale();
-	surfaceArea *= in.behavior.area_scale();
-
-	auto position       = sk.skin->position.data();
 	auto relative_flags = sk_memo->GetRelativeFlags();
 	auto children		= sk_memo->GetChildren();
 	auto semantic_flags = sk_memo->GetSemanticFlags();
@@ -70,7 +265,7 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 				(aabb.min.x+aabb.max.x)/2.f, 
 				(aabb.min.y+aabb.max.y)/2.f,
 				(aabb.max.z)), 
-			in.position(root));
+			positions[root]);
 		double spine_length = 0;
 		double this_cross_section_area = 0;
 		bool is_this_upright = false;
@@ -84,7 +279,7 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 			
 			if(p >= 0)
 			{
-				glm::vec3 delta = in.position(joint) - in.position(p);
+				glm::vec3 delta = positions[joint] - positions[p];
 				
 				if(root == joint)
 				{
@@ -131,13 +326,13 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 			glm::vec3 delta = glm::vec3(0);
 			
 			if(candidate == -1)
-				delta = in.position(joint) - in.skinnedMesh->memo()->GetBoneTails()[joint];
+				delta = positions[joint] - bone_tails[joint];
 			else if(candidate_shared_by_head == false)
 			{
 				if(in_spine == false)
-					delta = in.position(root) - in.position(candidate);
+					delta = positions[root] - positions[candidate];
 				else
-					delta = in.position(joint) - in.position(candidate);
+					delta = positions[joint] - positions[candidate];
 			}
 			
 			joint = candidate;			
@@ -174,7 +369,7 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 				
 				if(p >= 0)
 				{			
-					length += glm::distance(in.position(joint), in.position(p));
+					length += glm::distance(positions[joint], positions[p]);
 				}
 			}
 			
@@ -193,7 +388,7 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 			
 			if(p >= 0)
 			{	
-				tail_length += glm::distance(in.position(joint), in.position(p));	
+				tail_length += glm::distance(positions[joint], positions[p]);	
 			}
 			
 			if(HasFlag(semantic_flags[joint], SPINE_FLAGS))
@@ -226,7 +421,7 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 				auto children = sk_memo->GetAllChildren(node, SPINE_FLAGS, NOT_SPINE_FLAGS);
 				children.push_back(node);
 					
-				auto area =	in.skinnedMesh->EstimateCrossSection(children, in.behavior.scale, position[node] - position[parents[node]]);	
+				auto area =	skinnedMesh.EstimateCrossSection(children, scale, positions[node] - positions[parents[node]]);	
 				crossSectionArea = std::max<double>(crossSectionArea, area);
 			}
 		}
@@ -251,41 +446,51 @@ static TonTon::Analysis_Physical TonTon::ComputePhysical(BuilderCommand const& i
 	
 	if(max_body_length == 0.0)
 	{
-		out.diagnostics.warnings.push_back({
-			.level=Warning::ERROR,
-			.message="unable to find head of model."
-		});
+		throw std::runtime_error("unable to find head of model.");
 	}
 	
 	max_body_length += tail_to_root_dist;
-	double diameter = 2.0 * (sqrt(crossSectionArea) / M_PI);	
 	
-	double body_density= in.body_density();
-	auto C = in.skinnedMesh->GetCovariance(std::span<uint16_t>{}, in.behavior.scale);
+	auto C = skinnedMesh.GetCovariance(std::span<uint16_t>{}, scale);
 		
 	
 	return {
-		.body_mass_kg=float(volume * body_density),
-		.body_length_m=max_body_length+max_tail_length,
-		.body_volume_m3=volume,
-		.tail_length_m=max_tail_length,
+		.body_length=max_body_length+max_tail_length,
+		.body_volume=volume,
+		.tail_length=max_tail_length,
 		
-		.surface_area_m2=surfaceArea,
-		.cross_sectional_area_m2=crossSectionArea,
-		.fineness_ratio=float(max_body_length/diameter),
+		.surface_area=surfaceArea,
+		.cross_section_area=crossSectionArea,
 		.spine_root=static_cast<int16_t>(spine_root),
 		.upright=is_upright,		
 		.clade=(sk_memo->GetCladeFlags()[root]|sk_memo->GetRelativeCladeFlags()[root].child_flags),
 		.covariance_restPose=std::array<float, 6>{
-			float(C[0]*body_density),
-			float(C[1]*body_density),
-			float(C[2]*body_density),
-			float(C[3]*body_density),
-			float(C[4]*body_density),
-			float(C[5]*body_density),
+			float(C[0]),
+			float(C[1]),
+			float(C[2]),
+			float(C[3]),
+			float(C[4]),
+			float(C[5]),
 		}
 	};
 }
+
+int32_t TonTon::Builder::BuilderCommand::GetSiphonJoint() const
+{
+	for(auto i = 0u; i < skinnedMesh.skin->tags.size(); ++i)
+	{
+		for(auto tag : skinnedMesh.skin->tags[i])
+			if(tag == Word::siphon)
+				return i;
+	}
+	
+	return -1;
+}
+
+
+
+#if 0
+
 
 template<typename T>
 static std::vector<Analysis_Chain> GetChainsFromRoot(TonTon::Input const& in, T const& function)
@@ -330,7 +535,7 @@ static std::vector<Analysis_Chain> GetChainsFromRoot(TonTon::Input const& in, T 
 				
 				if(p >= node)
 				{
-					length += glm::distance(in.position(j), in.position(p));
+					length += glm::distance(positions[j), positions[p));
 				}
 			}
 			
@@ -347,7 +552,7 @@ static std::vector<Analysis_Chain> GetChainsFromRoot(TonTon::Input const& in, T 
 			.tip=uint16_t(best_leaf),
 			.noJoints=jointsInChain,
 			.stretched_length_m=float(max_length),
-			.rest_length_m=glm::distance(in.position(best_leaf), in.position(node))
+			.rest_length_m=glm::distance(positions[best_leaf), positions[node))
 		});
 	}
 	
@@ -610,7 +815,7 @@ std::vector<glm::vec3> TonTon::GetGaitGroupCenters(Input const& in, Analysis_App
 		{
 			if(count[j].first == p->gait_group)
 			{
-				positions[j] += in.position(p->root);
+				positions[j] += positions[p->root);
 				count[j].second += 1;
 				goto found;
 			}
@@ -618,13 +823,13 @@ std::vector<glm::vec3> TonTon::GetGaitGroupCenters(Input const& in, Analysis_App
 			if(count[j].first > p->gait_group)
 			{
 				count.insert(count.begin()+j, {	int(p->gait_group),1});
-				positions.insert(positions.begin()+j, in.position(p->root));
+				positions.insert(positions.begin()+j, positions[p->root));
 				goto found;
 			}
 		}
 
 		count.push_back({int(p->gait_group),1});
-		positions.push_back(in.position(p->root));
+		positions.push_back(positions[p->root));
 		
 	found:
 		(void)0;
@@ -948,90 +1153,6 @@ std::vector<TonTon::Analysis_Aquatic::Fin> TonTon::Compute_Fins(const Builder &i
 }
 
 
-static SemanticAnalysis AnalyzeSemantics(SkinnedMesh const& skinnedMesh, Scratch const& scratch) {
-    SemanticAnalysis result;
-    
-    auto semantic_flags = skinnedMesh->skin->memo()->GetSemanticFlags();
-    auto tags = skinnedMesh->skin->tags;
-    
-    // Scan all bones for relevant semantic flags
-    for (size_t i = 0; i < semantic_flags.size(); ++i) {
-        auto flags = semantic_flags[i];
-        
-        // Dental weapons
-        if (HasFlag(flags, SemanticFlags::TEETH)) {
-            // Check for predatory teeth types in tags
-            for (auto word : tags[i]) {
-                if (word == Word::fang || word == Word::canine || word == Word::incisor
-                || word == Word::carnivore || word == Word::predator) {
-                    result.has_sharp_teeth = true;
-                    result.has_weapons = true;
-                }
-            }
-        }
-        
-        // Claw weapons
-        if (HasFlag(flags, SemanticFlags::NAIL)) {
-            for (auto word : tags[i]) {
-                if (word == Word::claw || word == Word::talon) {
-                    result.has_claws = true;
-                    result.has_weapons = true;
-                    if (word == Word::talon) {
-                        result.has_talons = true;
-                    }
-                }
-            }
-        }
-        
-        // Horns/antlers
-        if (HasFlag(flags, SemanticFlags::HORN_ANTLER)) {
-            result.has_horns = true;
-            result.has_weapons = true;
-        }
-        
-        // Sensory organs
-        if (HasFlag(flags, SemanticFlags::HEARING)) {
-            result.has_hearing_organs = true;
-        }
-        
-        if (HasFlag(flags, SemanticFlags::VISION)) {
-            result.has_good_vision = true;
-            
-            // Determine eye position from flags
-            bool is_lateral = HasFlag(flags, SemanticFlags::LATERAL);
-            bool is_anterior = HasFlag(flags, SemanticFlags::ANTERIOR);
-            
-            if (is_lateral) {
-                result.has_lateral_eyes = true;
-            }
-            if (is_anterior) {
-                result.has_forward_eyes = true;
-            }
-        }
-    }
-    
-    // Check for venom in output structures
-    for (auto& tail : scratch.appendages.tails) {
-        if (tail.venom.has_value()) {
-            result.has_venom = true;
-            result.has_weapons = true;
-        }
-    }
-    
-    // Determine if predator from morphology
-    result.is_predator = result.has_sharp_teeth || result.has_talons || 
-                        (result.has_claws && !scratch.climbing);
-    
-    // Estimate eye size from head and vision system
-    if (scratch.sensory.vision) {
-        // Larger detection range suggests larger eyes
-        float detection = scratch.sensory.vision->detection_range_m;
-        float body_length = scratch.physical.body_length_m;
-        result.eye_body_ratio = glm::clamp(detection / (body_length * 100.0f), 0.05f, 0.25f);
-    }
-    
-    return result;
-}
 
 
 struct EyeInfo {
@@ -1059,7 +1180,7 @@ static std::vector<EyeInfo> FindEyes(TonTon::SkinnedMesh const& sk) {
         
         EyeInfo eye;
         eye.joint_index = i;
-        eye.position = in.position(i);
+        eye.position = positions[i);
         
         // Estimate eye size
         double eye_volume = sk.volume[i] * in.behavior.volume_scale();
@@ -1089,7 +1210,7 @@ static std::vector<EyeInfo> FindEyes(TonTon::SkinnedMesh const& sk) {
         eye.is_on_stalk = sk.GetStalkData(stalk, body_attachment, i, in.behavior.scale);
         
         if(eye.is_on_stalk) {
-            eye.base_position = in.position(stalk.root);
+            eye.base_position = positions[stalk.root);
             eye.stalk_length_m = stalk.length_m;
             
             // Eye points away from base
@@ -1100,7 +1221,7 @@ static std::vector<EyeInfo> FindEyes(TonTon::SkinnedMesh const& sk) {
             
         } else {
             // Fixed eye
-            eye.base_position = in.position(body_attachment);
+            eye.base_position = positions[body_attachment);
             
             // Eye points radially + respects local rotation
             glm::vec3 radial = glm::normalize(eye.position - eye.base_position);
@@ -1120,3 +1241,4 @@ static std::vector<EyeInfo> FindEyes(TonTon::SkinnedMesh const& sk) {
 
 
 #endif
+

@@ -1,5 +1,4 @@
 #include "../include/tonton_formatter.h"
-#include <format>
 
 namespace TonTon {
 
@@ -7,7 +6,18 @@ namespace TonTon {
 template<typename T>
 static std::string format_optional(const char* name, const std::optional<T>& opt) {
 	if (opt) {
-		return std::format("  {}: {}\n", name, *opt);
+	// not leaf so don't grow stack with snprintf
+		auto str = format(*opt);
+		std::string buffer;
+		buffer.reserve(str.size() + strlen(name) + 8);
+		
+		buffer += "   ";
+		buffer += name;
+		buffer += ": ";
+		buffer += str;
+		buffer += "\n";
+		
+		return buffer;
 	}
 	return "";
 }
@@ -16,7 +26,17 @@ static std::string format_optional(const char* name, const std::optional<T>& opt
 template<typename T>
 static std::string format_optional(const char* name, const T& value) {
 	if (static_cast<float>(value) > 0) {
-		return std::format("  {}: {}\n", name, value);
+		auto str = std::to_string(float(value));
+		std::string buffer;
+		buffer.reserve(str.size() + strlen(name) + 8);
+		
+		buffer += "   ";
+		buffer += name;
+		buffer += ": ";
+		buffer += str;
+		buffer += "\n";
+		
+		return buffer;
 	}
 	return "";
 }
@@ -27,44 +47,49 @@ static std::string format_optional(const char* name, const T& value) {
 
 // Physical
 std::string format(const Analysis_Physical& p) {
-	return std::format(
+	char buffer[1024];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"Physical:\n"
-				"  body_mass_kg: {}\n"
-				"  svl_m: {}\n"
-				"  total_length_m: {}\n"
-				"  body_volume_m3: {}\n"
-				"  surface_area_m2: {}\n"
-				"  cross_sectional_area_m2: {}\n"
-				"  cross_sectional_diameter: {}\n"
-				"  fineness_ratio: {}\n",
-				p.body_mass_kg,
-				p.svl_m(),
-				p.body_length_m,
-				p.body_volume_m3,
-				p.surface_area_m2,
-				p.cross_sectional_area_m2,
-				p.cross_sectional_diameter_m(),
+				"  body_mass_kg: %f\n"
+				"  svl_m: %f\n"
+				"  total_length_m: %f\n"
+				"  body_volume_m3: %f\n"
+				"  surface_area_m2: %f\n"
+				"  cross_sectional_area_m2: %f\n"
+				"  cross_sectional_diameter: %f\n"
+				"  fineness_ratio: %f\n",
+				float(p.body_mass_kg),
+				float(p.svl_m()),
+				float(p.body_length_m),
+				float(p.body_volume_m3),
+				float(p.surface_area_m2),
+				float(p.cross_sectional_area_m2),
+				float(p.cross_sectional_diameter_m()),
 				p.fineness_ratio()
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Metabolic
 std::string format(const Analysis_Metabolic& m) {
-	std::string result = std::format(
+	char buffer[1024];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"Metabolic:\n"
-				"  basal_rate_W: {}\n"
-				"  max_rate_W: {}\n"
-				"  aerobic_scope: {}\n"
-				"  muscle_mass_kg: {}\n"
-				"  available_muscle_power_W: {}\n"
-				"  is_endotherm: {}\n",
-				m.basal_rate_W,
-				m.max_rate_W,
+				"  basal_rate_W: %f\n"
+				"  max_rate_W: %f\n"
+				"  aerobic_scope: %f\n"
+				"  muscle_mass_kg: %f\n"
+				"  available_muscle_power_W: %f\n"
+				"  is_endotherm: %s\n",
+				float(m.basal_rate_W),
+				float(m.max_rate_W),
 				m.aerobic_scope(),
-				m.muscle_mass_kg,
-				m.available_muscle_power_W,
+				float(m.muscle_mass_kg),
+				float(m.available_muscle_power_W),
 				m.is_endotherm() ? "true" : "false"
-								   );
+		);
+		
+	std::string result = std::string(buffer, chars_printed);
 	result += format_optional("body_temperature_K", m.body_temperature_K);
 	result += format_optional("thermal_neutral_zone_min_K", m.thermal_neutral_zone_min_K);
 	result += format_optional("thermal_neutral_zone_max_K", m.thermal_neutral_zone_max_K);
@@ -93,17 +118,18 @@ std::string format(const Analysis_Behavior& b) {
 		archetype_str = "APEX_PREDATOR"; break;
 	default: break;
 	}
-	
-	return std::format(
+
+	char buffer[1024];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"Behavior:\n"
-				"  aggression: {}\n"
-				"  social_tendency: {}\n"
-				"  activity_level: {}\n"
-				"  curiosity: {}\n"
-				"  territoriality: {}\n"
-				"  diurnal_preference: {}\n"
-				"  is_migratory: {}\n"
-				"  suggested_archetype: {}\n",
+				"  aggression: %f\n"
+				"  social_tendency: %f\n"
+				"  activity_level: %f\n"
+				"  curiosity: %f\n"
+				"  territoriality: %f\n"
+				"  diurnal_preference: %f\n"
+				"  is_migratory: %s\n"
+				"  suggested_archetype: %s\n",
 				b.aggression,
 				b.social_tendency,
 				b.activity_level,
@@ -113,66 +139,73 @@ std::string format(const Analysis_Behavior& b) {
 				b.is_migratory ? "true" : "false",
 				archetype_str
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Sensory
 std::string format(const Analysis_Sensory<optional>& s) {
 	std::string result;
-	
+	char buffer[512];
+
 	if (s.vision) {
-		result += std::format(
+		auto chars_printed = snprintf(buffer, sizeof(buffer),
 					"Sensory:\n"
-					"  vision.acuity: {}\n"
-					"  vision.binocular_overlap: {}\n"
-					"  vision.has_color_vision: {}\n"
-					"  vision.has_night_vision: {}\n"
-					"  vision.detection_range_m: {}\n",
+					"  vision.acuity: %f\n"
+					"  vision.binocular_overlap: %f\n"
+					"  vision.has_color_vision: %s\n"
+					"  vision.has_night_vision: %s\n"
+					"  vision.detection_range_m: %f\n",
 					s.vision->acuity,
 					s.vision->binocular_overlap,
 					s.vision->has_color_vision ? "true" : "false",
 					s.vision->has_night_vision ? "true" : "false",
-					s.vision->detection_range_m
+					float(s.vision->detection_range_m)
 					);
+		result += std::string(buffer, chars_printed);
 	}
-	
+
 	if (s.hearing) {
-		result += std::format(
-					"  hearing.sensitivity: {}\n"
-					"  hearing.frequency_range_Hz: {} - {}\n"
-					"  hearing.detection_range_m: {}\n",
+		auto chars_printed = snprintf(buffer, sizeof(buffer),
+					"  hearing.sensitivity: %f\n"
+					"  hearing.frequency_range_Hz: %f - %f\n"
+					"  hearing.detection_range_m: %f\n",
 					s.hearing->sensitivity,
-					s.hearing->frequency_range_Hz_min,
-					s.hearing->frequency_range_Hz_max,
-					s.hearing->detection_range_m
+					float(s.hearing->frequency_range_Hz_min),
+					float(s.hearing->frequency_range_Hz_max),
+					float(s.hearing->detection_range_m)
 					);
+		result += std::string(buffer, chars_printed);
 	}
-	
+
 	if (s.olfaction) {
-		result += std::format(
-					"  olfaction.sensitivity: {}\n"
-					"  olfaction.detection_range_m: {}\n",
+		auto chars_printed = snprintf(buffer, sizeof(buffer),
+					"  olfaction.sensitivity: %f\n"
+					"  olfaction.detection_range_m: %f\n",
 					s.olfaction->sensitivity,
-					s.olfaction->detection_range_m
+					float(s.olfaction->detection_range_m)
 					);
+		result += std::string(buffer, chars_printed);
 	}
-	
+
 	return result;
 }
 
 // Diagnostics
 std::string format(const Analysis_Diagnostics& d) {
-	std::string result = std::format(
+	char buffer[1024];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"Diagnostics:\n"
-				"  overall_confidence: {}\n"
-				"  passes_power_budget_check: {}\n"
-				"  passes_mass_budget_check: {}\n"
-				"  is_physically_plausible: {}\n",
+				"  overall_confidence: %f\n"
+				"  passes_power_budget_check: %s\n"
+				"  passes_mass_budget_check: %s\n"
+				"  is_physically_plausible: %s\n",
 				d.overall_confidence,
 				d.passes_power_budget_check ? "true" : "false",
 				d.passes_mass_budget_check ? "true" : "false",
 				d.is_physically_plausible ? "true" : "false"
 											);
-	
+	std::string result(buffer, chars_printed);
+
 	if (!d.warnings.empty()) {
 		result += "  warnings:\n";
 		for (const auto& w : d.warnings) {
@@ -183,7 +216,8 @@ std::string format(const Analysis_Diagnostics& d) {
 			case Analysis_Diagnostics::Warning::Severity::ERROR: severity_str = "ERROR"; break;
 			default: break;
 			}
-			result += std::format("    [{}] {}\n", severity_str, w.message);
+			chars_printed = snprintf(buffer, sizeof(buffer), "    [%s] %s\n", severity_str, w.message.c_str());
+			result += std::string(buffer, chars_printed);
 		}
 	}
 	return result;
@@ -191,14 +225,16 @@ std::string format(const Analysis_Diagnostics& d) {
 
 // BodyWave
 std::string format(const Analysis_BodyWave& bw) {
-	return std::format(
-				"    BodyWave(root:{} tip:{} λ/L:{} A/L:{} flex:{})",
+	char buffer[512];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
+				"    BodyWave(root:%i tip:%i λ/L:%f A/L:%f flex:%f)",
 				static_cast<int>(bw.root),
 				static_cast<int>(bw.tip),
-				bw.wavelength_ratio,
-				bw.amplitude_ratio,
+				float(bw.wavelength_ratio),
+				float(bw.amplitude_ratio),
 				bw.body_flexibility
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Serpentine
@@ -298,15 +334,16 @@ std::string format(const Analysis_Terrestrial& t) {
 
 // Aerial::Wing
 std::string format(const Analysis_Aerial::Wing& wing) {
-	return std::format(
-				"    Wing(root:{} tip:{} span:{}m area:{}m² chord length:{}m AR:{})",
+	char buffer[1024];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),  "Wing(root: %i tip: %i span: %f m area: %f m² chord length: %f m AR: %f)",
 				static_cast<int>(wing.root),
 				static_cast<int>(wing.tip),
-				wing.span_m,
-				wing.wing_area_m2,
-				wing.chord_m,
-				wing.aspect_ratio()
-				);
+				float(wing.span_m),
+				float(wing.wing_area_m2),
+				float(wing.chord_m),
+				wing.aspect_ratio());
+			
+	return std::string(buffer, chars_printed);	
 }
 
 // Aerial
@@ -346,42 +383,48 @@ std::string format(const Analysis_Aerial& a) {
 
 // Aquatic::Fin
 std::string format(const Analysis_Aquatic::Fin& fin) {
-	return std::format(
-				"    Fin(root:{} tip:{} area:{}m²)",
+	char buffer[256];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
+				"    Fin(root:%i tip:%i area:%fm²)",
 				static_cast<int>(fin.root),
 				static_cast<int>(fin.tip),
-				fin.fin_area_m2
+				float(fin.fin_area_m2)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Aquatic::CStartResponse
 std::string format(const Analysis_Aquatic::CStartResponse& cstart) {
-	return std::format(
+	char buffer[512];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"  CStartResponse:\n"
-				"    duration_s: {}\n"
-				"    max_body_curvature_rad: {}\n"
-				"    acceleration_m_s2: {}\n",
-				cstart.duration_s,
-				cstart.max_body_curvature_rad,
-				cstart.c_acceleration_m_s2
+				"    duration_s: %f\n"
+				"    max_body_curvature_rad: %f\n"
+				"    acceleration_m_s2: %f\n",
+				float(cstart.duration_s),
+				float(cstart.max_body_curvature_rad),
+				float(cstart.c_acceleration_m_s2)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Aquatic::JetPropulsion
 std::string format(const Analysis_Aquatic::JetPropulsion& jet) {
-	return std::format(
+	char buffer[512];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"  JetPropulsion:\n"
-				"    mantle_contraction_frequency_Hz: {}\n"
-				"    jet_pulse_volume_m3: {}\n"
-				"    jet_velocity_m_s: {}\n"
-				"    siphon_joint: {}\n"
-				"    siphon_articulation_range_rad: {}\n",
-				jet.mantle_contraction_frequency_Hz,
-				jet.jet_pulse_volume_m3,
-				jet.jet_velocity_m_s,
+				"    mantle_contraction_frequency_Hz: %f\n"
+				"    jet_pulse_volume_m3: %f\n"
+				"    jet_velocity_m_s: %f\n"
+				"    siphon_joint: %i\n"
+				"    siphon_articulation_range_rad: %f\n",
+				float(jet.mantle_contraction_frequency_Hz),
+				float(jet.jet_pulse_volume_m3),
+				float(jet.jet_velocity_m_s),
 				static_cast<int>(jet.siphon_joint),
-				jet.siphon_articulation_range_rad
+				float(jet.siphon_articulation_range_rad)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Aquatic
@@ -520,40 +563,46 @@ std::string format(const Analysis_Jumping& j) {
 	case Analysis_Jumping::MechanismType::HYDRAULIC: mechanism_str = "HYDRAULIC"; break;
 	default: break;
 	}
-	
-	return std::format(
+
+	char buffer[512];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"Jumping:\n"
-				"  mechanism: {}\n"
-				"  max_jump_height_m: {}\n"
-				"  max_jump_distance_m: {}\n"
-				"  takeoff_velocity_m_s: {}\n",
+				"  mechanism: %s\n"
+				"  max_jump_height_m: %f\n"
+				"  max_jump_distance_m: %f\n"
+				"  takeoff_velocity_m_s: %f\n",
 				mechanism_str,
-				j.max_jump_height_m,
-				j.max_jump_distance_m,
-				j.takeoff_velocity_m_s
+				float(j.max_jump_height_m),
+				float(j.max_jump_distance_m),
+				float(j.takeoff_velocity_m_s)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Manipulator
 std::string format(const Analysis_Manipulator& manip) {
-	return std::format(
-				"    Manipulator(root:{} tip:{} reach:{}m grip:{}N)",
+	char buffer[256];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
+				"    Manipulator(root:%i tip:%i reach:%fm grip:%fN)",
 				static_cast<int>(manip.root),
 				static_cast<int>(manip.tip),
-				manip.stretched_length_m,
-				manip.max_grip_force_N
+				float(manip.stretched_length_m),
+				float(manip.max_grip_force_N)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Brachiation::Arm
 std::string format(const Analysis_Brachiation::Arm& arm) {
-	return std::format(
-				"    Arm(root:{} hand:{} reach:{}m grip:{}N)",
+	char buffer[256];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
+				"    Arm(root:%i hand:%i reach:%fm grip:%fN)",
 				static_cast<int>(arm.root),
 				static_cast<int>(arm.tip),
-				arm.reach_m,
-				arm.grip_strength_N
+				float(arm.reach_m),
+				float(arm.grip_strength_N)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Brachiation
@@ -676,20 +725,22 @@ std::string format(const Output& output) {
 
 // Builder_Chain
 std::string format(const Builder_Chain& chain) {
-	return std::format(
-				"Chain(root:{} tip:{} joints:{} stretched:{} rest:{})",
+	char buffer[256];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
+				"Chain(root:%u tip:%u joints:%u stretched:%f rest:%f)",
 				chain.root,
 				chain.tip,
 				chain.noJoints,
-				chain.stretched_length,
-				chain.rest_length
+				float(chain.stretched_length),
+				float(chain.rest_length)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Builder::SemanticAnalysis
 std::string format(const Builder::SemanticAnalysis& sa) {
 	std::string result = "SemanticAnalysis:\n";
-	
+
 	if (sa.has_sharp_teeth) result += "  has_sharp_teeth: true\n";
 	if (sa.has_claws) result += "  has_claws: true\n";
 	if (sa.has_talons) result += "  has_talons: true\n";
@@ -699,13 +750,15 @@ std::string format(const Builder::SemanticAnalysis& sa) {
 	if (sa.is_predator) result += "  is_predator: true\n";
 	if (sa.has_hearing_organs) result += "  has_hearing_organs: true\n";
 	if (sa.has_good_vision) result += "  has_good_vision: true\n";
-	
-	result += std::format("  eye_body_ratio: {}\n", sa.eye_body_ratio);
-	
+
+	char buffer[128];
+	auto chars_printed = snprintf(buffer, sizeof(buffer), "  eye_body_ratio: %f\n", sa.eye_body_ratio);
+	result += std::string(buffer, chars_printed);
+
 	if (sa.has_lateral_eyes) result += "  has_lateral_eyes: true\n";
 	if (sa.has_forward_eyes) result += "  has_forward_eyes: true\n";
 	if (sa.has_incisor_teeth) result += "  has_incisor_teeth: true\n";
-	
+
 	return result;
 }
 
@@ -736,14 +789,16 @@ std::string format(const Builder::Physical& p) {
 
 // Builder::Sensory::Vision::EyeInfo
 std::string format(const Builder::Sensory::Vision::EyeInfo& eye) {
-	return std::format(
-				"    Eye(joint:{} pos:({},{},{}) dir:({},{},{}) on_stalk:{} diameter:{})",
+	char buffer[512];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
+				"    Eye(joint:%u pos:(%f,%f,%f) dir:(%f,%f,%f) on_stalk:%s diameter:%f)",
 				eye.joint_index,
-				eye.position.x, eye.position.y, eye.position.z,
+				float(eye.position.x), float(eye.position.y), float(eye.position.z),
 				eye.pointing_direction.x, eye.pointing_direction.y, eye.pointing_direction.z,
 				eye.is_on_stalk ? "yes" : "no",
-				eye.eye_diameter_m
+				float(eye.eye_diameter_m)
 				);
+	return std::string(buffer, chars_printed);
 }
 
 // Builder::Sensory::Vision
@@ -766,13 +821,15 @@ std::string format(const Builder::Sensory::Vision& vision) {
 
 // Builder::Sensory::Hearing
 std::string format(const Builder::Sensory::Hearing& hearing) {
-	return std::format(
+	char buffer[256];
+	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"  Hearing:\n"
-				"    ear_surface_area: {}\n"
-				"    has_external_ears: {}\n",
-				hearing.ear_surface_area,
+				"    ear_surface_area: %f\n"
+				"    has_external_ears: %s\n",
+				float(hearing.ear_surface_area),
 				hearing.has_external_ears ? "true" : "false"
 											);
+	return std::string(buffer, chars_printed);
 }
 
 // Builder::Sensory::Antennae
