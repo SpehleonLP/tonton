@@ -1,4 +1,5 @@
 #include "tonton_specialized.h"
+#include "Rules/tonton_climbing.h"
 #include "tonton_builder.h"
 #include "tonton_scratch.h"
 #include "../include/tonton_input.h"
@@ -32,29 +33,34 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 	int forelimb_count = 0;
 
 	// Check manipulators for digging capability
-	for(auto const& manip : in.builder->appendages)
+	for(auto i = 0u; i < in.builder->appendages.size(); ++i)
 	{
 		// Check if this is a forelimb (anterior)
-		bool is_forelimb = HasFlag(manip.semantic_flags, SF::ANTERIOR | SF::LIMB);
+		bool is_forelimb = HasFlag(in.builder->appendages[i].semantic_flags, SF::ANTERIOR | SF::LIMB);
 
 		if(is_forelimb)
 		{
-			++forelimb_count;
-			max_forelimb_force = std::max(max_forelimb_force, manip.max_lift_force_N);
-			avg_forelimb_area += scale_to<0>(manip.surface_area, in.area_scale());
-
-			// Claws are critical for scratch digging
-			if(manip.contact.has_claws)
-			{
-				has_digging_claws = true;
-			}
-
-			// Strong forelimbs indicate digging capability
-			// Fossorial mammals have ~2-3x stronger forelimbs than cursorial species
-			auto force_to_weight = manip.max_lift_force_N / (s.physical.body_mass_kg * in.environment.gravity_m_s2);
-			if(force_to_weight > 0.3f) // Can lift 30% of body weight
-			{
-				has_strong_forelimbs = true;
+			auto manip = ComputeManipulation(in, i);
+		
+			if(manip)
+			{		
+				++forelimb_count;
+				max_forelimb_force = std::max(max_forelimb_force, manip->max_lift_force_N);
+				avg_forelimb_area += manip->contact_area_m2;
+	
+				// Claws are critical for scratch digging
+				if(manip->has_claws)
+				{
+					has_digging_claws = true;
+				}
+	
+				// Strong forelimbs indicate digging capability
+				// Fossorial mammals have ~2-3x stronger forelimbs than cursorial species
+				auto force_to_weight = manip->max_lift_force_N / (s.physical.body_mass_kg * in.environment.gravity_m_s2);
+				if(force_to_weight > 0.3f) // Can lift 30% of body weight
+				{
+					has_strong_forelimbs = true;
+				}
 			}
 		}
 	}

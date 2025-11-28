@@ -178,7 +178,7 @@ immutable_array<TonTon::SkinnedMeshMemo::Clique> TonTon::SkinnedMeshMemo::GetCli
 		aabb = aabb | box;
 	}
 
-	double general_scale = cbrt((aabb.max.x - aabb.min.x) * (aabb.max.y - aabb.min.y) * (aabb.max.z - aabb.min.z));
+	double general_scale = std::cbrt((aabb.max.x - aabb.min.x) * (aabb.max.y - aabb.min.y) * (aabb.max.z - aabb.min.z));
 	general_scale = 1.0 / general_scale;
 	
 	for(auto p = 0u; p < children.size(); ++p)

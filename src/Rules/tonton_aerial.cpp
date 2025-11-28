@@ -97,8 +97,9 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	// --- BEAT AMPLITUDE ---
 	// Geometric constraints: hovering needs large amplitude, fast flight smaller
 	// Typical range: 60° (1.05 rad) for cruising to 140° (2.44 rad) for hovering
-    auto amplitude_factor = 0.3f + 0.5f * in.stability_vs_speed; // hovering increases amplitude
-    angle_rad base_beat_amplitude_rad = amplitude_factor * (total_wing_span_m / 2.0f);
+    auto amplitude_base_rad = 1.05f;  // 60 degrees for cruising
+    auto amplitude_range_rad = 1.39f;  // range up to 140 degrees (2.44 rad) for hovering
+    angle_rad base_beat_amplitude_rad = amplitude_base_rad + amplitude_range_rad * in.stability_vs_speed;
     
 	int noWingGroups = 1;
 	for (auto& wing : wings) {
@@ -166,7 +167,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // --- STROUHAL NUMBER CONSTRAINT ---
     // Universal for efficient oscillatory locomotion: St = f·A/v ≈ 0.2-0.4
     // Use optimal Strouhal (0.3) to determine cruise speed
-    length_m stroke_length_m = base_beat_amplitude_rad; // simplification
+    // Stroke length = beat amplitude (radians) * wing radius (arc length formula)
+    length_m stroke_length_m = base_beat_amplitude_rad * (total_wing_span_m / 2.0f);
     auto strouhal_optimal = 0.3f;
     r.cruise_speed_m_s = (r.wingbeat_frequency_Hz * stroke_length_m) / strouhal_optimal;
     

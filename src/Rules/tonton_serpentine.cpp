@@ -1,4 +1,5 @@
 #include "tonton_serpentine.h"
+#include "tonton_builder.h"
 #include "tonton_input.h"
 #include "tonton_scratch.h"
 #include "Memos/tonton_armaturememo.h"
@@ -108,51 +109,8 @@ static bool CanUseSerpentineLocomotion(Input const&, Scratch const& s)
 static Analysis_BodyWave CalculateLateralUndulation(Input const& in, Scratch const& s)
 {
 	Analysis_BodyWave wave{};
-
-	// Find spine chain from tail to head
-	auto & sk = *in.skinnedMesh;
-	auto * memo = sk.skin->memo();
-	auto semantic_flags = memo->GetSemanticFlags();
-	auto parents = sk.skin->parents.data();
-
-	// Find tail root and spine chain
-	int tail_tip = -1;
-	int spine_root = s.physical.spine_root;
-
-	for(auto const& tail : s.appendages.tails) {
-		tail_tip = tail.tip;
-		break; // Use first tail
-	}
-
-	if(tail_tip < 0) {
-		// Fallback: use body length
-		wave.root = spine_root;
-		wave.tip = tail_tip;
-		wave.noJoints = 0;
-		wave.stretched_length_m = s.physical.body_length_m;
-		wave.rest_length_m = s.physical.body_length_m * 0.95f;
-	} else {
-		// Build chain from tail to spine
-		std::vector<int> chain;
-		for(int j = tail_tip; j >= 0; j = parents[j]) {
-			chain.push_back(j);
-			if(j == spine_root || HasFlag(semantic_flags[j], SF::HEAD)) {
-				break;
-			}
-		}
-
-		wave.root = chain.empty() ? spine_root : chain.back();
-		wave.tip = tail_tip;
-		wave.noJoints = chain.size();
-
-		// Calculate chain length
-		auto length = 0.0f;
-		for(size_t i = 1; i < chain.size(); ++i) {
-			length += glm::distance(in.position(chain[i]), in.position(chain[i-1]));
-		}
-		wave.stretched_length_m = length;
-		wave.rest_length_m = length * 0.95f;
-	}
+	
+	in.builder->serpentine.copy_into(wave, in.scale);
 
 	auto body_length = wave.stretched_length_m;
 

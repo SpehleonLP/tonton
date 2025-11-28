@@ -60,7 +60,7 @@ struct Analysis_Manipulator : public Analysis_Appendage {
 	force_N max_grip_force_N{};
 	force_N max_adhesion_force_N{};
 	
-	area_m2 surface_area_m2{};
+	area_m2 contact_area_m2{};
 	glm::vec3 surface_normal{}; // sign undefined
 	
 	bool has_suckers : 1;

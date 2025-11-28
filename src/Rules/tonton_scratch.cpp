@@ -79,15 +79,15 @@ TonTon::Scratch::Scratch(Input const& in)
 	// Check if the most demanding locomotion mode is feasible
 	// We check PEAK power (muscle) for flight, since it's the most demanding
 	// Terrestrial/aquatic locomotion is already constrained by muscle force in their respective rules
-	float peak_power_required_W = 0.0f;
+	power_W peak_power_required_W = 0.0f;
+	const force_N weight_N = physical.body_mass_kg * in.environment.gravity_m_s2;
 	bool has_demanding_mode = false;
 
 	if(aerial.has_value())
 	{
 		// Flight is the most power-demanding locomotion mode
 		// Check sustained flight power vs available muscle power
-		float weight_N = physical.body_mass_kg * in.environment.gravity_m_s2;
-		float flight_power = weight_N * aerial->flapping_cost_W_per_N;
+		power_W flight_power = weight_N * aerial->flapping_cost_W_per_N;
 		peak_power_required_W = std::max(peak_power_required_W, flight_power);
 		has_demanding_mode = true;
 	}
@@ -95,8 +95,7 @@ TonTon::Scratch::Scratch(Input const& in)
 	if(aerial.has_value() && aerial->can_hover)
 	{
 		// Hovering is even more demanding
-		float weight_N = physical.body_mass_kg * in.environment.gravity_m_s2;
-		float hover_power = weight_N * aerial->hovering_cost_W_per_N;
+		power_W hover_power = weight_N * aerial->hovering_cost_W_per_N;
 		peak_power_required_W = std::max(peak_power_required_W, hover_power);
 	}
 
@@ -109,18 +108,18 @@ TonTon::Scratch::Scratch(Input const& in)
 
 	// 2. MASS BUDGET CHECK
 	// Sum appendage masses and compare to body mass
-	float appendage_mass_kg = 0.0f;
+	mass_kg appendage_mass_kg = 0.0f;
 
 	for(auto const& tail : appendages.tails)
 	{
-		appendage_mass_kg += tail.mass_kg;
+		appendage_mass_kg += tail.tail_mass_kg;
 	}
 
 	if(aerial.has_value())
 	{
 		for(auto const& wing : aerial->wings)
 		{
-			appendage_mass_kg += wing.mass_kg;
+			appendage_mass_kg += wing.wing_mass_kg;
 		}
 	}
 
@@ -134,7 +133,7 @@ TonTon::Scratch::Scratch(Input const& in)
 	bool reasonable_length = (physical.body_length_m > 0.001f && physical.body_length_m < 50.0f);
 	bool reasonable_density = (physical.body_mass_kg / physical.body_volume_m3 > 100.0f &&
 	                          physical.body_mass_kg / physical.body_volume_m3 < 2000.0f);
-	bool reasonable_metabolic = (metabolic.basal_rate_W > 0.0f && metabolic.aerobic_scope > 1.0f);
+	bool reasonable_metabolic = (metabolic.basal_rate_W > 0.0f && metabolic.max_rate_W > metabolic.basal_rate_W);
 
 	diagnostics.is_physically_plausible =
 		reasonable_mass && reasonable_length && reasonable_density && reasonable_metabolic &&

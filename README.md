@@ -71,28 +71,67 @@ or a 5m wingspan on Saturn's moon titan ?
 
 ## Architecture
 
-TonTon requires two types of geometric data as input:
+### Dimensional Analysis System
 
-### 3D Volumetric Data (Pre-computed)
-TonTon expects you to provide:
-- Volumes per joint/segment
-- 3D centroids (center of mass)
-- Covariance matrices → inertia tensors
+TonTon uses **compile-time dimensional analysis** via the `Quantity` template class to prevent unit errors and catch physics mistakes at compile time:
 
-**Note on licensing**: TonTon does **not** depend on any specific volumetric analysis library. You must compute these values separately and pass them in. The [rintintin](https://github.com/SpehleonLP/rintintin) library (GPL-2.0) is currently the only known implementation capable of computing these from skinned meshes, but TonTon itself is Apache-licensed and has no GPL dependencies.
+```cpp
+template<int M, int L, int T, int Temp = 0, int Stage = 0>
+struct Quantity {
+    float value;
+    // Type-safe arithmetic that combines/validates dimensions
+};
 
-### 2D Projection/Silhouette Analysis (Integrated)
-TonTon includes **dodeedum** as a submodule for:
-- Projected areas (silhouette size from any viewpoint)
-- Second moment of area (2D mass distribution)
-- Chord length, span measurements
-- Weighted area calculations (accounting for skeletal influence)
+// Common types
+using mass_kg = Quantity<1, 0, 0>;           // kg
+using length_m = Quantity<0, 1, 0>;          // m
+using velocity_m_s = Quantity<0, 1, -1>;     // m/s
+using force_N = Quantity<1, 1, -2>;          // N = kg⋅m/s²
+using energy_J = Quantity<1, 2, -2>;         // J = kg⋅m²/s²
 
-**TonTon** combines both data sources:
-- Uses pre-computed volumetric data for body mass, limb volumes, inertia matrices
-- Uses **dodeedum** internally for wing area, cross-sections (drag), projected measurements
+// Type safety examples:
+length_m dist = 100.0f;
+time_s duration = 10.0f;
+velocity_m_s speed = dist / duration;  // ✓ Automatically m/s
+// auto bad = dist + speed;             // ✗ Compile error!
+```
+
+**Benefits:**
+- Catches entire classes of unit errors at compile time
+- Prevents mixing coordinate spaces (file space vs. world space)
+- Ensures physics formulas are dimensionally consistent
+- No runtime overhead (pure template metaprogramming)
+
+### Data Processing Pipeline
+
+TonTon uses a three-tier architecture:
+
+**1. Input Layer** (`SkinnedMesh` + volumetric data):
+- **3D Volumetric Data** (pre-computed externally):
+  - Volumes per joint/segment
+  - 3D centroids (center of mass)
+  - Covariance matrices → inertia tensors
+  - **Note**: TonTon does **not** depend on any specific volumetric analysis library. The [rintintin](https://github.com/SpehleonLP/rintintin) library (GPL-2.0) can compute these, but TonTon itself is Apache-licensed with no GPL dependencies.
+
+- **2D Projection/Silhouette Analysis** (integrated via **dodeedum**):
+  - Projected areas (silhouette size from any viewpoint)
+  - Second moment of area (2D mass distribution)
+  - Chord length, span measurements
+  - Weighted area calculations (accounting for skeletal influence)
+
+**2. Builder Layer** (`Builder` intermediate representation):
+- Processes raw geometric data from `SkinnedMesh`
+- Computes appendage metrics (volume, surface area, cross-sections, inertia)
+- Analyzes sensory structures (eyes, ears, antennae)
+- Identifies semantic features (claws, teeth, weapons)
+- Produces physically-measured creature description
+- Useful for debugging: print `Builder` to inspect raw measurements before physics rules
+
+**3. Analysis Layer** (`Output` final results):
 - Applies biomechanical models and allometric scaling laws
+- Computes locomotion capabilities from `Builder` data
 - Infers behavior from morphology
+- Returns animation parameters, physics values, and AI hints
 
 ## How It Works
 
@@ -219,6 +258,34 @@ switch(output->behavior.suggested_archetype) {
     // ...
 }
 ```
+
+## Output Formatting
+
+TonTon provides comprehensive formatting via **std::format** with clean compile errors:
+
+```cpp
+#include <tonton_formatter.h>
+
+// Format complete analysis output
+std::cout << std::format("{}", *output);
+
+// Or format specific subsystems
+std::string aerial_info = TonTon::format(output->aerial.value());
+std::string metabolic_info = TonTon::format(output->metabolic);
+
+// Debug with Builder intermediate data
+auto builder = TonTon::Builder::Factory(*skinned_mesh, body_scale, bone_scales);
+std::cout << std::format("{}", *builder);  // Inspect raw measurements
+```
+
+**Formatter features:**
+- **std::formatter specializations** for all TonTon types
+- **Much better compile errors** than operator<< chaining
+  - Instead of: 200+ lines listing every operator<< candidate
+  - You get: `error: no formatter specialization for type 'Foo'`
+- Works with both `std::format` and `std::print` (C++23)
+- Supports `Builder` (raw measurements) and `Output` (final analysis)
+- Automatic formatting for `Quantity<>` types and `immutable_array<T>`
 
 ## Implementation Details
 

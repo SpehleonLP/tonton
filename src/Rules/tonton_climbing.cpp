@@ -583,7 +583,7 @@ std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const In
 	out.stretched_length_m = scale_to<0>(appendage.contact.stretched_length, in.scale);
 	
 	out.subtree_flags = appendage.contact.subtree_flags;
-	out.surface_area_m2 = scale_to<0>(appendage.contact.area, in.area_scale());
+	out.contact_area_m2 = scale_to<0>(appendage.contact.area, in.area_scale());
 	out.surface_normal  = appendage.contact.normal;
 		
 	area_m2 avg_area = scale_to<0>(appendage.avgCrossSection, in.area_scale());
@@ -656,7 +656,7 @@ std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const In
 		
 		// Estimate sucker area from surface area
 		auto sucker_coverage = 0.3f; // ~30% of surface is actual suction cups
-		auto effective_sucker_area = out.surface_area_m2 * sucker_coverage;
+		auto effective_sucker_area = out.contact_area_m2 * sucker_coverage;
 		
 		out.max_adhesion_force_N = suction_pressure_Pa * effective_sucker_area;
 	}
@@ -668,7 +668,7 @@ std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const In
 		
 		// Assume setae cover the contact surface
 		out.max_adhesion_force_N += 
-			setae_stress_Pa * out.surface_area_m2;
+			setae_stress_Pa * out.contact_area_m2;
 	}
 		
 	if(out.has_wet_grip) {
@@ -679,7 +679,7 @@ std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const In
 		
 		// Pad coverage (tree frogs have ~60% of toe surface as pad)
 		auto pad_coverage = 0.6f;
-		auto effective_pad_area = out.surface_area_m2 * pad_coverage;
+		auto effective_pad_area = out.contact_area_m2 * pad_coverage;
 		
 		out.max_adhesion_force_N = 
 			wet_adhesion_Pa * effective_pad_area;

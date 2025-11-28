@@ -24,6 +24,7 @@ struct BuilderCommand
 	immutable_array<glm::vec3> bone_scales;
 };
 
+
 struct Builder_Chain
 {
 	// stop ik chain here
@@ -39,67 +40,7 @@ struct Builder_Chain
 	void copy_into(Analysis_Chain &, length_b_to_m) const;
 };
 
-struct Builder_Appendage : public Builder_Chain
-{
-	void copy_into(Analysis_Appendage &, length_b_to_m) const;
-
-	int16_t common_ancestor{}; 
-	uint16_t gait_group{}; 
-	uint16_t id{}; // index in appendage array in builder.
-	float   phase_offset{};
-	
-	SemanticFlags semantic_flags{};
-	CladeFlags clade_flags{};
-	NicheFlags niche_flags{};
-	
-	area_b    surface_area{};	
-	volume_b  volume{};
-	position_b centroid;
-	
-	area_b minCrossSection{};
-	area_b avgCrossSection{};
-	area_b maxCrossSection{};
-	length4_b minMoment{};
-	length4_b avgMoment{};
-	length4_b maxMoment{};
-	
-	glm::vec3 rootAxis{};
-	
-	// projection of smallest eigenvector.
-	struct Surface
-	{
-		area_b   area{};
-		length_b chord{};
-		glm::vec3 normal{};
-	} surface;
-	
-	struct Contact
-	{
-		SemanticFlags subtree_flags{};
-		
-		int joint{};
-		length_b rest_length{};
-		length_b stretched_length{};
-		
-		area_b area{};
-		glm::vec3 normal{};
-				
-		bool has_suckers : 1;
-		bool has_setae : 1;
-		bool has_claws : 1;
-		bool has_thumb : 1;
-		bool has_wet_grip : 1; // frog!	
-	} contact;
-	
-	length_b  distance_to_parent{};
-	length5_b unit_inertia{}; // inertia at root/tangent axis.
-	
-	// AABB
-	struct AABB
-	{
-		position_b min, max;
-	} aabb;
-};
+struct Builder_Appendage;
 
 struct Builder
 {
@@ -156,7 +97,14 @@ struct Builder
 	};
 	
 	Physical physical;
+	Builder_Chain serpentine;
 	
+		/*
+		wave.tip = tail_tip;
+		wave.noJoints = 0;
+		wave.stretched_length_m = s.physical.body_length_m;
+		wave.rest_length_m = s.physical.body_length_m * 0.95f;*/
+		
 	/*
 	 * 
     // Scan for vertebrate olfactory structures
@@ -333,8 +281,75 @@ struct Builder
 	
 	} specialized;
 	
+	void AddRef() const { ++_refCount; };
+	void Release() const { if(--_refCount == 0) delete this; }
+	
+private:
+	mutable std::atomic<int> _refCount{1};
 };
 
+
+struct Builder_Appendage : public Builder_Chain
+{
+	void copy_into(Analysis_Appendage &, length_b_to_m) const;
+
+	int16_t common_ancestor{}; 
+	uint16_t gait_group{}; 
+	uint16_t id{}; // index in appendage array in builder.
+	float   phase_offset{};
+	
+	SemanticFlags semantic_flags{};
+	CladeFlags clade_flags{};
+	NicheFlags niche_flags{};
+	
+	area_b    surface_area{};	
+	volume_b  volume{};
+	position_b centroid;
+	
+	area_b minCrossSection{};
+	area_b avgCrossSection{};
+	area_b maxCrossSection{};
+	length4_b minMoment{};
+	length4_b avgMoment{};
+	length4_b maxMoment{};
+	
+	glm::vec3 rootAxis{};
+	
+	// projection of smallest eigenvector.
+	struct Surface
+	{
+		area_b   area{};
+		length_b chord{};
+		glm::vec3 normal{};
+	} surface;
+	
+	struct Contact
+	{
+		SemanticFlags subtree_flags{};
+		
+		int joint{};
+		length_b rest_length{};
+		length_b stretched_length{};
+		
+		area_b area{};
+		glm::vec3 normal{};
+				
+		bool has_suckers : 1;
+		bool has_setae : 1;
+		bool has_claws : 1;
+		bool has_thumb : 1;
+		bool has_wet_grip : 1; // frog!	
+	} contact;
+	
+	length_b  distance_to_parent{};
+	length5_b unit_inertia{}; // inertia at root/tangent axis.
+	
+	// AABB
+	struct AABB
+	{
+		position_b min, max;
+	} aabb;
+};
 
 };
 
