@@ -266,6 +266,8 @@ constexpr std::array<WordDef, (int)Word::TOTAL_WORDS+3> word_strings = [] {
 		{ Word::herbivore, "herbivore"},  
 		{ Word::chemoreceptor, "chemoreceptor"},  
 		{ Word::carnivore, "carnivore"},  
+		{ Word::stinger, "stinger"},  
+		{ Word::venom, "venom"},  
     };
     
     std::sort(arr.begin(), arr.end(), [](const WordDef& a, const WordDef& b) {
@@ -701,6 +703,8 @@ TonTon::SemanticFlags TonTon::GetSemanticFlags(Word word)
     case Word::carnivore:
     case Word::herbivore:
 		break;
+    case Word::stinger:
+    case Word::venom: return SF::WEAPON;
 	}
 	
 	return (SF)0;
@@ -744,6 +748,7 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::herbivore:
     case Word::leg:
     case Word::foot:
+    case Word::venom:
     case Word::bottom: return CF::NONE;
 
     // Body regions - general vertebrate
@@ -954,6 +959,7 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::plastron: return CF::CHELONIA;
 
     // Arthropod structures
+    case Word::stinger:
     case Word::antenna: return CF::ARTHROPODA;
     case Word::segment: return CF::ARTHROPODA;
     case Word::coxa:

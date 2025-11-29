@@ -249,8 +249,8 @@ struct Builder
 	Physical physical;
 	Sensory sensory;
 	
-	Builder_Chain serpentine;
 	immutable_array<Builder_Tail> tails;
+	Builder_Chain serpentine;
 	
 // appendages found in model...
 	immutable_array<Builder_Appendage> appendages;

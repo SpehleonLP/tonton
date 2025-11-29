@@ -43,7 +43,7 @@ enum class Word : uint16_t
 //Scales/Armor:
 	scale, plate, scute, shell, carapace, plastron, shield, spike, 
 //Insects/Arthropods:
-	antenna, segment, coxa, trochanter, cercus, ovipositor, setae,
+	antenna, segment, coxa, trochanter, cercus, ovipositor, setae, stinger,
 //Aquatic specific:
 	ray, operculum, siphon, mantle,
 	fin, flipper, fluke, pectoral, dorsal, anal, caudal, tentacle, web, gill,
@@ -52,7 +52,7 @@ enum class Word : uint16_t
 	wing, pinion, alula, 
 //Other:
 	gland, duct, sac, chamber, valve, muscle, tendon, ligament, cartilage, sensory, chemoreceptor,
-	primary, secondary, compound,
+	primary, secondary, compound, venom,
 	
 //Technical/Rigging:
 	joint, bone, twist, roll, IK, FK, control, ctrl, deform, def, target, pole, master, mstr, pivot,

@@ -103,61 +103,10 @@ TonTon::SkinnedMeshMemo * TonTon::SkinnedMesh::memo() const
 }
 
 
-glm::dvec3 TonTon::SkinnedMesh::GetCentroid(std::span<uint16_t> joints, glm::dvec3 const& scale, double * volume_out) const
+double TonTon::SkinnedMesh::GetSurfaceArea(uint16_t i, glm::vec3 scale) const
 {
-	glm::dvec3 numerator{0};
-	double denominator{0};
-	
-	double vol_scale = scale.x*scale.y*scale.z;
-	
-	if(joints.size())
-	{
-		for(auto & i : joints)
-		{
-			auto vol = volume[i] * vol_scale;
-			numerator += glm::dvec3(centroid[i]) * scale * vol;
-			denominator += vol;
-		}
-	}
-	
-	else
-	{
-		for(auto i = 0u; i < centroid.size(); ++i)
-		{
-			auto vol = volume[i] * vol_scale;
-			numerator += glm::dvec3(centroid[i]) * scale * double(vol);
-			denominator += vol;
-		}
-	}
-	
-	if(volume_out) *volume_out = denominator;
-	
-	if(denominator)
-		return numerator / denominator;
-	
-	return numerator;
-}
-
-glm::dmat3 TonTon::SkinnedMesh::GetInertia(std::span<uint16_t> joints, glm::dvec3 const& scale, glm::dvec3 *centroid_out, double * volume_out) const
-{
-	auto I = GetCovariance(joints, scale, centroid_out, volume_out);
-	
-	return glm::dmat3{
-		 I[1] +I[2],-I[3],-I[4],
-		-I[3], I[0] +I[2],-I[5],
-		-I[4],-I[5], I[0] +I[1]
-	};
-}
-
-glm::dmat3 TonTon::SkinnedMesh::GetInertia(uint32_t i, glm::dvec3 scale) const
-{
-	std::array<double, 6> I = GetCovariance(i, scale);
-		
-	return glm::dmat3{
-		 I[1] +I[2],-I[3],-I[4],
-		-I[3], I[0] +I[2],-I[5],
-		-I[4],-I[5], I[0] +I[1]
-	};
+	double s = std::cbrt(scale.x*scale.y*scale.z);
+	return surfaceArea[i] * (s*s);
 }
 
 std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(uint32_t i, glm::dvec3 scale) const
@@ -173,10 +122,69 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(uint32_t i, glm::dvec3
 	};
 }
 
+glm::dmat3 TonTon::SkinnedMesh::GetInertia(uint32_t i, glm::dvec3 scale) const
+{
+	std::array<double, 6> I = GetCovariance(i, scale);
+		
+	return glm::dmat3{
+		 I[1] +I[2],-I[3],-I[4],
+		-I[3], I[0] +I[2],-I[5],
+		-I[4],-I[5], I[0] +I[1]
+	};
+}
+
+glm::dmat3 TonTon::SkinnedMesh::GetInertia(std::span<uint16_t> joints,  std::span<glm::vec3> scale, glm::dvec3 *centroid_out, double * volume_out) const
+{
+	auto I = GetCovariance(joints, scale, centroid_out, volume_out);
+	
+	return glm::dmat3{
+		 I[1] +I[2],-I[3],-I[4],
+		-I[3], I[0] +I[2],-I[5],
+		-I[4],-I[5], I[0] +I[1]
+	};
+}
+
+glm::dvec3 TonTon::SkinnedMesh::GetCentroid(std::span<uint16_t> joints, std::span<glm::vec3> scale, double * volume_out) const
+{
+	glm::dvec3 numerator{0};
+	double denominator{0};
+	
+	
+	if(joints.size())
+	{
+		for(auto & i : joints)
+		{
+			double vol_scale = scale[i].x*scale[i].y*scale[i].z; 
+			double vol = volume[i] * vol_scale;
+			numerator += glm::dvec3(centroid[i]*scale[i]) * vol;
+			denominator += vol;
+		}
+	}
+	
+	else
+	{
+		for(auto i = 0u; i < centroid.size(); ++i)
+		{
+			double vol_scale = scale[i].x*scale[i].y*scale[i].z; 
+			double vol = volume[i] * vol_scale;
+			numerator += glm::dvec3(centroid[i] * scale[i]) * double(vol);
+			denominator += vol;
+		}
+	}
+	
+	if(volume_out) *volume_out = denominator;
+	
+	if(denominator)
+		return numerator / denominator;
+	
+	return numerator;
+}
+
+
 	
 static double EstimateCrossSection(std::array<double, 6> const& I, double volume, glm::vec3 direction, double * second_moment_area);
 
-double  TonTon::SkinnedMesh::EstimateCrossSection(std::span<uint16_t> joints, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area) const
+double  TonTon::SkinnedMesh::EstimateCrossSection(std::span<uint16_t> joints, std::span<glm::vec3> scale, glm::vec3 direction, double * second_moment_area) const
 {
 	double volume;
 	auto cov = GetCovariance(joints, scale, nullptr, &volume);
@@ -239,21 +247,20 @@ static double EstimateCrossSection(std::array<double, 6> const& I, double volume
     return elipse_cross_section;
 }
 	
-std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(std::span<uint16_t> joints, glm::dvec3 const& scale, glm::dvec3 *centroid_out, double * volume_out) const
+std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(std::span<uint16_t> joints, std::span<glm::vec3> scale, glm::dvec3 *centroid_out, double * volume_out) const
 {
-
 	glm::dvec3 center = GetCentroid(joints, scale, volume_out);
 	if(centroid_out) *centroid_out = center;
 	
 	if(joints.size() == 1)
-		return GetCovariance(joints[0], scale);
+		return GetCovariance(joints[0], scale[0]);
 
 	std::array<double, 6> accumulator{0};
-	double vol_scale = scale.x*scale.y*scale.z;
 	
 	auto axis_theorem = [&](size_t i)
-	{
-		glm::dvec3 c = glm::dvec3(centroid[i])*scale - center;
+	{	
+		glm::dvec3 c = glm::dvec3(centroid[i] * scale[i]) - center;
+		double vol_scale = scale[i].x*scale[i].y*scale[i].z;
 		double mulv =  (volume[i] * vol_scale);
 		
 		std::array<double, 6> offset
@@ -282,7 +289,7 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(std::span<uint16_t> jo
 	{
 		for(auto & i : joints)
 		{
-			accumulator = opAdd(accumulator, opAdd(GetCovariance(i, scale), axis_theorem(i)));
+			accumulator = opAdd(accumulator, opAdd(GetCovariance(i, scale[i]), axis_theorem(i)));
 		}
 	}
 	
@@ -290,7 +297,7 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(std::span<uint16_t> jo
 	{
 		for(auto i = 0u; i < centroid.size(); ++i)
 		{
-			accumulator = opAdd(accumulator, opAdd(GetCovariance(i, scale), axis_theorem(i)));
+			accumulator = opAdd(accumulator, opAdd(GetCovariance(i, scale[i]), axis_theorem(i)));
 		}
 	}
 	
@@ -298,22 +305,20 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(std::span<uint16_t> jo
 	return accumulator;
 }
 
-double TonTon::SkinnedMesh::GetSurfaceArea(uint16_t i, double area_scale) const
-{
-	return surfaceArea[i] * area_scale;
-}
-
-double TonTon::SkinnedMesh::GetSurfaceArea(std::span<uint16_t> joints, double area_scale) const
+double TonTon::SkinnedMesh::GetSurfaceArea(std::span<uint16_t> joints, std::span<glm::vec3> scale) const
 {
 	double accumulator = 0;
 	
 	for(auto i : joints)
-		accumulator += surfaceArea[i] * area_scale;
+	{
+		double s = std::cbrt(scale[i].x*scale[i].y*scale[i].z);
+		accumulator += surfaceArea[i] * (s*s);
+	}
 		
 	return accumulator;
 }
 
-TonTon::SkinnedMesh::LimbMetrics TonTon::SkinnedMesh::GetMetrics(std::span<uint16_t> joints, glm::dvec3 const& scale) const
+TonTon::SkinnedMesh::LimbMetrics TonTon::SkinnedMesh::GetMetrics(std::span<uint16_t> joints, std::span<glm::vec3> scale) const
 {
 	LimbMetrics r;
 	r.unitInertia = GetInertia(joints, scale, &r.centroid, &r.volume);
@@ -349,10 +354,9 @@ double TonTon::SkinnedMesh::LimbMetrics::GetInertia(glm::vec3 measured_at, float
     return glm::dot(axis_normalized, inertia * axis_normalized);
 }
 
-bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, glm::vec3 scale) const
+bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, std::span<glm::vec3> scale,  std::span<glm::vec3> position) const
 {
     auto parents = skin->parents.data();
-    auto position = skin->position.data();
     auto children = skin->memo()->GetChildren();
     
     // Build the chain from tip back to root
@@ -382,7 +386,7 @@ bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, glm:
     {
 		memo[i].delta = position[chain[i+1]] - position[chain[i]];
 		memo[i].length = glm::length(memo[i].delta);
-		memo[i].thickness = EstimateCrossSection(chain[i], scale, memo[i].delta);
+		memo[i].thickness = EstimateCrossSection(chain[i], scale[i], memo[i].delta);
 		// stalks only have one child.
 		memo[i].branches = children[chain[i]].size() > 1;
     }
@@ -487,13 +491,13 @@ bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, glm:
             float straightness = 0.0f;
             if(end > start + 1) {
                 glm::vec3 overall_direction = glm::normalize(
-                    position[chain[end]] * scale - position[chain[start]] * scale
+                    position[chain[end]]  - position[chain[start]] 
                 );
                 
                 float alignment_sum = 0.0f;
                 for(size_t i = start; i < end; ++i) {
-                    glm::vec3 p0 = position[chain[i]] * scale;
-                    glm::vec3 p1 = position[chain[i+1]] * scale;
+                    glm::vec3 p0 = position[chain[i]] ;
+                    glm::vec3 p1 = position[chain[i+1]] ;
                     glm::vec3 seg_dir = glm::normalize(p1 - p0);
                     alignment_sum += glm::dot(seg_dir, overall_direction);
                 }
@@ -551,14 +555,14 @@ bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, glm:
     
     glm::vec3 stalk_dir{0};
     for(int i = best->start_idx; i < best->end_idx; ++i) {
-        glm::vec3 p0 = position[chain[i]] * scale;
-        glm::vec3 p1 = position[chain[i+1]] * scale;
+        glm::vec3 p0 = position[chain[i]] ;
+        glm::vec3 p1 = position[chain[i+1]] ;
         stalk_dir += glm::normalize(p1 - p0);
     }
     stalk_dir = glm::normalize(stalk_dir);
     
     for(int i = best->start_idx; i <= best->end_idx; ++i) {
-        double cs = EstimateCrossSection(chain[i], scale, stalk_dir);
+        double cs = EstimateCrossSection(chain[i], scale[chain[i]], stalk_dir);
         dst.thickestCrossSection_m2 = std::max(dst.thickestCrossSection_m2, (float)cs);
         dst.thinestCrossSection_m2 = std::min(dst.thinestCrossSection_m2, (float)cs);
     }

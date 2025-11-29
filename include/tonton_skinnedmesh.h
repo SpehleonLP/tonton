@@ -115,18 +115,18 @@ struct SkinnedMesh
 	immutable_array<glm::vec3>	centroid;
 	immutable_array<std::array<float, 6>>	covariance;
 	
+	double GetSurfaceArea(uint16_t i, glm::vec3 scale) const;
 	glm::dmat3 GetInertia(uint32_t i, glm::dvec3 scale) const;	
-	double EstimateCrossSection(uint32_t i, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
-	double EstimateCrossSection(std::span<uint16_t> joints, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
-	
-	glm::dvec3 GetCentroid(std::span<uint16_t> joints, glm::dvec3 const& scale, double * volume_out = nullptr) const;
-	glm::dmat3 GetInertia(std::span<uint16_t> joints, glm::dvec3 const& scale, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
-	
 	std::array<double, 6> GetCovariance(uint32_t i, glm::dvec3 scale) const;		
-	std::array<double, 6> GetCovariance(std::span<uint16_t> joints, glm::dvec3 const& scale, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
 	
-	double GetSurfaceArea(uint16_t i, double area_scale) const;
-	double GetSurfaceArea(std::span<uint16_t> joints, double area_scale) const;
+	double EstimateCrossSection(uint32_t i, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
+	double EstimateCrossSection(std::span<uint16_t> joints, std::span<glm::vec3> scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
+	
+	glm::dvec3 GetCentroid(std::span<uint16_t> joints, std::span<glm::vec3> scale, double * volume_out = nullptr) const;
+	glm::dmat3 GetInertia(std::span<uint16_t> joints, std::span<glm::vec3> scale,  glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
+	std::array<double, 6> GetCovariance(std::span<uint16_t> joints, std::span<glm::vec3> scale, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
+	
+	double GetSurfaceArea(std::span<uint16_t> joints, std::span<glm::vec3> scale) const;
 		
 	struct LimbMetrics
 	{
@@ -138,7 +138,7 @@ struct SkinnedMesh
 		double GetInertia(glm::vec3 measured_at, float density, glm::vec3 axis) const;
 	};	
 		
-	LimbMetrics GetMetrics(std::span<uint16_t> joints, glm::dvec3 const& scale) const;
+	LimbMetrics GetMetrics(std::span<uint16_t> joints, std::span<glm::vec3> scale) const;
 
 	struct StalkData
 	{
@@ -151,7 +151,8 @@ struct SkinnedMesh
 	};
 	
 	// find the subset of the chain between tip and root thats most stalk-y and get the data on it.
-	bool GetStalkData(StalkData & dst, int root, int tip, glm::vec3 scale) const;
+	// positions should be pre-corrected to account for scaling.
+	bool GetStalkData(StalkData & dst, int root, int tip, std::span<glm::vec3> scale, std::span<glm::vec3> position) const;
 	
 private:
 	SkinnedMesh();

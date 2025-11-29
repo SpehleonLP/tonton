@@ -15,19 +15,19 @@ struct TonTon::Builder::BuilderCommand
 	shared_array<glm::vec3> positions;
 	shared_array<glm::vec3> bone_tails;
 	
-	SemanticAnalysis GetSemanticAnalysis() const;
-	Physical GetPhysicalAnalysis();
-	Sensory GetSensory();	
+	SemanticAnalysis GetSemanticAnalysis(Builder&) const;
+	Physical GetPhysicalAnalysis(Builder&);
+	Sensory GetSensory(Builder&);	
 	
-	Builder_Chain GetBodyWave();
-	immutable_array<Builder_Tail> GetTails();
+	Builder_Chain GetBodyWave(Builder&);
+	immutable_array<Builder_Tail> GetTails(Builder&);
 	
-	immutable_array<Builder_Appendage> GetAppendages();
-	immutable_array<glm::vec3> GetGroupCenters();
-	immutable_array<int16_t> GetInhibitionGroups();
+	immutable_array<Builder_Appendage> GetAppendages(Builder&);
+	immutable_array<glm::vec3> GetGroupCenters(Builder&);
+	immutable_array<int16_t> GetInhibitionGroups(Builder&);
 	
-	Specialized GetSpecialized();
-	int32_t GetSiphonJoint() const;
+	Specialized GetSpecialized(Builder&);
+	int32_t GetSiphonJoint(Builder&) const;
 };
 
 counted_ptr<const TonTon::Builder> TonTon::Builder::Factory(
@@ -59,19 +59,19 @@ counted_ptr<const TonTon::Builder> TonTon::Builder::Factory(
 
 
 TonTon::Builder::Builder(BuilderCommand & cmd) :
-	semanticAnalyisis(cmd.GetSemanticAnalysis()),
-	physical(cmd.GetPhysicalAnalysis()),
-	sensory(cmd.GetSensory()),	
+	semanticAnalyisis(cmd.GetSemanticAnalysis(*this)),
+	physical(cmd.GetPhysicalAnalysis(*this)),
+	sensory(cmd.GetSensory(*this)),	
 	
-	serpentine(cmd.GetBodyWave()),
-	tails(cmd.GetTails()),
+	tails(cmd.GetTails(*this)),
+	serpentine(cmd.GetBodyWave(*this)),
 	
-	appendages(cmd.GetAppendages()),
-	gait_group_centers(cmd.GetGroupCenters()),
-	ipsilateral_inhibition_groups(cmd.GetInhibitionGroups()),
+	appendages(cmd.GetAppendages(*this)),
+	gait_group_centers(cmd.GetGroupCenters(*this)),
+	ipsilateral_inhibition_groups(cmd.GetInhibitionGroups(*this)),
 	
-	specialized(cmd.GetSpecialized()),
-	siphon_joint(cmd.GetSiphonJoint())
+	specialized(cmd.GetSpecialized(*this)),
+	siphon_joint(cmd.GetSiphonJoint(*this))
 {
 }
 
@@ -94,7 +94,7 @@ void TonTon::Builder_Appendage::copy_into(Analysis_Appendage & dst, length_b_to_
 	dst.phase_offset = phase_offset;
 }
 
-TonTon::Builder::SemanticAnalysis TonTon::Builder::BuilderCommand::GetSemanticAnalysis() const {
+TonTon::Builder::SemanticAnalysis TonTon::Builder::BuilderCommand::GetSemanticAnalysis(Builder&) const {
     SemanticAnalysis result;
     
     auto semantic_flags = skinnedMesh.skin->memo()->GetSemanticFlags();
@@ -178,15 +178,7 @@ TonTon::Builder::SemanticAnalysis TonTon::Builder::BuilderCommand::GetSemanticAn
     float body_volume = 0.0;
     
 	for(auto i = 0u; i < skinnedMesh.skin->tags.size(); ++i)
-	{
-		for(auto tag : skinnedMesh.skin->tags[i])
-			if(tag == Word::stinger
-			|| tag == Word::venom)
-			{
-				result.has_venom = true;
-				result.has_weapons = true;
-			}
-			
+	{			
 		float bone_scale = scale[i].x * scale[i].y	* scale[i].z;
 		float volume = skinnedMesh.volume[i] * bone_scale;
 		
@@ -202,7 +194,7 @@ TonTon::Builder::SemanticAnalysis TonTon::Builder::BuilderCommand::GetSemanticAn
     return result;
 }
 
-TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis()
+TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(Builder&)
 {
 	auto & sk = skinnedMesh;
 	auto * sk_memo = sk.skin->memo();
@@ -475,7 +467,7 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis()
 	};
 }
 
-int32_t TonTon::Builder::BuilderCommand::GetSiphonJoint() const
+int32_t TonTon::Builder::BuilderCommand::GetSiphonJoint(Builder&) const
 {
 	for(auto i = 0u; i < skinnedMesh.skin->tags.size(); ++i)
 	{
