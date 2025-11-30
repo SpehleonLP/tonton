@@ -110,7 +110,7 @@ static Analysis_BodyWave CalculateLateralUndulation(Input const& in, Scratch con
 {
 	Analysis_BodyWave wave{};
 	
-	in.builder->serpentine.copy_into(wave, in.scale);
+	in.builder->bodyWave->copy_into(wave, in.scale);
 
 	auto body_length = wave.stretched_length_m;
 
@@ -142,7 +142,8 @@ static Analysis_BodyWave CalculateLateralUndulation(Input const& in, Scratch con
 
 std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s)
 {
-	if(!CanUseSerpentineLocomotion(in, s)) {
+	if(!CanUseSerpentineLocomotion(in, s)
+	|| !in.builder->bodyWave) {
 		return {}; // Not capable of serpentine locomotion
 	}
 

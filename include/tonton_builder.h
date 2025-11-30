@@ -17,6 +17,15 @@ using position_b = glm::vec<3, length_b>;
 
 // input is really heavy so we try to construct something faster.
 
+// custom scale b/c the X/Z on bones tends to be kinda random
+// and its hard to intuit. 
+struct BuilderScale
+{
+	float scale{1}, // xyz
+		stretch{1}, // y
+		chonk{1};   // xz
+};
+
 struct Builder_Chain
 {
 	// stop ik chain here
@@ -51,9 +60,9 @@ struct Builder_Appendage;
 struct Builder
 {
 	static counted_ptr<const Builder> Factory(
-		SkinnedMesh const&,
+		counted_ptr<const SkinnedMesh>,
 		glm::vec3 body_scale = glm::vec3(1),
-		std::span<const glm::vec3> bone_scales = {}	
+		std::span<const BuilderScale> bone_scales = {}	
 	);
 		
 	struct SemanticAnalysis {

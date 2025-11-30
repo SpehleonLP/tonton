@@ -487,7 +487,7 @@ using SF = SemanticFlags;
 		wing.chord_m = scale_to<0>(appendage.surface.chord, in.scale);
 					
 		wing.wing_mass_kg = scale_to<0>(appendage.volume, volume_scale) * body_density;
-		wing.wing_inertia_kgm2 = scale_to<0>(appendage.unit_inertia, inertia_scale) * body_density;
+		wing.wing_inertia_kgm2 = scale_to<0>(appendage.surface.unit_inertia, inertia_scale) * body_density;
 		
 		// --- WING INERTIA --- 
 		// Van Den Berg & Rayner (1995): I = k × m_wing × L² (R^2 = 0.97)

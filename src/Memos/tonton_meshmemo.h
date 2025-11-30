@@ -24,7 +24,7 @@ struct MeshMemo
 	const Mesh & in;
 	
 	uint32_t get_index(std::span<uint16_t>);
-	Silhouette & GetSilhouettes(glm::mat4 const& projection, glm::dvec3 const& scale, std::span<uint16_t> joints,  float cutoff, bool secondMoment);
+	Silhouette GetSilhouettes(glm::mat4 const& projection, glm::dvec3 const& scale, std::span<const glm::mat4> pose, std::span<const uint16_t> joints,  float cutoff, bool secondMoment);
 
 	int GetVertexOverlap(int a, int b);
 	float GetVertexOverlapPercent(int a, int b);
@@ -37,19 +37,8 @@ private:
 	immutable_array<int> _vertexOverlapTable;
 	immutable_array<int> _totalVertsAffected;
 	int _maxJoint{};
-
-	struct Key
-	{
-		uint32_t joints;
-		uint8_t cutoff;
-		bool secondMoment;
-		glm::mat4 projection;
-		
-		bool operator<(Key const& k) const;
-	};
 	
 	std::mutex _mutex;
-	std::map<Key, Silhouette> _cache;
 };
 
 }

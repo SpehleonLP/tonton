@@ -233,7 +233,7 @@ static	TonTon::Analysis_Tail ComputeTail(TonTon::Input const& in, TonTon::Builde
 	TonTon::Analysis_Tail r;
 	it.copy_into(r, in.scale);
 	
-	r.common_ancestor=it.common_ancestor;
+	r.common_ancestor=it.commonAncestor;
 	r.tail_mass_kg=scale_to<0>(it.volume, in.volume_scale()) * in.body_density();
 	r.max_cross_section_m2=scale_to<0>(it.maxCrossSection, in.area_scale());
 	r.min_cross_section_m2=scale_to<0>(it.minCrossSection, in.area_scale());

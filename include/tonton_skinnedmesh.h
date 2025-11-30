@@ -51,9 +51,13 @@ struct Armature
 	immutable_array<std::string> names;	
 	immutable_array<immutable_array<Word>> tags;	
 	immutable_array<int> parents;	
+	
+	immutable_array<glm::mat4> inverseBindPoseMatrices;
+	// these gotten by inversing the inv bind pose transforms and decomposing
+	// so both in world space. 
 	immutable_array<glm::vec3>	position;
 	immutable_array<glm::quat>	rotation;
-	
+		
 private:
 	Armature();
 	~Armature();
@@ -115,15 +119,16 @@ struct SkinnedMesh
 	immutable_array<std::array<float, 6>>	covariance;
 	
 	double GetSurfaceArea(uint16_t i, glm::vec3 scale) const;
-	glm::dmat3 GetInertia(uint32_t i, glm::dvec3 scale) const;	
-	std::array<double, 6> GetCovariance(uint32_t i, glm::dvec3 scale) const;		
-	double EstimateCrossSection(uint32_t i, glm::dvec3 scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
+	
+	glm::dmat3 GetInertia(uint32_t i,  glm::mat4 const& scale) const;	
+	std::array<double, 6> GetCovariance(uint32_t i, glm::mat4 const& scale) const;		
+	double EstimateCrossSection(uint32_t i,  glm::mat4 const& scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
 	
 	double GetSurfaceArea(std::span<const uint16_t> joints, std::span<const glm::vec3> scale) const;
-	glm::dvec3 GetCentroid(std::span<const uint16_t> joints, std::span<const glm::vec3> positions,  std::span<const glm::vec3> scale, double * volume_out = nullptr) const;
-	glm::dmat3 GetInertia(std::span<const uint16_t> joints, std::span<const glm::vec3> positions, std::span<const glm::vec3> scale,  glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
-	std::array<double, 6> GetCovariance(std::span<const uint16_t> joints, std::span<const glm::vec3> positions, std::span<const glm::vec3> scale, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
-	double EstimateCrossSection(std::span<const uint16_t> joints, std::span<const glm::vec3> positions, std::span<const glm::vec3> scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
+	glm::dvec3 GetCentroid(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, double * volume_out = nullptr) const;
+	glm::dmat3 GetInertia(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms,  glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
+	std::array<double, 6> GetCovariance(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
+	double EstimateCrossSection(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::vec3 direction, double * second_moment_area = nullptr) const;
 		
 	struct LimbMetrics
 	{
@@ -135,7 +140,7 @@ struct SkinnedMesh
 		double GetInertia(glm::vec3 measured_at, float density, glm::vec3 axis) const;
 	};	
 		
-	LimbMetrics GetMetrics(std::span<const uint16_t> joints, std::span<const glm::vec3> positions, std::span<const glm::vec3> scale) const;
+	LimbMetrics GetMetrics(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms) const;
 
 	struct StalkData
 	{
@@ -148,8 +153,7 @@ struct SkinnedMesh
 	};
 	
 	// find the subset of the chain between tip and root thats most stalk-y and get the data on it.
-	// positions should be pre-corrected to account for scaling.
-	bool GetStalkData(StalkData & dst, int root, int tip,  std::span<const glm::vec3> position, std::span<const glm::vec3> scale) const;
+	bool GetStalkData(StalkData & dst, int root, int tip, std::span<const glm::mat4> transforms) const;
 	
 private:
 	SkinnedMesh();

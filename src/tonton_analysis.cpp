@@ -4,10 +4,14 @@
 #include "Rules/tonton_scratch.h"
 #include "../include/tonton_analysis.h"
 #include "../include/tonton_skinnedmesh.h"
+#include "tonton_input.h"
 
 	
 counted_ptr<const TonTon::Output> TonTon::Output::Factory(Input const& in)
 {
+	if(in.builder == nullptr)
+		throw std::invalid_argument("in->builder");
+
 	TonTon::Scratch s(in);
 	
 #define OPT_SIZE(x) (s.x.has_value()? sizeof(s.x.value()) : 0)

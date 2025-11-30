@@ -2,6 +2,7 @@
 #include "../../include/tonton_skinnedmesh.h"
 #include "dodeedum.h"
 #include "dodeedum_mesh.h"
+#include "dodeedum_skinning.h"
 
 #ifndef __unused__
 #if defined(__GNUC__) || defined(__clang__)
@@ -59,51 +60,30 @@ uint32_t TonTon::MeshMemo::get_index(std::span<uint16_t> list)
 	return idx;
 }
 
-TonTon::Silhouette & TonTon::MeshMemo::GetSilhouettes(glm::mat4 const& projection, glm::dvec3 const& scale, std::span<uint16_t> joints,  float cutoff, bool secondMoment)
+TonTon::Silhouette TonTon::MeshMemo::GetSilhouettes(glm::mat4 const& projection, glm::dvec3 const& scale, std::span<const glm::mat4> pose, std::span<const uint16_t> joints,  float cutoff, bool secondMoment)
 {
-	Key key =
-	{
-		.joints = get_index(joints),
-		.cutoff = uint8_t(std::clamp<int>(cutoff * 255, 0, 255)),
-		.secondMoment=secondMoment,
-		.projection = projection * 
-			glm::mat4(
-				scale.x, 0, 0, 0, 
-				0, scale.y, 0, 0, 
-				0, 0, scale.z, 0,
-				0, 0, 0, 1)
-	};
 	
 	std::lock_guard lock(_mutex);	
 	
-	auto itr = _cache.find(key);
-	
-	if(itr != _cache.end())
-		return itr->second;
 	
 	immutable_array<uint32_t> fk = shared_array<uint32_t>::FromArray(joints);
+	
+	DoDeeDum::MatrixSkinning skinning{
+		.bone_transforms = pose
+	};
 	
 	DoDeeDum::Input input
 	{
 		.mesh=in.mesh,
 		.projection=projection,
+		.pose= ([skinning](auto & a, uint32_t b) -> glm::mat4 { return skinning(a, b); }),
 		.scale=scale,
 		.cutoff=cutoff,
 		.getSecondMoment=secondMoment,
 		.joints=std::span(fk.data(), fk.size())
 	};
 	
-	_cache[key] = DoDeeDum::GetSilhouette(input, "/home/anyuser/claude/", "dragonfly");
-	
-	return _cache[key];
-}
-
-bool TonTon::MeshMemo::Key::operator<(Key const& k) const
-{
-	if(joints != k.joints) return joints < k.joints;
-	if(cutoff != k.cutoff) return cutoff < k.cutoff;
-	if(secondMoment != k.secondMoment) return secondMoment < k.secondMoment;
-	return memcmp(&projection, &k.projection, sizeof(projection)) < 0;
+	return DoDeeDum::GetSilhouette(input);
 }
 
 int TonTon::MeshMemo::GetVertexOverlap(int a, int b)

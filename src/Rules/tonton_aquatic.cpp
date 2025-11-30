@@ -757,7 +757,7 @@ using SF = SemanticFlags;
 		appendage.copy_into(fin, in.scale);
 		
 		fin.type    = appendage.semantic_flags;
-		fin.normal_vector = appendage.surface.normal;
+		fin.normal_vector = appendage.surface.surface_matrix[2];
 		fin.fin_area_m2 = scale_to<0>(appendage.surface.area, area_scale);
 		fin.chord_m = scale_to<0>(appendage.surface.chord, in.scale);
 

@@ -46,10 +46,10 @@ struct SkinnedMeshMemo
 	
 	const SkinnedMesh & in;
 	
-	Silhouette GetSilhouettes(glm::mat4 const& projection, glm::vec3 scale, std::span<const uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
-	Silhouette GetSilhouettes(Axis axis, glm::vec3 scale, std::span<const uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
+	Silhouette GetSilhouettes(glm::mat4 const& projection, glm::vec3 scale,  std::span<const glm::mat4> pose, std::span<const uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
+	Silhouette GetSilhouettes(Axis axis, glm::vec3 scale,  std::span<const glm::mat4> pose, std::span<const uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
 	
-	glm::mat4 GetProjectionMatrix(EigenValue projection, std::span<const glm::vec3> positions, std::span<const glm::vec3> scale, std::span<const uint16_t> joints, SkinnedMesh::LimbMetrics * metrics = nullptr, std::pair<glm::quat, glm::vec3> * eigen_decomp = nullptr) const;
+	glm::mat4 GetProjectionMatrix(EigenValue projection, std::span<const glm::mat4> transforms, std::span<const uint16_t> joints, SkinnedMesh::LimbMetrics * metrics = nullptr, std::pair<glm::quat, glm::vec3> * eigen_decomp = nullptr) const;
 
 	
 	immutable_array<Clique> GetCliques();
