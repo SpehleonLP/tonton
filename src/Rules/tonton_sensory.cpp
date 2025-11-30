@@ -13,7 +13,18 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
     
     auto & eyes = in.builder->sensory.vision.eyes;
     
-    vision.binocular_overlap = in.builder->sensory.vision.binocular_overlap;
+	// Typical FOV per eye: ~90-180 degrees depending on eye type
+	// Predators: narrow FOV (~60°), Prey: wide FOV (~180°)
+	angle_rad fov_per_eye_rad = glm::mix(glm::radians(60.0f), 
+								 glm::radians(150.0f),
+								 1.0f - in.behavior.aggression_adjustment);
+								 
+	// Binocular overlap = (2 × FOV - separation) / FOV
+	// If eyes are close together and pointing same direction: high overlap
+	// If eyes are on sides of head: low/no overlap
+    auto overlap_angle = 2.0f * fov_per_eye_rad - in.builder->sensory.vision.angular_separation_rad;
+                                     
+    vision.binocular_overlap = overlap_angle;
     vision.centering = in.builder->sensory.vision.centering; // Single eye is "centered" by default
         
     if(eyes.empty()) {
@@ -27,7 +38,7 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
     
     length_m max_eye_diameter = 0.0f;
     for(auto const& eye : eyes) {
-        max_eye_diameter = std::max(max_eye_diameter, eye.eye_diameter_m);
+        max_eye_diameter = std::max(max_eye_diameter, scale_to<0>(eye.eye_diameter, in.scale));
     }
     
     // Scale: 0.002m (ant) -> 0.05m (human) -> 0.1m (horse) -> 0.3m (giant squid)
@@ -58,7 +69,7 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
     for(auto const& eye : eyes) {
         if(eye.is_on_stalk) {
             has_eyestalks = true;
-            max_stalk_height = std::max(max_stalk_height, eye.stalk_length_m);
+            max_stalk_height = std::max(max_stalk_height, scale_to<0>(eye.stalk_length, in.scale));
         }
     }
     
@@ -148,7 +159,7 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
         // Forward-facing eyes in raptors for binocular vision
         // Martin (2007): Owls have 50-70% binocular overlap
         if (s.aerial.has_value() && HasFlag(s.physical.clade, CF::MAMMALIA) == false) {
-            vision.binocular_overlap = std::max(vision.binocular_overlap, 0.5f);
+            vision.binocular_overlap = std::max<angle_rad>(vision.binocular_overlap, 0.5f);
         }
     }
 
@@ -164,8 +175,8 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
     auto & physical = s.physical;
     
     // BASE VALUES from geometry
-    auto ear_surface_area = scale_to<0>(in.builder->sensory.hearing.ear_surface_area, in.area_scale());
-    bool has_external_ears = in.builder->sensory.hearing.has_external_ears;
+    auto ear_surface_area = scale_to<0>(in.builder->sensory.ear_surface_area, in.area_scale());
+    bool has_external_ears = in.builder->sensory.has_external_ears;
     
     // SENSITIVITY: Blend geometry + social tendency + activity pattern
     auto geometric_sensitivity = 0.5f; // Default

@@ -163,31 +163,31 @@ void TonTon::MeshMemo::BuildVertexOverlapMemos()
 
 	for(auto & primitive : in.mesh)
 	{
-		primitive.for_each_vertex([&](auto const& vert) -> bool
+		primitive.for_each_vertex([&](DoDeeDum::Vert const& vert) -> bool
 		{
 			int count1 = 0;
 			int count2 = 0;
 			
-			for(int i = 0; i < 3; ++i)
+			for(int i = 0; i < vert.skinning.size(); ++i)
 			{
-				if(vert.weights[i] != 0)
+				if(vert.skinning[i].weight != 0)
 				{
 					++count1;
 					count2 = 0;
-					DocumentVertex(vert.joints[i], vert.joints[i]);
+					DocumentVertex(vert.skinning[i].joint, vert.skinning[i].joint);
 					
-					for(int j = i+1; j < 4; ++j)
+					for(int j = i+1; j < vert.skinning.size(); ++j)
 					{
-						if(vert.weights[j] != 0)
+						if(vert.skinning[j].weight != 0)
 						{
 							++count2;
-							DocumentVertex(vert.joints[i], vert.joints[j]);
+							DocumentVertex(vert.skinning[i].joint, vert.skinning[j].joint);
 						}
 					}
 					
 					// this vertex is the only thing affecting this thing.
 					if(count1 == 1 && count2 == 0)
-						DocumentVertex(vert.joints[i], -1);
+						DocumentVertex(vert.skinning[i].joint, -1);
 				}
 				
 			}

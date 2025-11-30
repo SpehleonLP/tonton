@@ -2,6 +2,8 @@
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "tonton_skinnedmesh.h"
+#include <functional>
+#include <cfloat>
 
 using SF = TonTon::SemanticFlags;
 
@@ -14,19 +16,22 @@ struct TonTon::Builder::BuilderCommand
 	shared_array<glm::vec3> scale;
 	shared_array<glm::vec3> positions;
 	shared_array<glm::vec3> bone_tails;
+	shared_array<float>     area_scale;
+	
+	inline float volume_scale(int i) const { return scale[i].x*scale[i].y*scale[i].z; }
+	inline glm::vec3 centroid(int i) const { return positions[i] + (skinnedMesh.centroid[i] - positions[i]) * scale[i]; }
 	
 	SemanticAnalysis GetSemanticAnalysis(Builder&) const;
 	Physical GetPhysicalAnalysis(Builder&);
 	Sensory GetSensory(Builder&);	
 	
-	Builder_Chain GetBodyWave(Builder&);
-	immutable_array<Builder_Tail> GetTails(Builder&);
+	std::vector<Builder_Tail> GetTails(Builder&);
+	std::optional<Builder_Chain> GetBodyWave(Builder&);
 	
-	immutable_array<Builder_Appendage> GetAppendages(Builder&);
-	immutable_array<glm::vec3> GetGroupCenters(Builder&);
-	immutable_array<int16_t> GetInhibitionGroups(Builder&);
+	std::vector<Builder_Appendage> GetAppendages(Builder&);
+	std::vector<glm::vec3> GetGaitGroupCenters(Builder&);
+//	immutable_array<int16_t> GetInhibitionGroups(Builder&);
 	
-	Specialized GetSpecialized(Builder&);
 	int32_t GetSiphonJoint(Builder&) const;
 };
 
@@ -63,14 +68,13 @@ TonTon::Builder::Builder(BuilderCommand & cmd) :
 	physical(cmd.GetPhysicalAnalysis(*this)),
 	sensory(cmd.GetSensory(*this)),	
 	
-	tails(cmd.GetTails(*this)),
-	serpentine(cmd.GetBodyWave(*this)),
+	tails(shared_array<Builder_Tail>::FromArray(cmd.GetTails(*this))),
+	bodyWave(cmd.GetBodyWave(*this)),
 	
-	appendages(cmd.GetAppendages(*this)),
-	gait_group_centers(cmd.GetGroupCenters(*this)),
-	ipsilateral_inhibition_groups(cmd.GetInhibitionGroups(*this)),
+	appendages(shared_array<Builder_Appendage>::FromArray(cmd.GetAppendages(*this))),
+	gait_group_centers(shared_array<glm::vec3>::FromArray(cmd.GetGaitGroupCenters(*this))),
+//	ipsilateral_inhibition_groups(cmd.GetInhibitionGroups(*this)),
 	
-	specialized(cmd.GetSpecialized(*this)),
 	siphon_joint(cmd.GetSiphonJoint(*this))
 {
 }
@@ -88,10 +92,9 @@ void TonTon::Builder_Appendage::copy_into(Analysis_Appendage & dst, length_b_to_
 {
 	Builder_Chain::copy_into(dst, scale);
 		
-	dst.common_ancestor = common_ancestor;
+	dst.common_ancestor = commonAncestor;
 	dst.gait_group = gait_group;
 	dst.id = id;
-	dst.phase_offset = phase_offset;
 }
 
 TonTon::Builder::SemanticAnalysis TonTon::Builder::BuilderCommand::GetSemanticAnalysis(Builder&) const {
@@ -207,10 +210,9 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 	for(auto i = 0u; i < sk.volume.size(); ++i)
 	{
 		float volume_scale = scale[i].x * scale[i].y	* scale[i].z;
-		float area_scale = std::cbrt(scale[i].x * scale[i].y) * std::cbrt(scale[i].y*scale[i].z) * std::cbrt(scale[i].x*scale[i].z);
 		
 		volume += sk.volume[i] * volume_scale;
-		surfaceArea += sk.surfaceArea[i] * area_scale; 
+		surfaceArea += sk.surfaceArea[i] * area_scale[i]; 
 	}
 	
 	auto relative_flags = sk_memo->GetRelativeFlags();
@@ -413,12 +415,10 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 				auto children = sk_memo->GetAllChildren(node, SPINE_FLAGS, NOT_SPINE_FLAGS);
 				children.push_back(node);
 					
-				auto area =	skinnedMesh.EstimateCrossSection(children, scale, positions[node] - positions[parents[node]]);	
+				auto area =	skinnedMesh.EstimateCrossSection(children, positions, scale, positions[node] - positions[parents[node]]);	
 				crossSectionArea = std::max<double>(crossSectionArea, area);
 			}
-		}
-		
-		
+		}		
 	}
 	
 	// failed to find body, try treating front of spine as head?
@@ -443,7 +443,7 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 	
 	max_body_length += tail_to_root_dist;
 	
-	auto C = skinnedMesh.GetCovariance(std::span<uint16_t>{}, scale);
+	auto C = skinnedMesh.GetCovariance(std::span<uint16_t>{}, positions, scale);
 		
 	
 	return {
@@ -467,136 +467,609 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 	};
 }
 
-int32_t TonTon::Builder::BuilderCommand::GetSiphonJoint(Builder&) const
+
+TonTon::Builder::Sensory TonTon::Builder::BuilderCommand::GetSensory(Builder&)
 {
-	for(auto i = 0u; i < skinnedMesh.skin->tags.size(); ++i)
-	{
-		for(auto tag : skinnedMesh.skin->tags[i])
-			if(tag == Word::siphon)
-				return i;
+	TonTon::Builder::Sensory r;
+	
+   for(uint32_t i = 0; i < skinnedMesh.skin->names.size(); ++i) {
+        for(auto word : skinnedMesh.skin->tags[i]) {
+            if(word == Word::ear || word == Word::pinna) {
+                r.has_external_ears = true;
+                r.ear_surface_area += skinnedMesh.surfaceArea[i] * area_scale[i];
+                break;
+            }
+            
+            if(word == Word::nose 
+            || word == Word::nostril 
+            || word == Word::snout) {
+                r.has_snout = true;
+                r.nasal_surface_area += skinnedMesh.surfaceArea[i] * area_scale[i];
+                break;
+            }
+        }
+    }
+
+	std::array<Word, 1> words = {Word::antenna}; 
+	auto chains = GetChainsFromRoot(*this, std::span<Word>{words});
+	
+	r.antennae.chains = shared_array<Builder_Chain>::FromArray(chains);
+	
+	for(auto const& antenna : r.antennae.chains) {
+		// Get all joints in the antenna chain
+		auto relevant_joints = skinnedMesh.skin->memo()->GetAllChildrenOfRoot(antenna.root);
+		
+		// Check if antenna is tagged as sensory
+		bool is_sensory = false;
+		for(auto joint : relevant_joints) {
+			for(auto word : skinnedMesh.skin->tags[joint]) {
+				if(word == Word::sensory || word == Word::chemoreceptor) {
+					is_sensory = true;
+					break;
+				}
+			}
+			if(is_sensory) break;
+		}
+		
+		if(is_sensory || antenna.stretched_length > 0) {
+			r.antennae.is_sensory = true;
+			
+			// Estimate surface area of antenna
+			for(auto joint : relevant_joints) {
+				r.antennae.surface_area += skinnedMesh.surfaceArea[joint] * area_scale[joint];
+			}
+		}
 	}
 	
-	return -1;
+    auto parents = skinnedMesh.skin->parents.data();
+    auto semantic_flags = skinnedMesh.skin->memo()->GetSemanticFlags();
+    auto gcr_table = skinnedMesh.skin->memo()->GetGcrTable();
+    auto N = semantic_flags.size();
+    
+    std::vector<Sensory::Vision::EyeInfo> eyes;
+    
+    for(uint32_t i = 0; i < skinnedMesh.skin->names.size(); ++i) 
+    {      
+        if(!HasFlag(semantic_flags[i], SF::VISION)) continue;
+        
+        Sensory::Vision::EyeInfo eye;
+        eye.joint_index = i;
+        eye.position = positions[i];
+        
+        // Estimate eye size
+        double eye_volume = skinnedMesh.volume[i] * volume_scale(i);
+        eye.eye_diameter = std::cbrt(eye_volume * 6.0 / 3.14159);
+        
+        // ===================================================================
+        // DETECT EYESTALK - find nearest body attachment
+        // ===================================================================
+        
+        // Walk up to find head/body (not tagged as appendage)
+        int body_attachment = -1;
+        for(int j = parents[i]; j >= 0; j = parents[j]) {
+        
+            if(HasFlag(semantic_flags[i], SF::HEAD|SF::SPINE|SF::ABDOMEN|SF::LIMB|SF::TAIL))
+            {
+                body_attachment = j;
+                break;
+            }
+        }
+        
+        if(body_attachment < 0) {
+            body_attachment = parents[i]; // Fallback to parent
+        }
+        
+        // Check if there's a stalk between body and eye
+        SkinnedMesh::StalkData stalk;
+        eye.is_on_stalk = skinnedMesh.GetStalkData(stalk, body_attachment, i, positions, scale);
+        
+        if(eye.is_on_stalk) {
+            eye.base_position = positions[stalk.root];
+            eye.stalk_length = stalk.length_m;
+            
+            // Eye points away from base
+            eye.pointing_direction = glm::normalize(eye.position - eye.base_position);
+            
+            // Stalks are mobile
+            eye.mobility_rad = glm::radians(90.0f);
+            
+        } else {
+            // Fixed eye
+            eye.base_position = positions[body_attachment];
+            
+            // Eye points radially + respects local rotation
+            glm::vec3 radial = glm::normalize(eye.position - eye.base_position);
+            glm::quat local_rot = skinnedMesh.skin->rotation[i];
+            glm::vec3 local_forward = local_rot * glm::vec3(0, 0, 1);
+            
+            eye.pointing_direction = glm::normalize(radial * 0.3f + local_forward * 0.7f);
+            eye.mobility_rad = glm::radians(15.0f);
+            eye.stalk_length = 0.0f;
+        }
+        
+        eyes.push_back(eye);
+    }
+    
+	if(eyes.size() >= 2) {
+        // Find the two most "forward-facing" eyes for binocular vision
+        // (The ones with the most similar pointing directions)
+        
+        int best_pair[2] = {0, 1};
+        auto best_alignment = -1.0f;
+        
+        for(size_t i = 0; i < eyes.size(); ++i) {
+            for(size_t j = i + 1; j < eyes.size(); ++j) {
+                auto alignment = glm::dot(eyes[i].pointing_direction, 
+                                          eyes[j].pointing_direction);
+                if(alignment > best_alignment) {
+                    best_alignment = alignment;
+                    best_pair[0] = i;
+                    best_pair[1] = j;
+                }
+            }
+        }
+        
+        auto & eye_A = eyes[best_pair[0]];
+        auto & eye_B = eyes[best_pair[1]];
+        
+        // Get their common ancestor
+        int common_root = gcr_table[eye_A.joint_index * N + eye_B.joint_index];
+        
+        glm::vec3 common_pos = positions[common_root];
+        
+        // Vectors from common root to each eye
+        glm::vec3 to_A = glm::vec3(eye_A.position) - common_pos;
+        glm::vec3 to_B = glm::vec3(eye_B.position) - common_pos;
+        
+        // Plane normal (perpendicular to both eye vectors)
+        glm::vec3 plane_normal = glm::normalize(glm::cross(to_A, to_B));
+        
+        // Forward direction (average of eye pointing directions)
+        glm::vec3 forward = glm::normalize(eye_A.pointing_direction + 
+                                          eye_B.pointing_direction);
+        
+        // Project eye positions onto the plane perpendicular to forward
+        glm::vec3 right = glm::normalize(glm::cross(forward, plane_normal));
+        
+        // Angular separation between eyes (in the horizontal plane)
+        auto angle_A = std::atan2(glm::dot(to_A, right), glm::dot(to_A, forward));
+        auto angle_B = std::atan2(glm::dot(to_B, right), glm::dot(to_B, forward));
+        
+        auto angular_separation_rad = std::abs(angle_B - angle_A);
+        
+        r.vision.angular_separation_rad = angular_separation_rad;
+        
+        // ===============================================================
+        // CENTERING - for asymmetric creatures (flatfish!)
+        // ===============================================================
+        
+        // Check if eyes are on opposite sides (normal) or same side (flatfish)
+        auto left_right_balance = (angle_A + angle_B) / 2.0f;
+        
+        // If both eyes are on left (negative) or both on right (positive): asymmetric
+        r.vision.centering = std::clamp(left_right_balance / glm::radians(90.0f), -1.0f, 1.0f);
+    }
+    
+    return r;
 }
 
 
-
-#if 0
-
-
-template<typename T>
-static std::vector<Analysis_Chain> GetChainsFromRoot(TonTon::Input const& in, T const& function)
+std::vector<TonTon::Builder_Tail>   TonTon::Builder::BuilderCommand::GetTails(Builder & in) 
 {
-	std::vector<TonTon::Analysis_Chain> r;
-	auto & sk = *in.skinnedMesh;
+	auto & sk = skinnedMesh;
 	auto * sk_memo = sk.skin->memo();
 	
-	auto parents =  in.skinnedMesh->skin->parents.data();
+	auto parents        = skinnedMesh.skin->parents.data();
+	auto position       = positions.data();
+	auto volume         = skinnedMesh.volume.data();
+	auto tags           = skinnedMesh.skin->tags.data();
+	auto children       = skinnedMesh.skin->memo()->GetChildren();
+	auto relative_flags = skinnedMesh.skin->memo()->GetRelativeFlags();
+	auto semantic_flags = skinnedMesh.skin->memo()->GetSemanticFlags();
+	auto dfs_ordering   = sk_memo->GetDfsOrdering();
+	auto tube_table     = skinnedMesh.memo()->GetTubeTable();
 	
-	auto dfs_ordering = sk_memo->GetDfsOrdering();
-	auto leaves       = sk_memo->GetLeaves();
-	auto gcr			 = sk_memo->GetGcrTable();
+	if(HasFlag(relative_flags[dfs_ordering[0]].child_flags, SF::TAIL) == false)
+		return {};
 	
-	auto noJoints = dfs_ordering.size();
-	std::vector<bool> marks(noJoints, false);
+	auto N = semantic_flags.size();
 	
-	for(auto node : dfs_ordering)
+	shared_array<uint8_t> tube_marks = shared_array<uint8_t>(N, 0);
+	
+	for(auto i = 0u; i < N; ++i)
 	{
-		if(marks[node]) continue;
+	// leaves first
+		auto node = dfs_ordering[(N-1)-i];
 		
-		if(function(node) == false)
-			continue;
-		
-		double max_length = -1;
-		uint32_t best_leaf = node;
-		int jointsInChain = 0;
-		
-		// for each node that uses this as a root.
-		// so we go from each finger and compute distance to shoulder.
-		for(auto leaf : leaves)
+		// children[node].empty means a cache miss, so try to short circuit. 
+		if(tube_marks[node] == false 
+		&& tube_table[node] > 0.98)
 		{
-			if(gcr[node*noJoints + leaf] != node)
-				continue;
-			
-			double length = 0;
-			int counter = 0;
-			for(int32_t j = leaf, p; j >= node; j = p)	
+			tube_marks[node] |= children[node].size()? 0x02 : 0x01;
+		}
+		
+		auto p = parents[node];
+		
+		if(p >= 0 && tube_marks[node])
+		{
+			tube_marks[p] = 0x04;
+		}
+	}
+
+	std::function<Builder_Tail(int)> GetTail = [&](const int root) -> Builder_Tail
+	{	
+		auto node = root;
+		float stretched_length = 0;
+		int   no_links = 0;
+		
+		std::vector<Builder_Tail> branches;
+		std::vector<int> stack;
+		stack.reserve(8);
+		
+		for(;;)
+		{
+			glm::vec3 accumulator{0};
+			for(auto child : children[node])
 			{
-				p = parents[j];
-				marks[j] = true;
-				
-				if(p >= node)
+				if(tube_marks[child] && HasFlag(semantic_flags[child], SF::TAIL))
 				{
-					length += glm::distance(positions[j), positions[p));
+					stack.push_back(child);
+					accumulator += position[child];
 				}
 			}
 			
-			if(length > max_length)
+			if(stack.empty()) break;
+			
+			accumulator /= stack.size();
+			
+			auto vec = position[stack[0]] - position[node];
+			stretched_length += glm::length(vec);
+			++no_links;
+						
+			if(stack.size() == 1)
 			{
-				max_length = length;
-				best_leaf = leaf; 
-				jointsInChain = counter;
+				node = stack[0];
+				stack.clear();
+				continue;
+			}
+			
+			for(auto branch : stack)
+			{
+				branches.push_back(GetTail(branch));
+			}
+					
+			break;
+		}
+		
+		Builder_Tail r;
+		static_cast<Builder_Chain&>(r) = GetChain(*this, node, root);
+		
+		r.root=uint16_t(root);
+		r.tip=uint16_t(node);
+		r.noJoints=no_links;
+		
+		if(HasFlag(relative_flags[root].child_flags, SF::WEAPON))
+		{
+			r.used_for = Analysis_Tail::Flags(int(r.used_for) | int(Analysis_Tail::Flags::Combat));
+			
+			std::vector<int> stack;
+			stack.reserve(children.size());
+			stack.push_back(root);
+			
+			while(stack.size())
+			{
+				auto item = stack.back();
+				stack.pop_back();
+				
+				bool is_in_branch = false;
+				
+				for(auto & b : branches)
+				{
+					if(b.root == item)
+					{
+						is_in_branch = true;
+						break;
+					}
+				}
+				
+				if(is_in_branch)
+					continue;
+					
+				for(auto tag : tags[item])
+				{
+					if(tag == Word::venom)
+					{
+						r.venom_joint = item;
+						r.venom_joint_volume = volume[item] * volume_scale(item);
+						break;
+					}
+				}
+				
+				if(r.venom_joint)
+					break;
+					
+				stack.insert(stack.end(), children[item].begin(), children[item].end());
 			}
 		}
 		
-		r.push_back(Analysis_Chain{
-			.root=node,
-			.tip=uint16_t(best_leaf),
-			.noJoints=jointsInChain,
-			.stretched_length_m=float(max_length),
-			.rest_length_m=glm::distance(positions[best_leaf), positions[node))
-		});
+		r.total_volume = r.volume;
+		
+		for(auto & b : branches)
+		{
+			r.total_volume += b.total_volume;
+		}
+		
+		if(HasFlag(relative_flags[root].child_flags, SF::GRASPER))
+		{
+			r.used_for = Builder_Tail::Flags(int(r.used_for) | int(Builder_Tail::Flags::Grasping));
+		}
+		
+		r.branches=shared_array<Builder_Tail>::FromArray(branches);
+		
+		return r;
+	};
+	
+	std::vector<Builder_Tail> r;
+// find tail roots		
+	for(auto node : dfs_ordering)
+	{		
+		if(HasFlag(semantic_flags[node], SF::TAIL)
+		&& HasFlag(relative_flags[node].parent_flags, SF::TAIL) == false)
+		{
+			r.push_back(GetTail(node));
+		}
 	}
+	
+	std::sort(r.begin(), r.end());
 	
 	return r;
 }
 
-
-std::vector<Analysis_Chain> TonTon::GetChainsFromRoot(Input const& in, std::span<Word> words)
+std::optional<TonTon::Builder_Chain> TonTon::Builder::BuilderCommand::GetBodyWave(Builder& it) 
 {
-	auto tags = in.skinnedMesh->skin->tags;
+	if(it.tails.empty())
+		return std::nullopt;
+		
+	int32_t tip = it.tails[0].tip;
 	
-	return ::GetChainsFromRoot(in, [&](int node) -> bool
+	for(auto ptr = it.tails.data();;)
 	{
-		for(auto word : words)
+		if(ptr->branches.size())
 		{
-			if(tags[node].find(word) >= 0)
+			ptr = ptr->branches.data();
+		}	
+		else
+		{
+			tip = ptr->tip;
+			break;
+		}
+	}
+	
+	auto semantic_flags = skinnedMesh.skin->memo()->GetSemanticFlags();	
+	auto relative_flags = skinnedMesh.skin->memo()->GetRelativeFlags();	
+	auto parents = skinnedMesh.skin->parents.data();	
+	auto root = it.tails[0].root;
+	auto p = root;
+	
+	for(int32_t j = root, p = root; j >= 0; j = p)
+	{
+		p = parents[j];
+		
+		if(p == -1
+		|| HasFlag(relative_flags[p].child_flags, SF::LIMB|SF::PELVIS)
+		|| !HasFlag(semantic_flags[p], SF::SPINE))
+		{
+			return GetChain(*this, tip, j);
+		}
+	}
+
+	return std::nullopt;
+}
+
+std::vector<TonTon::Builder_Appendage> TonTon::Builder::BuilderCommand::GetAppendages(Builder& in)
+{
+	auto chains = Builder::GetChainsFromRoot(*this, SF::LIMB|SF::WING|SF::FIN, SF::NONE);
+	
+	auto & sk = skinnedMesh;
+	auto parents =  skinnedMesh.skin->parents.data();
+	auto semantic_flags =  skinnedMesh.skin->memo()->GetSemanticFlags();
+	auto relative_flags =  skinnedMesh.skin->memo()->GetRelativeFlags();
+	auto clade_flags =  skinnedMesh.skin->memo()->GetCladeFlags();
+	auto relative_clade_flags =  skinnedMesh.skin->memo()->GetRelativeCladeFlags();
+	auto children =  skinnedMesh.skin->memo()->GetChildren();
+	auto gcr_table = skinnedMesh.skin->memo()->GetGcrTable();
+	auto N = children.size();
+
+	auto cliques = sk.memo()->GetCliques();
+	std::vector<TonTon::Builder_Appendage> r;
+	r.resize(chains.size());
+	
+	auto GetRootAxis = [&](int root, int tip) 
+	{
+		int next = -1;
+		for(auto child : children[root])
+		{
+			if(gcr_table[child*N + tip] == child)
 			{
-				return true;
+				return glm::normalize(positions[next] - positions[root]);
 			}
 		}
 		
-		return false;
-	});
-}
-
-std::vector<Analysis_Chain> TonTon::GetChainsFromRoot(TonTon::Input const& in, SemanticFlags flags, SemanticFlags child_flags)
-{
-	auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
-	auto relative_flags = in.skinnedMesh->skin->memo()->GetRelativeFlags();
+		return glm::vec3(0);
+	};
 	
-	return ::GetChainsFromRoot(in, [&](int node) -> bool
+	auto GetDistanceToParent = [&](int root) 
 	{
-		return HasFlag(semantic_flags[node], flags)
-			&& (child_flags == SemanticFlags::NONE
-			||  HasFlag(relative_flags[node].child_flags, child_flags));
-	});
-}
-
-std::vector<Analysis_Appendage> TonTon::GetAppendages(Input const& in, std::vector<Analysis_Chain> && chains)
-{
-	auto & sk = *in.skinnedMesh;
-	auto parents =  in.skinnedMesh->skin->parents.data();
-
-	auto cliques = sk.memo()->GetCliques();
-	std::vector<TonTon::Analysis_Appendage> r;
-	r.resize(chains.size());
+		int p = parents[root];
+		
+		if(p >= 0)
+		{
+			return glm::length(positions[root] - positions[p]);
+		}
+		
+		return 0.f;
+	};
+	
+	std::vector<int> stack;
+	stack.reserve(N);
+	
+	auto GetAABB = [&](int root) -> Builder_Appendage::AABB
+	{
+		stack.clear();
+		stack.push_back(root);
+		
+		glm::vec3 min{FLT_MAX};
+		glm::vec3 max{-FLT_MAX};
+		
+		while(stack.size())
+		{
+			auto node = stack.back();
+			stack.pop_back();
+			
+			stack.insert(stack.end(), children[node].begin(), children[node].end());
+			
+			auto old_pos = skinnedMesh.skin->position[node];
+			auto aabb_min = positions[node] + (skinnedMesh.aabb[node].min - old_pos) * scale[node];
+			auto aabb_max = positions[node] + (skinnedMesh.aabb[node].max - old_pos) * scale[node];
+		
+			min = glm::min(min, aabb_min);
+			max = glm::max(max, aabb_max);
+		}
+		
+		return {.min=min, .max=max};
+	};
+	
+	auto GetSurface = [&](int root, int tip, std::vector<uint16_t> const& relevant_joints) -> Builder_Appendage::Surface
+	{
+		SkinnedMesh::LimbMetrics limb_metrics;
+		std::pair<glm::quat, glm::vec3> eigen_decomposition;
+	
+		// Get fin area from silhouette
+		auto projection = skinnedMesh.memo()->GetProjectionMatrix(
+			EigenValue::Small, 
+			positions,
+			scale,
+			std::span<const uint16_t>(relevant_joints), 
+			&limb_metrics, 
+			&eigen_decomposition);
+			
+		auto& silhouette = skinnedMesh.memo()->GetSilhouettes(projection, positions, scale, relevant_joints);
+		
+		auto surface_normal = GetProjectionDirection(EigenValue::Small, eigen_decomposition.first);	
+		auto x_axis = glm::normalize(positions[root] - bone_tails[tip]);
+		auto bitangent = glm::cross(x_axis, surface_normal);
+			
+		return Builder_Appendage::Surface{
+			.area=silhouette.area,
+			.chord=silhouette.MeasureWidth_Segment(positions[root], bone_tails[tip]).length,
+			.surface_matrix={
+				x_axis,
+				bitangent,
+				surface_normal,
+			},
+			.inertia=limb_metrics.GetInertia(positions[root], 1.f, bitangent)
+		};
+	};
+	
+	auto GetContact = [&](int root, int tip) -> Builder_Appendage::Contact
+	{
+		// find joint
+		auto joint = tip;
+		
+		while(HasFlag(relative_flags[joint].parent_flags, SF::CONTACT|SF::GRASPER))
+		{
+			auto p = parents[joint];
+			
+			if(p == root)
+				break;
+			else
+				joint = p;	
+		}
+		
+		// just weird naming...
+		if(joint == root) 
+			joint = tip;
+			
+		Builder_Appendage::Contact contact;
+		
+		contact.subtree_flags = semantic_flags[joint]|relative_flags[joint].child_flags;
+		contact.joint = joint;
+		
+		contact.rest_length = glm::length(positions[joint] - positions[root]);
+		contact.stretched_length = [&]() -> float
+		{
+			float accumulator= 0;
+			
+			for(auto j = joint; j != root; j = parents[j])
+				accumulator += glm::distance(bone_tails[j], positions[j]);
+			
+			return accumulator;
+		}();
+		
+		std::vector<uint16_t> relevant_joints = skinnedMesh.skin->memo()->GetAllChildrenOfRoot(joint);
+		
+		for(auto j : relevant_joints)
+		{
+			for(auto word : skinnedMesh.skin->tags[j])
+			{
+				switch(word)
+				{
+				case Word::sucker: 
+					contact.has_suckers=true;
+					break;
+				case Word::setae: 
+					contact.has_setae=true;
+					break;
+				case Word::claw: 
+					contact.has_claws=true;
+					break;
+				case Word::thumb: 
+					contact.has_thumb=true;
+					break;
+				case Word::pad: 
+					contact.has_wet_grip=true;
+					break;
+				default: break;
+				}
+			}
+		}
+		
+		if(joint == tip)
+		{
+			auto j = skinnedMesh.volume[joint]? joint : parents[joint];
+			
+			contact.normal = glm::normalize(bone_tails[j] - positions[j]);
+			contact.area = skinnedMesh.EstimateCrossSection(
+				j,
+				scale[j],
+				contact.normal
+			 );
+		}
+		else
+		{
+			Builder_Appendage::Surface surface = GetSurface(joint, tip, relevant_joints);
+			
+			contact.normal = surface.surface_matrix[2];
+			contact.area = surface.area;
+		}
+		
+		return contact;
+	};
+	
 	
 	for(auto i = 0u; i < r.size(); ++i)
 	{
-		(Analysis_Chain&)r[i] = chains[i];
-		r[i].common_ancestor = parents[r[i].root];
-		r[i].gait_group = -1;
+		static_cast<Builder_Chain&>(r[i]) = chains[i];
+		
+		r[i].semantic_flags = semantic_flags[i]|relative_flags[i].child_flags;
+		r[i].clade_flags = clade_flags[i]|relative_clade_flags[i].child_flags;
+		
+		r[i].rootAxis = GetRootAxis(r[i].root, r[i].tip);
+		r[i].distance_to_parent = GetDistanceToParent(r[i].root);
+		r[i].aabb = GetAABB(r[i].root);
+		
+		r[i].contact = GetContact(r[i].root, r[i].tip);
+		r[i].surface = GetSurface(r[i].root, r[i].tip, skinnedMesh.skin->memo()->GetAllChildrenOfRoot(r[i].root));
 	}
 	
 	uint32_t current_gait_group = 0;
@@ -606,7 +1079,7 @@ std::vector<Analysis_Appendage> TonTon::GetAppendages(Input const& in, std::vect
 		
 		for(auto & clique : cliques)
 		{
-			if(r[i].common_ancestor != (int32_t)clique.parent)
+			if(r[i].commonAncestor != (int32_t)clique.parent)
 				continue;
 				
 			int clique_size{};
@@ -640,597 +1113,213 @@ std::vector<Analysis_Appendage> TonTon::GetAppendages(Input const& in, std::vect
 		return a.root < b.root;
 	});
 	
+	for(auto i = 0u; i < r.size(); ++i)
+		r[i].id = i;
+	
 	return r;
 }
 
-std::vector<Analysis_Manipulator>   TonTon::ComputeManipulation(Input const& in)
-{// walk back parents until we get something thats not limb-ish
+std::vector<glm::vec3>  TonTon::Builder::BuilderCommand::GetGaitGroupCenters(Builder& builder)
+{	
+	int no_groups = 0;
 	
-	auto appendages = GetAppendages(in, GetChainsFromRoot(in, SF::LIMB|SF::TAIL|SF::FACIAL, SF::GRASPER));
-	return ComputeManipulation(in, appendages);
-} 
-
-
-static	std::vector<Analysis_Tail>   TonTon::ComputeTails(Input const& in) 
-{
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo();
-	
-	auto parents        = in.skinnedMesh->skin->parents.data();
-	auto position       = in.skinnedMesh->skin->position.data();
-	auto volume         = in.skinnedMesh->volume.data();
-	auto children       = in.skinnedMesh->skin->memo()->GetChildren();
-	auto relative_flags = in.skinnedMesh->skin->memo()->GetRelativeFlags();
-	auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
-	auto dfs_ordering   = sk_memo->GetDfsOrdering();
-	auto tube_table     = in.skinnedMesh->memo()->GetTubeTable();
-	
-	if(HasFlag(relative_flags[dfs_ordering[0]].child_flags, SF::TAIL) == false)
-		return {};
-	
-	auto N = semantic_flags.size();
-	
-	shared_array<uint8_t> tube_marks = shared_array<uint8_t>(N, 0);
-	
-	for(auto i = 0u; i < N; ++i)
-	{
-	// leaves first
-		auto node = dfs_ordering[(N-1)-i];
-		
-		// children[node].empty means a cache miss, so try to short circuit. 
-		if(tube_marks[node] == false 
-		&& tube_table[node] > 0.98)
-		{
-			tube_marks[node] |= children[node].size()? 0x02 : 0x01;
-		}
-		
-		auto p = parents[node];
-		
-		if(p >= 0 && tube_marks[node])
-		{
-			tube_marks[p] = 0x04;
-		}
-	}
-
-	std::function<Analysis_Tail(int)> GetTail = [&](const int root) -> Analysis_Tail
+	for(auto & p : builder.appendages)
 	{	
-		auto node = root;
-		float stretched_length = 0;
-		float total_volume = 0;
-		float min_area = FLT_MAX;
-		float max_area =-FLT_MAX;
-		int   no_links = 0;
-		
-		std::vector<Analysis_Tail> branches;
-		std::vector<int> stack;
-		stack.reserve(8);
-		
-		for(;;)
-		{
-			glm::vec3 accumulator{0};
-			for(auto child : children[node])
-			{
-				if(tube_marks[child] && HasFlag(semantic_flags[child], SF::TAIL))
-				{
-					stack.push_back(child);
-					accumulator += position[child];
-				}
-			}
-			
-			if(stack.empty()) break;
-			
-			accumulator /= stack.size();
-			
-			auto vec = position[stack[0]] - position[node];
-			total_volume += volume[node];
-			float area = in.skinnedMesh->EstimateCrossSection(node, in.behavior.scale, vec);
-			
-			min_area = std::min(min_area, area);
-			max_area = std::max(max_area, area);
-			stretched_length += glm::length(vec);
-			++no_links;
-						
-			if(stack.size() == 1)
-			{
-				node = stack[0];
-				stack.clear();
-				continue;
-			}
-			
-			for(auto branch : stack)
-			{
-				branches.push_back(GetTail(branch));
-			}
-					
-			break;
-		}
-		
-		Analysis_Tail r;
-		
-		r.root=uint16_t(root);
-		r.tip=uint16_t(node);
-		r.noJoints=no_links;
-		
-		r.stretched_length_m=stretched_length;
-		r.rest_length_m=glm::length(position[node] - position[root]);
-		
-		r.common_ancestor=parents[root];
-		r.gait_group=0;
-		r.phase_offset=0;
-	
-		r.mass_kg = in.body_density() * total_volume;
-		r.max_cross_section_m2=max_area;
-		r.min_cross_section_m2=min_area;
-		
-		r.natural_sway_frequency_Hz = std::sqrt(in.environment.gravity_m_s2 / r.stretched_length_m) / M_PI;
-		r.branches=shared_array<Analysis_Tail>::FromArray(branches);
-		
-		if(HasFlag(relative_flags[root].child_flags, SF::WEAPON))
-		{
-			r.used_for = Analysis_Tail::Flags(int(r.used_for) | int(Analysis_Tail::Flags::Combat));
-		}
-		
-		if(HasFlag(relative_flags[root].child_flags, SF::GRASPER))
-		{
-			r.used_for = Analysis_Tail::Flags(int(r.used_for) | int(Analysis_Tail::Flags::Grasping));
-		}
-		
-		return r;
-	};
-	
-	std::vector<Analysis_Tail> r;
-// find tail roots		
-	for(auto node : dfs_ordering)
-	{		
-		if(HasFlag(semantic_flags[node], SF::TAIL)
-		&& HasFlag(relative_flags[node].parent_flags, SF::TAIL) == false)
-		{
-			r.push_back(GetTail(node));
-		}
+		no_groups= std::max(int(p.gait_group), no_groups);
 	}
-	
-	return r;
-}
-
-std::vector<glm::vec3> TonTon::GetGaitGroupCenters(Input const& in, Analysis_Appendage * data, size_t size, size_t stride)
-{
-	std::vector<glm::vec3> positions;
-	std::vector<std::pair<int, int>> count;
-	positions.reserve(2);
-	count.reserve(2);
-	
-	for(auto i = 0u; i < size; ++i)
-	{
-		Analysis_Appendage * p = (Analysis_Appendage*)(((uint8_t*)data) + stride);
-	
-		for(auto j = 0u; j < count.size(); ++j)
-		{
-			if(count[j].first == p->gait_group)
-			{
-				positions[j] += positions[p->root);
-				count[j].second += 1;
-				goto found;
-			}
-			
-			if(count[j].first > p->gait_group)
-			{
-				count.insert(count.begin()+j, {	int(p->gait_group),1});
-				positions.insert(positions.begin()+j, positions[p->root));
-				goto found;
-			}
-		}
-
-		count.push_back({int(p->gait_group),1});
-		positions.push_back(positions[p->root));
 		
-	found:
-		(void)0;
+	std::vector<glm::vec3> positions;
+	std::vector<int> count;
+	positions.resize(no_groups, glm::vec3(0));
+	count.resize(no_groups, 0);
+	
+	for(auto & p : builder.appendages)
+	{
+		count[p.gait_group] += 1;
+		positions[p.gait_group] += positions[p.root];
 	}
 
 	for(auto j = 0u; j < count.size(); ++j)
 	{
-		positions[j] *= 1.0 / count[j].second;
+		positions[j] *= count[j]? (1.0 / count[j]) : 0.0;
 	}
 	
 	return positions;
 }
-
-std::vector<TonTon::Analysis_Manipulator>   TonTon::ComputeManipulation(Input const& in, std::vector<Analysis_Appendage> & appendages) 
-{ 		
-	auto & sk = *in.skinnedMesh;
-	auto * sk_memo = sk.skin->memo();
-	auto position = sk.skin->position.data();
-	auto parents = sk.skin->parents.data();
-	
-	auto relative_flags = in.skinnedMesh->skin->memo()->GetRelativeFlags();
-	auto semantic_flags = in.skinnedMesh->skin->memo()->GetSemanticFlags();
-	
-	std::vector<Analysis_Manipulator> manipulators(appendages.size());
-	
-	for(auto i = 0u; i < appendages.size(); ++i)
+		
+int32_t TonTon::Builder::BuilderCommand::GetSiphonJoint(Builder&) const
+{
+	for(auto i = 0u; i < skinnedMesh.skin->tags.size(); ++i)
 	{
-		static_cast<Analysis_Appendage&>(	manipulators[i]) = appendages[i];
-		auto idx = manipulators[i].tip;
-		
-		int relevant_root = manipulators[i].tip;
-		for(auto j = manipulators[i].tip; j >= manipulators[i].root; j = parents[j])
-		{
-			if(HasFlag(semantic_flags[j], SF::CONTACT|SF::GRASPER))
-				relevant_root = j;		
-		}
-		
-		auto relevant_joints = sk_memo->GetAllChildrenOfRoot(relevant_root);
-		// get all *excluding grasper itself* (just fingers)
-		auto which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
-			
-		auto metrics = in.skinnedMesh->GetMetrics(which, in.behavior.scale);
-		TonTon::Silhouette silhouette;
-		
-		manipulators[i].subtree_flags = relative_flags[idx].child_flags|semantic_flags[idx];
-		
-		// it is a spike.. or trunk.. or something, no fingers!
-		// trunks have fingers but in an armature they probably don't.
-		if(metrics.volume == 0.0)
-		{
-			auto tip = manipulators[i].tip;
-		
-			manipulators[i].surface_area_m2 = sk.EstimateCrossSection(tip, in.behavior.scale, position[tip] - position[parents[tip]]);
-			manipulators[i].surface_normal  = glm::normalize(position[tip] - position[parents[tip]]);
-		}
-		else
-		{
-		// get all *including grasper itself*
-			which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
-					
-			std::pair<glm::quat, glm::vec3> eigen_decomp;
-			auto projection = in.skinnedMesh->memo()->GetProjectionMatrix(EigenValue::Small, in.behavior.scale, which, &metrics, &eigen_decomp);
-			silhouette = in.skinnedMesh->memo()->GetSilhouettes(projection, in.behavior.scale, which);
-			
-			// get projection direction.
-			manipulators[i].surface_area_m2 = silhouette.area;
-			manipulators[i].surface_normal =  glm::mat3(eigen_decomp.first)[2];
-		}
-		
-		auto counter = 0;
-		float accumulator = 0;
-		float accumulator_2nd_moment = 0;
-		for(auto j = manipulators[i].tip; j != manipulators[i].root; j = parents[j])
-		{
-			auto p =  parents[j];
-			if(p < 0) break;
-			double secondMoment = 0;
-			auto area_m2 = sk.EstimateCrossSection(p, in.behavior.scale, position[j] - position[p], &secondMoment);
-		
-			accumulator += area_m2;
-			accumulator_2nd_moment += secondMoment;
-			++counter;
-		}
-		
-		if(counter)
-		{
-			float avg_area = accumulator / counter;
-			float avg_moment = accumulator_2nd_moment / counter;
-			
-			// 1. MUSCLE VOLUME ESTIMATION
-			// Assume ~40-60% of limb volume is muscle (depends on type)
-			float muscle_fraction = glm::mix(0.35f, 0.65f, in.behavior.endurance_vs_power);
-		//	double muscle_volume_m3 = metrics.volume * muscle_fraction;
-		//	double muscle_mass_kg = muscle_volume_m3 * glm::mix(700.0, 1050.0, in.average_density);
-			
-			// 2. GRIP FORCE (from finger/digit flexors)
-			// Peak muscle stress: 20-40 N/cm² (200,000-400,000 Pa)
-			// Quality affects max stress achievable
-			float muscle_stress_Pa = glm::mix(200000.0f, 400000.0f, in.muscle_quality);
-			
-			// Effective cross-sectional area (perpendicular to force direction)
-			// For grip, this is roughly the cross-section of the muscles
-			float grip_muscle_area_m2 = avg_area * muscle_fraction;
-			float base_grip_force_N = muscle_stress_Pa * grip_muscle_area_m2;
+		for(auto tag : skinnedMesh.skin->tags[i])
+			if(tag == Word::siphon)
+				return i;
+	}
+	
+	return -1;
+}
 
-			// Grip force depends on mechanical advantage / limb geometry
-			// Short thick limbs (penguin legs) have poor leverage despite high muscle mass
-			// Compare limb length to thickness (sqrt of cross-sectional area)
-			float limb_thickness_m = std::sqrt(avg_area); // Characteristic thickness
-			float aspect_ratio = manipulators[i].stretched_length_m / std::max(0.001f, limb_thickness_m);
-			// Typical limb: aspect_ratio ~5-15 (length is 5-15x thickness)
-			// Penguin legs: aspect_ratio ~2-3 (short and thick), poor mechanical advantage
-			// Primate arms: aspect_ratio ~10-20 (long and slender), good leverage
-			float length_factor = glm::clamp(aspect_ratio / 10.0f, 0.3f, 1.2f); // 0.3x at stubby, 1.0x at normal
 
-			manipulators[i].max_grip_force_N = base_grip_force_N * length_factor;
-			
-			// 3. LIFT FORCE (constrained by joint torque limits)
-			// Torque = Force × moment_arm
-			// Max torque ≈ muscle_PCSA × muscle_stress × moment_arm
-			float moment_arm_m = std::sqrt(avg_moment / avg_area); // Radius of gyration
-			float max_torque_Nm = muscle_stress_Pa * grip_muscle_area_m2 * moment_arm_m;
-			
-			// Convert torque to force at tip (lever arm = chain length)
-			float lever_arm_m = manipulators[i].stretched_length_m;
-			if(lever_arm_m > 0.001f) {
-				manipulators[i].max_lift_force_N = max_torque_Nm / lever_arm_m;
-			} else {
-				manipulators[i].max_lift_force_N = 0.0f;
-			}
-			
-			// Apply structure vs weight scaling
-			// More robust structure = can handle more force
-			float structure_bonus = glm::mix(0.7f, 1.3f, in.structure_vs_weight);
-			manipulators[i].max_lift_force_N *= structure_bonus;
-			manipulators[i].max_grip_force_N *= structure_bonus;
-		}
+template<typename T>
+std::vector<TonTon::Builder_Chain> TonTon::Builder::GetChainsFromRoot(TonTon::Builder::BuilderCommand const& in, T const& function)
+{
+	std::vector<TonTon::Builder_Chain> r;
+	auto & sk = in.skinnedMesh;
+	auto * sk_memo = sk.skin->memo();
+	
+	auto parents =  in.skinnedMesh.skin->parents.data();
+	
+	auto dfs_ordering = sk_memo->GetDfsOrdering();
+	auto leaves       = sk_memo->GetLeaves();
+	auto gcr			 = sk_memo->GetGcrTable();
+	
+	auto noJoints = dfs_ordering.size();
+	std::vector<bool> marks(noJoints, false);
+	
+	for(auto node : dfs_ordering)
+	{
+		if(marks[node]) continue;
 		
-		// 4. ADHESION FORCE (for specialized structures)
-		manipulators[i].max_adhesion_force_N = 0.0f;
+		if(function(node) == false)
+			continue;
 		
-	// grab each thing in the subtree		
-		bool has_suckers = false;
-		bool has_setae = false;
-		bool has_claws = false;
-		bool has_thumb = false;
-		bool has_wet_grip = false; // what word do i look for for a treefrog?		
+		double max_length = -1;
+		uint32_t best_leaf = node;
+		int jointsInChain = 0;
 		
-		for(auto node : relevant_joints)
+		double accCrossSection=0;
+		
+		
+		// for each node that uses this as a root.
+		// so we go from each finger and compute distance to shoulder.
+		for(auto leaf : leaves)
 		{
-			for(auto word : sk.skin->tags[node])
+			if(gcr[node*noJoints + leaf] != node)
+				continue;
+			
+			double length = 0;
+			int counter = 0;
+			for(int32_t j = leaf, p; j >= node; j = p)	
 			{
-				switch(word)
+				p = parents[j];
+				marks[j] = true;
+				
+				if(p >= node)
 				{
-				default: break;
-				case Word::sucker:
-					has_suckers = true;
-					break;
-				case Word::setae:
-					has_setae = true;
-					break;		
-				case Word::claw:
-				case Word::talon:
-					has_claws = true;
-					break;		
-				case Word::thumb:
-					has_thumb = true;
-					break;	
-				case Word::pad:
-				case Word::adhesive:
-					has_wet_grip = true;
-					break;
+					length += glm::distance(in.positions[j], in.positions[p]);
 				}
 			}
-		}
-		
-		manipulators[i].has_claws=has_claws;
-		manipulators[i].has_suckers=has_suckers;
-		manipulators[i].has_setae=has_setae;
-		manipulators[i].has_thumb=has_thumb;
-		manipulators[i].has_wet_grip=has_wet_grip;
-		
-		if(has_suckers) {
-			// Suction force: F = ΔP × Area
-			// Assume can create ~0.8 atm (80 kPa) pressure differential
-			float suction_pressure_Pa = 80000.0f;
 			
-			// Estimate sucker area from surface area
-			float sucker_coverage = 0.3f; // ~30% of surface is actual suction cups
-			float effective_sucker_area = manipulators[i].surface_area_m2 * sucker_coverage;
-			
-			manipulators[i].max_adhesion_force_N = suction_pressure_Pa * effective_sucker_area;
-		}
-		
-		if(has_setae) {
-			// Van der Waals adhesion (gecko-like)
-			// ~10 N/cm² for optimal setae density
-			float setae_stress_Pa = 100000.0f; // 10 N/cm²
-			
-			// Assume setae cover the contact surface
-			manipulators[i].max_adhesion_force_N += 
-				setae_stress_Pa * manipulators[i].surface_area_m2;
-		}
-			
-		if(has_wet_grip) {
-			// Tree frog adhesion: capillary forces + mucus adhesion
-			// ~1-5 N/cm² depending on surface wetness
-			// Formula: F = 2πRγ (capillary) + μ×Area (mucus)
-			float wet_adhesion_Pa = 30000.0f; // ~3 N/cm² typical
-			
-			// Pad coverage (tree frogs have ~60% of toe surface as pad)
-			float pad_coverage = 0.6f;
-			float effective_pad_area = manipulators[i].surface_area_m2 * pad_coverage;
-			
-			manipulators[i].max_adhesion_force_N = 
-				wet_adhesion_Pa * effective_pad_area;
-			
-			// Requires wet/humid surface - note this in metadata somewhere?
-		}
-		
-		if(manipulators[i].has_friction_pads()) {
-			// Primate friction grip (no true adhesion, just high friction)
-			// Not really "adhesion" but contributes to grip force
-			// Coefficient of friction ~0.5-1.5 for primate skin
-			float friction_coef = 1.0f;
-			
-			// This multiplies the normal force (which comes from grip force)
-			// So it enhances grip_force rather than being separate
-			manipulators[i].max_grip_force_N *= (1.0f + friction_coef * 0.3f);
-		}
-
-		// 5. SCALING ADJUSTMENTS
-		// Square-cube law: Force scales with cross-section (area), not volume
-		float size_scale = in.area_scale(); // Already accounts for anisotropic scaling
-		
-		// Apply conservative allometric scaling
-		// Smaller animals have relatively stronger muscles (force/mass ratio)
-		float allometric_factor = std::pow(size_scale, 0.67f); // Between area (1.0) and volume (0.67)
-		
-		manipulators[i].max_lift_force_N *= allometric_factor;
-		manipulators[i].max_grip_force_N *= allometric_factor;
-		manipulators[i].max_adhesion_force_N *= allometric_factor;
-		
-		// 6. TYPE-SPECIFIC ADJUSTMENTS
-		if(HasFlag(manipulators[i].subtree_flags, SF::TENTACLE)) {
-			// Tentacles are hydrostatic - different force characteristics
-			// Generally weaker in grip but good adhesion
-			manipulators[i].max_grip_force_N *= 0.6f;
-			if(has_suckers) {
-				manipulators[i].max_adhesion_force_N *= 1.5f; // Octopus-level suction
+			if(length > max_length)
+			{
+				max_length = length;
+				best_leaf = leaf; 
+				jointsInChain = counter;
 			}
 		}
 		
-		// trunks and monkey tails.
-		if(HasFlag(manipulators[i].subtree_flags, SF::FACIAL|SF::TAIL)) {
-			// Elephant trunks: excellent lift, moderate grip
-			manipulators[i].max_lift_force_N *= 1.4f;
-			manipulators[i].max_grip_force_N *= 0.8f;
-		}		
+		r.push_back(GetChain(in, best_leaf, node));
 	}
 	
-	return manipulators;
-
+	return r;
 }
 
-std::vector<TonTon::Analysis_Aquatic::Fin> TonTon::Compute_Fins(const Builder &in)
-{		
-	std::vector<TonTon::Analysis_Aquatic::Fin>  fins;
-	fins.reserve(fin_appendages.size());
+std::vector<TonTon::Builder_Chain> TonTon::Builder::GetChainsFromRoot(TonTon::Builder::BuilderCommand const& in, std::span<Word> words)
+{
+	auto tags = in.skinnedMesh.skin->tags;
 	
-	for(auto & appendage : in.appendages)
+	return GetChainsFromRoot(in, [&](int node) -> bool
 	{
-		appendage.rest_length_m += glm::length(tails[appendage.tip] - position[appendage.root]);
-		appendage.stretched_length_m += glm::length(tails[appendage.tip] - position[appendage.tip]);
+		for(auto word : words)
+		{
+			if(tags[node].find(word) >= 0)
+			{
+				return true;
+			}
+		}
 		
-		Analysis_Aquatic::Fin fin;
-		static_cast<Analysis_Appendage&>(fin) = appendage;
+		return false;
+	});
+}
 
-		SkinnedMesh::LimbMetrics limb_metrics;
-		std::pair<glm::quat, glm::vec3> eigen_decomposition;
+std::vector<TonTon::Builder_Chain> TonTon::Builder::GetChainsFromRoot(TonTon::Builder::BuilderCommand const& in, SemanticFlags flags, SemanticFlags child_flags)
+{
+	auto semantic_flags = in.skinnedMesh.skin->memo()->GetSemanticFlags();
+	auto relative_flags = in.skinnedMesh.skin->memo()->GetRelativeFlags();
 	
-		// Get fin area from silhouette
-		auto fin_joints = sk_memo->GetAllChildrenOfRoot(appendage.root);
-		auto projection = in.skinnedMesh->memo()->GetProjectionMatrix(
-			EigenValue::Small, 
-			in.behavior.scale,
-			fin_joints, 
-			&limb_metrics, 
-			&eigen_decomposition);
-			
-		auto& silhouette = in.skinnedMesh->memo()->GetSilhouettes(projection, in.behavior.scale, fin_joints);
-		
-		fin.area_m2 = silhouette.area;
-		fin.chord_m = silhouette.MeasureWidth_Segment(position[fin.root], tails[fin.tip]).length;
-		
-		// aspect ratio wasn't really meaningful because a shark's body is so fat!
+	return GetChainsFromRoot(in, [&](int node) -> bool
+	{
+		return HasFlag(semantic_flags[node], flags)
+			&& (child_flags == SemanticFlags::NONE
+			||  HasFlag(relative_flags[node].child_flags, child_flags));
+	});
+}
 
-		fin.normal_vector = GetProjectionDirection(EigenValue::Small, eigen_decomposition.first);
-		fin.type = relative_flags[appendage.root].child_flags|semantic_flags[appendage.root];
-		auto surfaceArea = in.skinnedMesh->GetSurfaceArea(fin_joints, area_scale);
-
-		// Add this analysis before your flipper check
-		float percent_area = (silhouette.area*2.0) / surfaceArea; // volume-to-area ratio
-	//	float thickness = surfaceArea / limb_metrics.volume;
-		int joint_count = fin_joints.size();
-		float aspect_ratio = fin.rest_length_m / fin.chord_m;
+TonTon::Builder_Chain TonTon::Builder::GetChain(TonTon::Builder::BuilderCommand const& in, int leaf, int root)
+{
+	auto parents =  in.skinnedMesh.skin->parents.data();
+	
+	float minCrossSection=FLT_MAX;
+	float maxCrossSection=-FLT_MAX;
+	float accCrossSection={};
+	float minMoment=FLT_MAX;
+	float maxMoment=-FLT_MAX;
+	float accMoment={};
+	float surface_area={};
+	float length={};
+	float volume={};
+	glm::vec3 accCentroid={};
+	int32_t jointsInChain{};
+	
+	for(int32_t j = leaf, p; j != root; j = p)	
+	{
+		p = parents[j];
+					
+		float vol = in.skinnedMesh.volume[j] * in.volume_scale(j);
 		
-		// Flipper characteristics
-		bool has_internal_structure = joint_count < 3; // flippers don't have digitgrade etc complexity. usually one bone. 
-		bool is_thick_enough = percent_area > 0.75; // tune this value
-		bool is_paddle_shaped = aspect_ratio < 3.0f; // flippers are relatively short and wide
-		
-		bool is_flipper = has_internal_structure && is_thick_enough && is_paddle_shaped;
-
-		if(HasFlag(fin.type, SF::FIN) 
-		|| is_flipper)
-			fins.push_back(fin);
+		auto vec = in.bone_tails[j] - in.positions[p];
+		double moment{};
+		auto crossSection = in.skinnedMesh.EstimateCrossSection(j, in.scale[j], vec, &moment);
+					
+		minCrossSection= std::min<float>(minCrossSection, crossSection);
+		maxCrossSection= std::max<float>(maxCrossSection, crossSection);
+		minMoment= std::min<float>(minMoment, moment);
+		maxMoment= std::max<float>(maxMoment, moment);
+		accCrossSection += crossSection;
+		accMoment += moment;
+		surface_area= in.skinnedMesh.surfaceArea[j] * in.area_scale[j];
+		length= glm::length(vec);
+		volume= vol;
+		accCentroid= in.centroid(j) * vol;
+		jointsInChain += 1;
 	}
-	
-	return fins;
+		
+	float invVolume = volume? 1.0 / volume : 0.0;	
+	float invJoints = jointsInChain? 1.0 / jointsInChain : 0.0;	
+		
+	return Builder_Chain{
+			.root=uint16_t(root),
+			.tip=uint16_t(leaf),
+			.commonAncestor=int16_t(parents[root]),
+			.noJoints=int16_t(jointsInChain),
+			
+			.surface_area=surface_area,
+			.volume=volume,
+			.centroid=accCentroid * invVolume,
+			
+			.stretched_length=float(length),
+			.rest_length=glm::distance(in.positions[leaf], in.positions[root]),
+			
+			.minCrossSection=minCrossSection,
+			.avgCrossSection=accCrossSection * invJoints,
+			.maxCrossSection=maxCrossSection,
+			.minMoment=minMoment,
+			.avgMoment=accMoment * invJoints,
+			.maxMoment=maxMoment,
+		};
 }
 
 
 
 
-struct EyeInfo {
-    uint16_t joint_index;
-    glm::vec3 position;           // In rest pose
-    glm::vec3 base_position;      // Where eyestalk attaches (if applicable)
-    glm::vec3 pointing_direction; // Forward vector of this eye
-    bool is_on_stalk;
-    length_m stalk_length_m;
-    length_m eye_diameter_m;
-    angle_rad mobility_rad;           // How much can it rotate? (stalk vs fixed)
-};
-
-static std::vector<EyeInfo> FindEyes(TonTon::SkinnedMesh const& sk) {
-	using SF = SemanticFlags;
-	
-    auto parents = sk.skin->parents.data();
-    auto semantic_flags = sk.skin->memo()->GetSemanticFlags();
-    
-    std::vector<EyeInfo> eyes;
-    
-    for(uint32_t i = 0; i < sk.skin->names.size(); ++i) 
-    {      
-        if(!HasFlag(semantic_flags[i], SF::VISION)) continue;
-        
-        EyeInfo eye;
-        eye.joint_index = i;
-        eye.position = positions[i);
-        
-        // Estimate eye size
-        double eye_volume = sk.volume[i] * in.behavior.volume_scale();
-        eye.eye_diameter_m = std::cbrt(eye_volume * 6.0 / 3.14159);
-        
-        // ===================================================================
-        // DETECT EYESTALK - find nearest body attachment
-        // ===================================================================
-        
-        // Walk up to find head/body (not tagged as appendage)
-        int body_attachment = -1;
-        for(int j = parents[i]; j >= 0; j = parents[j]) {
-        
-            if(HasFlag(semantic_flags[i], SF::HEAD|SF::SPINE|SF::ABDOMEN|SF::LIMB|SF::TAIL))
-            {
-                body_attachment = j;
-                break;
-            }
-        }
-        
-        if(body_attachment < 0) {
-            body_attachment = parents[i]; // Fallback to parent
-        }
-        
-        // Check if there's a stalk between body and eye
-        SkinnedMesh::StalkData stalk;
-        eye.is_on_stalk = sk.GetStalkData(stalk, body_attachment, i, in.behavior.scale);
-        
-        if(eye.is_on_stalk) {
-            eye.base_position = positions[stalk.root);
-            eye.stalk_length_m = stalk.length_m;
-            
-            // Eye points away from base
-            eye.pointing_direction = glm::normalize(eye.position - eye.base_position);
-            
-            // Stalks are mobile
-            eye.mobility_rad = glm::radians(90.0f);
-            
-        } else {
-            // Fixed eye
-            eye.base_position = positions[body_attachment);
-            
-            // Eye points radially + respects local rotation
-            glm::vec3 radial = glm::normalize(eye.position - eye.base_position);
-            glm::quat local_rot = sk.skin->rotation[i];
-            glm::vec3 local_forward = local_rot * glm::vec3(0, 0, 1);
-            
-            eye.pointing_direction = glm::normalize(radial * 0.3f + local_forward * 0.7f);
-            eye.mobility_rad = glm::radians(15.0f);
-            eye.stalk_length_m = 0.0f;
-        }
-        
-        eyes.push_back(eye);
-    }
-    
-    return eyes;
-}
-
-
-#endif
 

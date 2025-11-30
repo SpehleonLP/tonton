@@ -16,7 +16,7 @@ TonTon::SkinnedMeshMemo::SkinnedMeshMemo(SkinnedMesh const* ptr) : in(*ptr)
 
 TonTon::SkinnedMeshMemo::~SkinnedMeshMemo() = default;
 
-TonTon::Silhouette & TonTon::SkinnedMeshMemo::GetSilhouettes(glm::mat4 const& projection, glm::vec3 scale, std::span<uint16_t> joints,  float cutoff, bool secondMoment)
+TonTon::Silhouette TonTon::SkinnedMeshMemo::GetSilhouettes(glm::mat4 const& projection, glm::vec3 scale, std::span<const uint16_t> joints,  float cutoff, bool secondMoment)
 {
 	return in.mesh->memo()->GetSilhouettes(projection, scale, joints, cutoff, secondMoment);
 }
@@ -79,18 +79,17 @@ glm::vec3 TonTon::GetProjectionDirection(EigenValue projection, glm::quat eigen_
     return glm::vec3(0, 0, 1);
 }
 
-glm::mat4 TonTon::SkinnedMeshMemo::GetProjectionMatrix(EigenValue projection, glm::vec3 scale, std::span<uint16_t> joints, SkinnedMesh::LimbMetrics * metrics, std::pair<glm::quat, glm::vec3> * eigen_decomp) const
+glm::mat4 TonTon::SkinnedMeshMemo::GetProjectionMatrix(EigenValue projection, std::span<const glm::vec3> positions, std::span<const glm::vec3> scale, std::span<const uint16_t> joints, SkinnedMesh::LimbMetrics * metrics, std::pair<glm::quat, glm::vec3> * eigen_decomp) const
 {
-	auto m = in.GetMetrics(joints, scale);
+	auto m = in.GetMetrics(joints, positions, scale);
 	// convert inertia tensor to [rotation, eigenvectors, form]
 	auto[rotation_q, vectors] = EigenDecomposition(m.unitInertia);
-	auto position = in.skin->position.data();
 	
 	glm::mat4 matrix = ::TonTon::GetProjectionMatrix(projection, rotation_q);
 	
 	if(joints.size())
 	{
-		auto offset = -matrix * glm::vec4(position[joints[0]] * scale, 1);
+		auto offset = -matrix * glm::vec4(positions[joints[0]], 1);
 		if(offset.w)
 		{
 			(glm::vec3&)matrix[3] = offset / offset.w;
@@ -102,31 +101,8 @@ glm::mat4 TonTon::SkinnedMeshMemo::GetProjectionMatrix(EigenValue projection, gl
 	return matrix; 
 }
 	
-TonTon::Silhouette & TonTon::SkinnedMeshMemo::GetSilhouettes(EigenValue projection, glm::vec3 scale, std::span<uint16_t> joints, float cutoff, bool secondMoment) 
-{
-	std::lock_guard lock(_mutex);
-	
-	Key key;
-	key.cutoff = std::clamp<int>(cutoff * 255, 0, 255);
-	key.eigenValue = int(projection);
-	key.second_moment=secondMoment;
-	key.joints = in.mesh->memo()->get_index(joints);
-	
-	ScaledKey skey = {key, scale};
-	
-	auto itr = _cache.find(skey);
-	
-	if(itr != _cache.end())
-		return *itr->second;
 
-	glm::mat4 matrix = GetProjectionMatrix(projection, scale, joints);
-	
-	auto & s = in.mesh->memo()->GetSilhouettes(matrix, scale, {(uint16_t*)joints.data(), joints.size()}, cutoff, secondMoment);
-	_cache[skey] = &s;
-	return s;
-}
-
-TonTon::Silhouette & TonTon::SkinnedMeshMemo::GetSilhouettes(Axis axis, glm::vec3 scale, std::span<uint16_t> joints,  float cutoff, bool secondMoment) 
+TonTon::Silhouette TonTon::SkinnedMeshMemo::GetSilhouettes(Axis axis, glm::vec3 scale, std::span<const uint16_t> joints,  float cutoff, bool secondMoment) 
 {	
 	glm::mat4 projection_matrix{0};
 	projection_matrix[0][(int(axis)+1)%3] = 1;
@@ -415,9 +391,10 @@ immutable_array<glm::vec3>  TonTon::SkinnedMeshMemo::GetBoneTails()
 			primitive.for_each_vertex([&](DoDeeDum::Vert & vert)
 			{
 				float weight = 0;
-				for(auto j = 0u; j < 4; ++j)
+				
+				for(auto & sk : vert.skinning)
 				{
-					weight += vert.weights[j] * (vert.joints[j] == i);
+					weight += sk.weight * (sk.joint == i);
 				}
 				
 				if(weight)

@@ -52,11 +52,8 @@ std::string format(const Builder::SemanticAnalysis& sa);
 std::string format(const Builder::Physical& p);
 std::string format(const Builder::Sensory::Vision::EyeInfo& eye);
 std::string format(const Builder::Sensory::Vision& vision);
-std::string format(const Builder::Sensory::Hearing& hearing);
 std::string format(const Builder::Sensory::Antennae& antennae);
 std::string format(const Builder::Sensory& sensory);
-std::string format(const Builder::Specialized::Digging& digging);
-std::string format(const Builder::Specialized& specialized);
 std::string format(const Builder_Appendage& appendage);
 std::string format(const Builder& builder);
 
@@ -277,13 +274,6 @@ struct std::formatter<TonTon::Builder::Sensory::Vision> : std::formatter<std::st
 };
 
 template<>
-struct std::formatter<TonTon::Builder::Sensory::Hearing> : std::formatter<std::string> {
-    auto format(const TonTon::Builder::Sensory::Hearing& hearing, auto& ctx) const {
-        return std::formatter<std::string>::format(TonTon::format(hearing), ctx);
-    }
-};
-
-template<>
 struct std::formatter<TonTon::Builder::Sensory::Antennae> : std::formatter<std::string> {
     auto format(const TonTon::Builder::Sensory::Antennae& antennae, auto& ctx) const {
         return std::formatter<std::string>::format(TonTon::format(antennae), ctx);
@@ -294,20 +284,6 @@ template<>
 struct std::formatter<TonTon::Builder::Sensory> : std::formatter<std::string> {
     auto format(const TonTon::Builder::Sensory& sensory, auto& ctx) const {
         return std::formatter<std::string>::format(TonTon::format(sensory), ctx);
-    }
-};
-
-template<>
-struct std::formatter<TonTon::Builder::Specialized::Digging> : std::formatter<std::string> {
-    auto format(const TonTon::Builder::Specialized::Digging& digging, auto& ctx) const {
-        return std::formatter<std::string>::format(TonTon::format(digging), ctx);
-    }
-};
-
-template<>
-struct std::formatter<TonTon::Builder::Specialized> : std::formatter<std::string> {
-    auto format(const TonTon::Builder::Specialized& specialized, auto& ctx) const {
-        return std::formatter<std::string>::format(TonTon::format(specialized), ctx);
     }
 };
 

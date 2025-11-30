@@ -796,7 +796,7 @@ std::string format(const Builder::Sensory::Vision::EyeInfo& eye) {
 				float(eye.position.x), float(eye.position.y), float(eye.position.z),
 				eye.pointing_direction.x, eye.pointing_direction.y, eye.pointing_direction.z,
 				eye.is_on_stalk ? "yes" : "no",
-				float(eye.eye_diameter_m)
+				float(eye.eye_diameter)
 				);
 	return std::string(buffer, chars_printed);
 }
@@ -810,9 +810,9 @@ std::string format(const Builder::Sensory::Vision& vision) {
 	}
 	
 	result += std::format(
-				"    binocular_overlap: {}\n"
+				"    angular_separation_rad: {}\n"
 				"    centering: {}\n",
-				vision.binocular_overlap,
+				vision.angular_separation_rad,
 				vision.centering
 				);
 	
@@ -820,7 +820,7 @@ std::string format(const Builder::Sensory::Vision& vision) {
 }
 
 // Builder::Sensory::Hearing
-std::string format(const Builder::Sensory::Hearing& hearing) {
+static std::string format_hearing(const Builder::Sensory& hearing) {
 	char buffer[256];
 	auto chars_printed = snprintf(buffer, sizeof(buffer),
 				"  Hearing:\n"
@@ -866,36 +866,12 @@ std::string format(const Builder::Sensory& sensory) {
 		result += format(sensory.antennae);
 	}
 	
-	if (sensory.hearing.has_external_ears || static_cast<float>(sensory.hearing.ear_surface_area) > 0) {
-		result += format(sensory.hearing);
+	if (sensory.has_external_ears || static_cast<float>(sensory.ear_surface_area) > 0) {
+		result += format_hearing(sensory);
 	}
 	
 	if (!sensory.vision.eyes.empty()) {
 		result += format(sensory.vision);
-	}
-	
-	return result;
-}
-
-// Builder::Specialized::Digging
-std::string format(const Builder::Specialized::Digging& digging) {
-	std::string result = "  Digging:\n";
-	
-	if (digging.has_incisor_teeth) result += "    has_incisor_teeth: true\n";
-	if (digging.has_digging_claws) result += "    has_digging_claws: true\n";
-	if (digging.has_strong_forelimbs) result += "    has_strong_forelimbs: true\n";
-	
-	return result;
-}
-
-// Builder::Specialized
-std::string format(const Builder::Specialized& specialized) {
-	std::string result = "Specialized:\n";
-	
-	if (specialized.digging.has_incisor_teeth ||
-			specialized.digging.has_digging_claws ||
-			specialized.digging.has_strong_forelimbs) {
-		result += format(specialized.digging);
 	}
 	
 	return result;
@@ -936,11 +912,9 @@ std::string format(const Builder_Appendage& appendage) {
 	
 	result += std::format(
 				"    semantic_flags: {}\n"
-				"    clade_flags: {}\n"
-				"    niche_flags: {}\n",
+				"    clade_flags: {}\n",
 				format(appendage.semantic_flags),
-				format(appendage.clade_flags),
-				format(appendage.niche_flags)
+				format(appendage.clade_flags)
 				);
 	
 	if (appendage.contact.has_claws || appendage.contact.has_suckers ||
@@ -974,15 +948,9 @@ std::string format(const Builder& builder) {
 	
 	result += format(builder.sensory) + "\n";
 	result += format(builder.semanticAnalyisis) + "\n";
-	
-	if (builder.specialized.digging.has_digging_claws ||
-			builder.specialized.digging.has_incisor_teeth ||
-			builder.specialized.digging.has_strong_forelimbs) {
-		result += format(builder.specialized) + "\n";
-	}
-	
-	if (builder.serpentine.noJoints > 0) {
-		result += "Serpentine: " + format(builder.serpentine) + "\n";
+		
+	if (builder.bodyWave) {
+		result += "BodyWave: " + format(*builder.bodyWave) + "\n";
 	}
 	
 	result += "===================\n";

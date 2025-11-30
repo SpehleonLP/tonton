@@ -5,7 +5,6 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/vec3.hpp>
 #include <glm/mat3x3.hpp>
-#include <map>
 #include <span>
 
 namespace DoDeeDum { struct Silhouette; }
@@ -47,11 +46,10 @@ struct SkinnedMeshMemo
 	
 	const SkinnedMesh & in;
 	
-	Silhouette & GetSilhouettes(glm::mat4 const& projection, glm::vec3 scale, std::span<uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
-	Silhouette & GetSilhouettes(EigenValue projection, glm::vec3 scale, std::span<uint16_t> joints, float cutoff=0.5, bool secondMoment=false);
-	Silhouette & GetSilhouettes(Axis axis, glm::vec3 scale, std::span<uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
+	Silhouette GetSilhouettes(glm::mat4 const& projection, glm::vec3 scale, std::span<const uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
+	Silhouette GetSilhouettes(Axis axis, glm::vec3 scale, std::span<const uint16_t> joints = {},  float cutoff = 0.5f, bool secondMoment = true);
 	
-	glm::mat4 GetProjectionMatrix(EigenValue projection, glm::vec3 scale, std::span<uint16_t> joints, SkinnedMesh::LimbMetrics * metrics = nullptr, std::pair<glm::quat, glm::vec3> * eigen_decomp = nullptr) const;
+	glm::mat4 GetProjectionMatrix(EigenValue projection, std::span<const glm::vec3> positions, std::span<const glm::vec3> scale, std::span<const uint16_t> joints, SkinnedMesh::LimbMetrics * metrics = nullptr, std::pair<glm::quat, glm::vec3> * eigen_decomp = nullptr) const;
 
 	
 	immutable_array<Clique> GetCliques();
@@ -68,37 +66,8 @@ private:
 	immutable_array<float>   _tubeTable;
 	immutable_array<Clique> cliques;
 	immutable_array<glm::vec3> _boneTails;
-
-	union Key
-	{
-		struct
-		{
-			uint32_t joints;
-			uint8_t cutoff;
-			uint8_t eigenValue;
-			uint8_t second_moment;
-			uint8_t pad00;
-		};
-		
-		uint64_t key{};
-	};
-	
-	struct ScaledKey
-	{
-		Key key;
-		glm::vec3 scale;
-		
-		bool operator<(const ScaledKey & it) const
-		{
-			if(key.key != it.key.key) return key.key < it.key.key;
-			if(scale.x < it.scale.x) return scale.x < it.scale.x;
-			if(scale.y < it.scale.y) return scale.y < it.scale.y;
-			return scale.z < it.scale.z;
-		}
-	};
 	
 	std::mutex _mutex;
-	std::map<ScaledKey, Silhouette*> _cache;
 };
 
 
