@@ -242,7 +242,7 @@ TonTon::Builder::SemanticAnalysis TonTon::Builder::BuilderCommand::GetSemanticAn
 	}
     
     // Determine if predator from morphology
-    result.is_predator = HasFlag(skinnedMesh.skin->memo()->GetNicheFlags(), NicheFlags::PREDATOR);
+    result.is_predator = HasFlag(skinnedMesh.skin->memo()->GetNicheFlags(), NicheFlags::PREDATOR|NicheFlags::CARNIVORE);
     
     float eye_volume = 0.0;
     float body_volume = 0.0;
@@ -290,7 +290,7 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 	auto root = dfs_ordering[0];
 	(void)names;
 	
-	SF SPINE_FLAGS = SF::SPINE | SF::THORAX | SF::PELVIS;
+	SF SPINE_FLAGS = SF::SPINE | SF::ABDOMEN;
 	SF NOT_SPINE_FLAGS = SF::LIMB | SF::HEAD | SF::NECK | SF::TAIL | SF::DIGIT
 					   | SF::FACIAL | SF::TEETH | SF::NAIL | SF::HORN_ANTLER
 					   | SF::WING | SF::FIN | SF::TENTACLE | SF::MOUTH_PARTS;
@@ -326,7 +326,6 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 				(aabb.max.z)), 
 			positions(root));
 		double spine_length = 0;
-		double this_cross_section_area = 0;
 		bool is_this_upright = false;
 		bool in_spine = false;
 		int this_spine_root{};
@@ -334,27 +333,22 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 	// walk down spine
 		for(int joint = root; joint >= 0; joint = parents[joint])
 		{
-			auto p = parents[joint];
+			glm::vec3 delta = bone_tails(joint) - positions(joint);
 			
-			if(p >= 0)
+			if(root == joint)
 			{
-				glm::vec3 delta = positions(joint) - positions(p);
-				
-				if(root == joint)
-				{
-					float projection = glm::dot(delta, glm::vec3(0, 1, 0));
-					is_this_upright = (projection > 0.707);					
-				}
-				
-				if(HasFlag(semantic_flags[p], SPINE_FLAGS))
-				{
-					spine_length += glm::length(delta);
-					this_spine_root = p;
-					in_spine = true;
-				}
-				else if(in_spine)
-					break;
+				float projection = glm::dot(delta, glm::vec3(0, 1, 0));
+				is_this_upright = (projection > 0.707);					
 			}
+			
+			if(HasFlag(semantic_flags[joint], SPINE_FLAGS))
+			{
+				spine_length += glm::length(delta);
+				this_spine_root = joint;
+				in_spine = true;
+			}
+			else if(in_spine)
+				break;
 		}
 		
 		// walk up spine	
@@ -473,16 +467,22 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 			ProcessHead(i);
 		}
 		
-		if(HasFlag(semantic_flags[node], SF::SPINE))
+		if(HasFlag(semantic_flags[node], SPINE_FLAGS))
 		{
-			if(parents[node] >= 0)
+			auto relevant_nodes = sk_memo->GetAllChildren(node, SPINE_FLAGS, NOT_SPINE_FLAGS);
+				
+			glm::vec3 vec = bone_tails(node) - positions(node);
+			for(auto child : children[node])
 			{
-				auto children = sk_memo->GetAllChildren(node, SPINE_FLAGS, NOT_SPINE_FLAGS);
-				children.push_back(node);
-					
-				auto area =	skinnedMesh.EstimateCrossSection(children, transforms, positions(node) - positions(parents[node]));	
-				crossSectionArea = std::max<double>(crossSectionArea, area);
-			}
+				if(HasFlag(relative_flags[child].child_flags|semantic_flags[child], SF::HEAD))
+				{
+					vec = positions(child) - positions(node);
+					break;
+				}
+			}	
+				
+			auto area =	skinnedMesh.EstimateCrossSection(relevant_nodes, transforms, vec);	
+			crossSectionArea = std::max<double>(crossSectionArea, area);
 		}		
 	}
 	
@@ -537,7 +537,7 @@ TonTon::Builder::Sensory TonTon::Builder::BuilderCommand::GetSensory(Builder&)
 {
 	TonTon::Builder::Sensory r;
 	
-   for(uint32_t i = 0; i < skinnedMesh.skin->names.size(); ++i) {
+   for(uint32_t i = 0; i < skinnedMesh.skin->tags.size(); ++i) {
         for(auto word : skinnedMesh.skin->tags[i]) {
             if(word == Word::ear || word == Word::pinna) {
                 r.has_external_ears = true;
@@ -593,7 +593,7 @@ TonTon::Builder::Sensory TonTon::Builder::BuilderCommand::GetSensory(Builder&)
     
     std::vector<Sensory::Vision::EyeInfo> eyes;
     
-    for(uint32_t i = 0; i < skinnedMesh.skin->names.size(); ++i) 
+    for(uint32_t i = 0; i < N; ++i) 
     {      
         if(!HasFlag(semantic_flags[i], SF::VISION)) continue;
         
@@ -655,6 +655,7 @@ TonTon::Builder::Sensory TonTon::Builder::BuilderCommand::GetSensory(Builder&)
         eyes.push_back(eye);
     }
     
+    r.vision.eyes = shared_array<Sensory::Vision::EyeInfo>::FromArray(eyes);
 	if(eyes.size() >= 2) {
         // Find the two most "forward-facing" eyes for binocular vision
         // (The ones with the most similar pointing directions)
@@ -913,14 +914,13 @@ std::optional<TonTon::Builder_Chain> TonTon::Builder::BuilderCommand::GetBodyWav
 	auto relative_flags = skinnedMesh.skin->memo()->GetRelativeFlags();	
 	auto parents = skinnedMesh.skin->parents.data();	
 	auto root = it.tails[0].root;
-	auto p = root;
 	
 	for(int32_t j = root, p = root; j >= 0; j = p)
 	{
 		p = parents[j];
 		
 		if(p == -1
-		|| HasFlag(relative_flags[p].child_flags, SF::LIMB|SF::PELVIS)
+		|| HasFlag(relative_flags[p].child_flags, SF::LIMB)
 		|| !HasFlag(semantic_flags[p], SF::SPINE))
 		{
 			return GetChain(*this, tip, j);
@@ -950,12 +950,11 @@ std::vector<TonTon::Builder_Appendage> TonTon::Builder::BuilderCommand::GetAppen
 	
 	auto GetRootAxis = [&](int root, int tip) 
 	{
-		int next = -1;
 		for(auto child : children[root])
 		{
 			if(gcr_table[child*N + tip] == child)
 			{
-				return glm::normalize(positions(next) - positions(root));
+				return glm::normalize(positions(child) - positions(root));
 			}
 		}
 		
@@ -1063,8 +1062,11 @@ std::vector<TonTon::Builder_Appendage> TonTon::Builder::BuilderCommand::GetAppen
 		{
 			float accumulator= 0;
 			
-			for(auto j = joint; j != root; j = parents[j])
+			for(auto j = joint; ; j = parents[j])
+			{
 				accumulator += glm::distance(bone_tails(j), positions(j));
+				if(j == root) break;
+			}
 			
 			return accumulator;
 		}();
@@ -1123,9 +1125,10 @@ std::vector<TonTon::Builder_Appendage> TonTon::Builder::BuilderCommand::GetAppen
 	for(auto i = 0u; i < r.size(); ++i)
 	{
 		static_cast<Builder_Chain&>(r[i]) = chains[i];
-		
-		r[i].semantic_flags = semantic_flags[i]|relative_flags[i].child_flags;
-		r[i].clade_flags = clade_flags[i]|relative_clade_flags[i].child_flags;
+		auto idx =  chains[i].root;
+			
+		r[i].semantic_flags = semantic_flags[idx]|relative_flags[idx].child_flags;
+		r[i].clade_flags = clade_flags[idx]|relative_clade_flags[idx].child_flags;
 		
 		r[i].rootAxis = GetRootAxis(r[i].root, r[i].tip);
 		r[i].distance_to_parent = GetDistanceToParent(r[i].root);
@@ -1188,7 +1191,7 @@ std::vector<glm::vec3>  TonTon::Builder::BuilderCommand::GetGaitGroupCenters(Bui
 	
 	for(auto & p : builder.appendages)
 	{	
-		no_groups= std::max(int(p.gait_group), no_groups);
+		no_groups= std::max(int(p.gait_group+1), no_groups);
 	}
 		
 	std::vector<glm::vec3> positions(no_groups, glm::vec3(0));
@@ -1329,33 +1332,44 @@ TonTon::Builder_Chain TonTon::Builder::GetChain(TonTon::Builder::BuilderCommand 
 	float surface_area={};
 	float length={};
 	float volume={};
-	glm::vec3 accCentroid={};
+	glm::dvec3 accCentroid={};
 	int32_t jointsInChain{};
-	
-	for(int32_t j = leaf, p; j != root; j = p)	
-	{
-		p = parents[j];
-					
-		float vol = in.skinnedMesh.volume[j] * in.volume_scale[j];
 		
-		auto vec = in.bone_tails(j) - in.positions(p);
+	for(int32_t j = leaf, p; ; j = parents[j])	
+	{					
+		double vol = in.skinnedMesh.volume[j] * in.volume_scale[j];
+		
+		auto vec = in.bone_tails(j) - in.positions(j);
 		double moment{};
 		auto crossSection = in.skinnedMesh.EstimateCrossSection(j, in.transforms[j], vec, &moment);
 					
-		minCrossSection= std::min<float>(minCrossSection, crossSection);
+		if(crossSection)
+		{			
+			minCrossSection= std::min<float>(minCrossSection, crossSection);
+			minMoment= std::min<float>(minMoment, moment);
+		}
+		
 		maxCrossSection= std::max<float>(maxCrossSection, crossSection);
-		minMoment= std::min<float>(minMoment, moment);
 		maxMoment= std::max<float>(maxMoment, moment);
+		
 		accCrossSection += crossSection;
 		accMoment += moment;
 		surface_area= in.skinnedMesh.surfaceArea[j] * in.area_scale[j];
 		length= glm::length(vec);
 		volume= vol;
-		accCentroid= in.centroid(j) * vol;
+		accCentroid= glm::dvec3(in.centroid(j)) * vol;
 		jointsInChain += 1;
+		
+		if(j == root) break;
+	}
+	
+	if(minCrossSection == FLT_MAX)
+	{
+		minMoment       = maxMoment;
+		maxCrossSection = maxCrossSection;
 	}
 		
-	float invVolume = volume? 1.0 / volume : 0.0;	
+	double invVolume = volume? 1.0 / volume : 0.0;	
 	float invJoints = jointsInChain? 1.0 / jointsInChain : 0.0;	
 		
 	return Builder_Chain{
@@ -1366,7 +1380,7 @@ TonTon::Builder_Chain TonTon::Builder::GetChain(TonTon::Builder::BuilderCommand 
 			
 			.surface_area=surface_area,
 			.volume=volume,
-			.centroid=accCentroid * invVolume,
+			.centroid=glm::vec3(accCentroid * invVolume),
 			
 			.stretched_length=float(length),
 			.rest_length=glm::distance(in.positions(leaf), in.positions(root)),

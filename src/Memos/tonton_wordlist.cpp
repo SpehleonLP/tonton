@@ -407,10 +407,10 @@ TonTon::SemanticFlags TonTon::GetSemanticFlags(Word word)
     case Word::loin:
     case Word::rump:
     case Word::haunch:
-    case Word::butt: return SF::POSTERIOR | SF::PELVIS;
+    case Word::butt: return SF::POSTERIOR | SF::ABDOMEN;
     
     case Word::withers:
-    case Word::croup: return SF::POSTERIOR | SF::PELVIS | SF::EQUINE;
+    case Word::croup: return SF::POSTERIOR | SF::ABDOMEN | SF::EQUINE;
     
     case Word::breast:
     case Word::brisket:
@@ -418,7 +418,7 @@ TonTon::SemanticFlags TonTon::GetSemanticFlags(Word word)
     case Word::sternum:
     case Word::ribcage:
     case Word::rib:
-    case Word::thorax: return SF::THORAX;
+    case Word::thorax: return SF::ABDOMEN|SF::POSTERIOR;
     
     case Word::dewlap:
     case Word::pouch:
@@ -498,7 +498,7 @@ TonTon::SemanticFlags TonTon::GetSemanticFlags(Word word)
     
     case Word::pelvis:
     case Word::hip:
-    case Word::sacrum: return SF::PELVIS;
+    case Word::sacrum: return SF::ABDOMEN|SF::POSTERIOR;
     
     case Word::tail:
     case Word::coccyx:
@@ -798,19 +798,20 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::snoot:
     case Word::jowl: return CF::MAMMALIA;
 
-    case Word::head:
     case Word::skull:
-    case Word::cranium:
-    case Word::jaw:
-    case Word::face: return CF::CHORDATA;
+    case Word::cranium: return CF::CHORDATA;
+    
+    case Word::jaw:    
+    case Word::head:
+    case Word::mouth:
+    case Word::face: return CF::NONE; 
 
     // Mandible/maxilla - vertebrates, but also arthropods
     case Word::mandible:
-    case Word::maxilla: return CF::NONE; // to general
+    case Word::maxilla: return CF::ARTHROPODA; // to general
+
 
     case Word::chin:
-    case Word::mouth: return CF::CHORDATA;
-
     case Word::muzzle:
     case Word::snout: return CF::CHORDATA;
 
@@ -866,9 +867,9 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::pelvis:
     case Word::hip:
     case Word::sacrum:
-    case Word::tail:
     case Word::coccyx: return CF::CHORDATA;
-
+    
+    case Word::tail:
     case Word::caudal: return CF::NONE; // directional term
 
     // Mammalian tail types
@@ -1001,7 +1002,7 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
     case Word::patagium: return CF::MAMMALIA;
     case Word::aileron: return CF::NONE; // rigging term
 
-    case Word::wing:
+    case Word::wing: return CF::NONE;
     case Word::pinion:
     case Word::alula: return CF::AVES;
 
@@ -1119,8 +1120,6 @@ std::string_view TonTon::WordToString(SemanticFlags f)
 	CASE(UPPER_LIMB);
 	CASE(MID_LIMB);
 	CASE(LOWER_LIMB);
-	CASE(THORAX);
-	CASE(PELVIS);
 	default: return "UNKNOWN";
 	}
 #undef CASE

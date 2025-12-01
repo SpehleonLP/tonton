@@ -53,6 +53,50 @@ struct Input
 	float scaling_strategy = 0.5f;       // how aggressively to combat size penalties
 	float climbing_ability = 0.5;        // 0=none, 1=vertical surfaces
 	
+	struct Mana
+	{
+		// WATER - Fluidity and adaptability (Aristotle: takes shape of container, flows and changes)
+		// Affects: turning radius, gait transitions, control authority, balance recovery
+		// Higher water = more agile, smoother state changes, tighter maneuvers
+		float water = 0.0;
+		
+		// FIRE - Internal heat and vital energy (Aristotle: rises upward, source of motion and life)
+		// Affects: metabolic efficiency, power output, burst speed/strength
+		// Higher fire = stronger muscles, more energetic, higher heat budget (breath weapons)
+		float fire = 0.0;
+		
+		// EARTH - Solidity and resistance (Aristotle: falls downward, seeks center, heavy and stable)
+		// Affects: structural integrity, cross-sectional area multiplier, bone/muscle strength
+		// Higher earth = denser/stronger tissues, can support impossible proportions
+		float earth = 0.0;
+		
+		// AIR - Medium cooperation (Aristotle: medium actively pushes objects along their path)
+		// Affects: thrust efficiency in any medium (air/water), lift coefficient, reduced drag
+		// Higher air = environment helps propulsion, easier flight/swimming
+		float air = 0.0;
+		
+		// AETHER - The celestial element (Aristotle: unchanging, perfect, defies earthly physics)
+		// Affects: weight_N directly, propagates through all weight-dependent calculations
+		// Higher aether = lighter/floatier, reduced gravity coupling, more "magical"
+		float aether = 0.0;
+		
+		// SHADOW - Surface affinity (shadows stick to surfaces, conform to terrain)
+		// Affects: surface adhesion, grip strength, friction coefficients, wall-climbing
+		// Higher shadow = better grip, can stick to vertical/inverted surfaces
+		float shadow = 0.0;
+	} mana;
+	
+	struct StyleCorrections
+	{
+		// TODO: art style corrections for stylized models
+		// - toon models have oversized eyes/heads
+		// - anime models have elongated limbs
+		// - chibi models are weird
+		// Problem: "stylization" is too broad, need better taxonomy
+		// For now: assume realistic proportions
+		// PRs welcome lol
+	} style;
+		
 //	inline glm::vec3 position(int index) const { return skinnedMesh? skinnedMesh->skin->position[index] * behavior.scale : glm::vec3(0); };
 	length_b_to_m scale = length_b_to_m(1.f);
 	
@@ -62,7 +106,8 @@ struct Input
 	area_m2 cross_sectional_area_m2() const;
 	glm::mat3 inertia_restPose() const;
 	
-	inline auto area_scale() const { return scale * scale; }
+	inline auto surface_area_scale() const { return scale * scale; }
+	inline auto cross_section_area_scale() const { return (scale * scale) * std::exp2(mana.earth); }
 	inline auto volume_scale() const { return scale * scale * scale; }
 	inline auto inertia_scale() const { return (scale * scale * scale) * (scale * scale); }
 };

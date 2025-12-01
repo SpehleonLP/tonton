@@ -31,6 +31,9 @@ struct Quantity
 	constexpr Quantity& operator+=(Quantity other) { value += other.value; return *this; }
 	constexpr Quantity& operator-=(Quantity other) { value -= other.value; return *this; }
 	
+	constexpr Quantity operator+(float other) const = delete;
+	constexpr Quantity operator-(float other) const = delete;
+	
 	constexpr Quantity operator-() const { return Quantity(-value); }
 	
 	// Scalar multiplication/division

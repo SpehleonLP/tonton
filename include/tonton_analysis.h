@@ -306,7 +306,6 @@ struct Analysis_Aerial {
 		angle_rad beat_amplitude_rad{};    // stroke angle
 		angle_rad stroke_plane_angle_rad{}; // relative to body
 		
-		// -Wchanges-meaning <- i hate it. 
 		mass_kg wing_mass_kg{};
 		inertia_kgm2 wing_inertia_kgm2{};
 		

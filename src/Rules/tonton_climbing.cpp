@@ -583,11 +583,11 @@ std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const In
 	out.stretched_length_m = scale_to<0>(appendage.contact.stretched_length, in.scale);
 	
 	out.subtree_flags = appendage.contact.subtree_flags;
-	out.contact_area_m2 = scale_to<0>(appendage.contact.area, in.area_scale());
+	out.contact_area_m2 = scale_to<0>(appendage.contact.area, in.cross_section_area_scale());
 	out.surface_normal  = appendage.contact.normal;
 		
-	area_m2 avg_area = scale_to<0>(appendage.avgCrossSection, in.area_scale());
-	auto avg_moment = scale_to<0>(appendage.avgMoment, in.area_scale()*in.area_scale());
+	area_m2 avg_area = scale_to<0>(appendage.avgCrossSection, in.cross_section_area_scale());
+	auto avg_moment = scale_to<0>(appendage.avgMoment, in.cross_section_area_scale()*in.cross_section_area_scale());
 	
 //	if(counter)
 	{
@@ -698,17 +698,7 @@ std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const In
 		out.max_grip_force_N *= (1.0f + friction_coef * 0.3f);
 	}
 
-	// 5. SCALING ADJUSTMENTS
-	// Square-cube law: Force scales with cross-section (area), not volume
-	auto size_scale = in.area_scale(); // Already accounts for anisotropic scaling
-	
-	// Apply conservative allometric scaling
-	// Smaller animals have relatively stronger muscles (force/mass ratio)
-	auto allometric_factor = std::pow(float(size_scale), 0.67f); // Between area (1.0) and volume (0.67)
-	
-	out.max_lift_force_N *= allometric_factor;
-	out.max_grip_force_N *= allometric_factor;
-	out.max_adhesion_force_N *= allometric_factor;
+	out.max_adhesion_force_N *= std::exp2(in.mana.shadow);	
 	
 	// 6. TYPE-SPECIFIC ADJUSTMENTS
 	if(HasFlag(out.subtree_flags, SF::TENTACLE)) {

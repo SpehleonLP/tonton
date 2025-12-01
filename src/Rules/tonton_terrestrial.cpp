@@ -161,7 +161,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 
 		// Clamp to reasonable limits (arthropods inactive below ~5°C, above ~50°C)
 		if (in.environment.temperature_K < 278.15f) { // Below 5°C
-			auto cold_penalty = float(in.environment.temperature_K - 273.15f) / 5.0f;
+			auto cold_penalty = float(in.environment.temperature_K - temp_K(273.15f)) / 5.0f;
 			cold_penalty = std::max(cold_penalty, 0.1f);
 			base_sprint *= cold_penalty;
 			max_sustainable_speed_m_s *= cold_penalty;
@@ -245,7 +245,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		.max_sprint_speed_m_s=base_sprint,
 		.max_sustainable_speed_m_s=max_sustainable_speed_m_s,
 		.optimal_speed_m_s=max_sustainable_speed_m_s*0.7f,
-		.min_turning_radius_m=min_turning_radius_m,
+		.min_turning_radius_m=min_turning_radius_m * std::exp2(in.mana.water),
 		.max_acceleration_m_s2=max_acceleration_m_s2,
 		
 		.max_sprint_duration_s=max_sprint_duration_s,

@@ -6,6 +6,7 @@
 #include "../include/tonton.h"
 #include <cfloat>
 #include <glm/gtx/matrix_decompose.hpp>
+#include <iostream>
 
 
 TonTon::Armature::Armature() = default;
@@ -224,7 +225,7 @@ static double EstimateCrossSection(std::array<double, 6> const& I, double volume
 
 double  TonTon::SkinnedMesh::EstimateCrossSection(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::vec3 direction, double * second_moment_area) const
 {
-	double volume;
+	double volume{};
 	auto cov = GetCovariance(joints, transforms, nullptr, &volume);
 	
 	return ::EstimateCrossSection(cov, volume, direction, second_moment_area);
@@ -256,7 +257,55 @@ static double EstimateCrossSection(std::array<double, 6> const& I, double volume
     glm::dmat3 projected_cov = proj * cov * proj;
     
 	std::pair<glm::quat, glm::vec3> eigen_decomp = TonTon::EigenDecomposition(projected_cov);
+#if 0
+	auto unit_test_eigen = [&]()
+	{
+		auto & eigenvalues = eigen_decomp.second;
+		auto & rotation = eigen_decomp.first;
+		
+		// UNIT TEST: Verify eigen decomposition
+		// Reconstruct: cov = R * diag(λ) * R^T
+		glm::dmat3 R = glm::mat3_cast(rotation);
+		glm::dmat3 Lambda(0.0);
+		Lambda[0][0] = eigenvalues.x;
+		Lambda[1][1] = eigenvalues.y;
+		Lambda[2][2] = eigenvalues.z;
+		
+		glm::dmat3 reconstructed = R * Lambda * glm::transpose(R);
+		std::cout << "Original cov (before projection):\n";
+		for (int i = 0; i < 3; i++) {
+			std::cout << cov[i][0] << " " << cov[i][1] << " " << cov[i][2] << "\n";
+		}
+		std::cout << "Direction: " << d.x << ", " << d.y << ", " << d.z << "\n";
+
+		std::cout << "Original projected_cov:\n";
+		for (int i = 0; i < 3; i++) {
+			std::cout << projected_cov[i][0] << " " << projected_cov[i][1] << " " << projected_cov[i][2] << "\n";
+		}
+		std::cout << "Reconstructed:\n";
+		for (int i = 0; i < 3; i++) {
+			std::cout << reconstructed[i][0] << " " << reconstructed[i][1] << " " << reconstructed[i][2] << "\n";
+		}
+		
+		double reconstruction_error = 0.0;
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 3; j++) {
+				reconstruction_error += std::abs(projected_cov[i][j] - reconstructed[i][j]);
+			}
+		}
+		std::cout << "Reconstruction error: " << reconstruction_error << std::endl;
+		assert(reconstruction_error < 1e-8 && "Eigen decomposition should reconstruct matrix");
+		
+		// 3. Check that smallest eigenvalue aligns with d
+		glm::dvec3 smallest_eigenvector = R * glm::dvec3(1, 0, 0); // assuming sorted
+		double alignment = std::abs(glm::dot(smallest_eigenvector, d));
+		std::cout << "Smallest eigenvector alignment with d: " << alignment << " (should be ~1)" << std::endl;
+		
+		std::cout << "Eigenvalues: " << eigenvalues.x << ", " << eigenvalues.y << ", " << eigenvalues.z << std::endl;
+	};
 	
+	unit_test_eigen();
+#endif
     auto & eigenvalues = eigen_decomp.second;
     
     // eigenvalues are sorted smallest to largest

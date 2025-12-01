@@ -70,34 +70,15 @@ TonTon::Scratch::Scratch(Input const& in)
 
 	// 1. POWER BUDGET CHECK
 	// Check if the most demanding locomotion mode is feasible
-	// We check PEAK power (muscle) for flight, since it's the most demanding
-	// Terrestrial/aquatic locomotion is already constrained by muscle force in their respective rules
-	power_W peak_power_required_W = 0.0f;
-	const force_N weight_N = physical.body_mass_kg * in.environment.gravity_m_s2;
-	bool has_demanding_mode = false;
-
-	if(aerial.has_value())
-	{
-		// Flight is the most power-demanding locomotion mode
-		// Check sustained flight power vs available muscle power
-		power_W flight_power = weight_N * aerial->flapping_cost_W_per_N;
-		peak_power_required_W = std::max(peak_power_required_W, flight_power);
-		has_demanding_mode = true;
-	}
-
-	if(aerial.has_value() && aerial->can_hover)
-	{
-		// Hovering is even more demanding
-		power_W hover_power = weight_N * aerial->hovering_cost_W_per_N;
-		peak_power_required_W = std::max(peak_power_required_W, hover_power);
-	}
-
-	// Power budget passes if:
-	// 1. No demanding modes (terrestrial/aquatic are self-regulating)
-	// 2. Peak power required <= available muscle power
+	// Flight is the most power-demanding mode; terrestrial/aquatic are self-regulating
+	//
+	// NOTE: The aerial analysis already correctly computes can_sustain_level_flight
+	// by comparing MECHANICAL power required vs MECHANICAL power available.
+	// The cost fields (flapping_cost_W_per_N, hovering_cost_W_per_N) are METABOLIC
+	// costs for energy budget reporting, not for capability checks.
 	diagnostics.passes_power_budget_check =
-		!has_demanding_mode ||
-		(peak_power_required_W <= metabolic.available_muscle_power_W);
+		!aerial.has_value() ||
+		aerial->can_sustain_level_flight;
 
 	// 2. MASS BUDGET CHECK
 	// Sum appendage masses and compare to body mass
@@ -209,8 +190,9 @@ static	TonTon::Analysis_Physical TonTon::ComputePhysical(Input const& in, Scratc
 		.body_volume_m3=body_volume_m3,
 		.tail_length_m=scale_to<0>(ph.tail_length, in.scale),
 		
-		.surface_area_m2=scale_to<0>(ph.surface_area, in.area_scale()),
-		.cross_sectional_area_m2=scale_to<0>(ph.cross_section_area, in.area_scale()),
+		.surface_area_m2=scale_to<0>(ph.surface_area, in.surface_area_scale()),
+		// counts as surface b/c used for fineness not force computation.
+		.cross_sectional_area_m2=scale_to<0>(ph.cross_section_area, in.surface_area_scale()),
 	
 		.spine_root=ph.spine_root,
 		.upright=ph.upright,
@@ -235,8 +217,8 @@ static	TonTon::Analysis_Tail ComputeTail(TonTon::Input const& in, TonTon::Builde
 	
 	r.common_ancestor=it.commonAncestor;
 	r.tail_mass_kg=scale_to<0>(it.volume, in.volume_scale()) * in.body_density();
-	r.max_cross_section_m2=scale_to<0>(it.maxCrossSection, in.area_scale());
-	r.min_cross_section_m2=scale_to<0>(it.minCrossSection, in.area_scale());
+	r.max_cross_section_m2=scale_to<0>(it.maxCrossSection, in.cross_section_area_scale());
+	r.min_cross_section_m2=scale_to<0>(it.minCrossSection, in.cross_section_area_scale());
 	
 	r.used_for=it.used_for;
 	auto branches = shared_array<TonTon::Analysis_Tail>(it.branches.size());

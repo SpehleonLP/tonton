@@ -1,5 +1,6 @@
 #include "tonton_metabolic.h"
 #include "tonton_analysis.h"
+#include "tonton_builder.h"
 #include "tonton_input.h"
 #include "tonton_skinnedmesh.h"
 #include "Rules/tonton_scratch.h"
@@ -40,11 +41,6 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 		needs_endothermy = true;
 	}
 
-	// High-speed terrestrial locomotion benefits from endothermy
-	if (s.terrestrial.has_value() && s.terrestrial->max_sprint_speed_m_s > 10.0f) {
-		needs_endothermy = true; // Fast runners need sustained power
-	}
-
 	// ========== GATHER CLADE CONTRIBUTIONS ==========
 
 	// AVES: Highest metabolic rate
@@ -56,7 +52,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 			.weight = 1.0f,
 			.rmr_coef = 6.25f,
 			.rmr_exp = 0.72f,
-			.muscle_W_kg = 250.0f,      // High-performance flight muscle
+			.muscle_W_kg = (200.0f + 200.0f * in.muscle_quality),      // High-performance flight muscle
 			.body_temp_K = 313.15f,     // 40°C (birds run hot)
 			.is_endotherm = true
 		});
@@ -113,7 +109,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 			.weight = 1.0f,
 			.rmr_coef = 0.8f,           // Low ectotherm basal rate
 			.rmr_exp = 0.80f,
-			.muscle_W_kg = 200.0f,      // Red muscle sustained (white burst handled in aquatic rules)
+			.muscle_W_kg = (200.0f + 50.0f * in.muscle_quality),      // Red muscle sustained (white burst handled in aquatic rules)
 			.body_temp_K = in.environment.temperature_K,
 			.is_endotherm = false
 		});
@@ -128,7 +124,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 			.weight = 1.0f,
 			.rmr_coef = 0.5f,
 			.rmr_exp = 0.80f,
-			.muscle_W_kg = 150.0f,
+			.muscle_W_kg = 100.0f + 100.0f * in.muscle_quality,
 			.body_temp_K = in.environment.temperature_K,
 			.is_endotherm = false
 		});
@@ -141,7 +137,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 			.weight = 1.0f,
 			.rmr_coef = 0.5f,
 			.rmr_exp = 0.80f,
-			.muscle_W_kg = 120.0f,
+			.muscle_W_kg = 100.0f + 40.0f * in.muscle_quality,
 			.body_temp_K = in.environment.temperature_K,
 			.is_endotherm = false
 		});
@@ -154,13 +150,29 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	// Note: Different exponent from vertebrates due to tracheal respiratory system
 	if (HasFlag(clade, CF::ARTHROPODA)) {
 		// Flying insects have higher metabolic coefficients
-		bool is_flying_insect = HasFlag(clade, CF::INSECTA) && s.aerial.has_value();
+		bool is_flying_insect = false;
+		
+		for(auto ap : in.builder->appendages)
+		{
+			if(HasFlag(ap.semantic_flags, SemanticFlags::WING))
+			{
+				is_flying_insect = true;
+				break;
+			}
+		}
+
+		// Flying insect muscle power: Odonata (dragonflies) achieve 200-400 W/kg
+		// Ellington (1985): flight muscle power ~250 W/kg at 25°C
+		// Higher than non-flying arthropods (100 W/kg)
+		auto insect_muscle_power = is_flying_insect ?
+			(200.0f + 100.0f * in.muscle_quality) :  // 200-300 W/kg for fliers
+			100.0f;
 
 		contributions.push_back({
 			.weight = 1.0f,
 			.rmr_coef = 4.14f,
 			.rmr_exp = 0.66f,           // Different scaling exponent from vertebrates
-			.muscle_W_kg = is_flying_insect ? 150.0f : 100.0f,
+			.muscle_W_kg = insect_muscle_power,
 			.body_temp_K = in.environment.temperature_K,
 			.is_endotherm = false
 		});
@@ -192,15 +204,47 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	}
 
 	// ========== FALLBACK: No clade specified ==========
+	// Use morphological cues when clade detection from bone names fails
 	if (contributions.empty()) {
-		contributions.push_back({
-			.weight = 1.0f,
-			.rmr_coef = 1.0f,           // Generic ectotherm
-			.rmr_exp = 0.75f,
-			.muscle_W_kg = 150.0f,
-			.body_temp_K = in.environment.temperature_K,
-			.is_endotherm = false
-		});
+		// Count wings to detect insect-like creatures
+		int wing_count = 0;
+		for (auto& ap : in.builder->appendages) {
+			if (HasFlag(ap.semantic_flags, SemanticFlags::WING)) {
+				wing_count++;
+			}
+		}
+
+		// 4+ wings + small mass = likely insect (dragonfly, butterfly, etc.)
+		// 2 wings + small mass = could be bird or bat or 2-winged insect
+		bool likely_insect = (wing_count >= 4) ||
+			(wing_count >= 2 && float(body_mass_kg) < 0.01f && !HasFlag(clade, CF::CHORDATA));
+
+		if (likely_insect) {
+			// Use insect-like metabolics
+			// Flying insect muscle: 200-300 W/kg (Ellington 1985)
+			auto insect_muscle_power = wing_count > 0 ?
+				(200.0f + 100.0f * in.muscle_quality) :
+				100.0f;
+
+			contributions.push_back({
+				.weight = 1.0f,
+				.rmr_coef = 4.14f,       // Arthropod scaling (Addo-Bediako 2002)
+				.rmr_exp = 0.66f,        // Different from vertebrates
+				.muscle_W_kg = insect_muscle_power,
+				.body_temp_K = in.environment.temperature_K,
+				.is_endotherm = false
+			});
+		} else {
+			// Generic ectotherm fallback
+			contributions.push_back({
+				.weight = 1.0f,
+				.rmr_coef = 1.0f,
+				.rmr_exp = 0.75f,
+				.muscle_W_kg = 150.0f,
+				.body_temp_K = in.environment.temperature_K,
+				.is_endotherm = false
+			});
+		}
 	}
 
 	// ========== WEIGHTED BLEND FOR HYBRIDS ==========
@@ -223,6 +267,9 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 		muscle_power_W_kg += c.muscle_W_kg * w;
 		body_temperature_K += c.body_temp_K * w;
 	}
+	
+	rmr_coefficient   *= std::exp2(in.mana.fire);
+	muscle_power_W_kg *= std::exp2(in.mana.fire);
 
 	// ========== UPGRADE TO ENDOTHERM IF REQUIRED ==========
 	// If creature needs endothermy (flight/fast running) but all clades were ectotherms,
@@ -257,7 +304,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 		muscle_fraction = 0.35f; // Birds sacrifice muscle for lightness
 	}
 
-	auto muscle_mass_kg = body_mass_kg * muscle_fraction;
+	auto muscle_mass_kg = body_mass_kg * muscle_fraction * (0.75f + 0.50f * in.stability_vs_speed);
 
 	// Available muscle power (muscle_mass * power_density)
 	auto available_muscle_power_W = muscle_mass_kg * muscle_power_W_kg;
@@ -281,7 +328,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	// Temperature affects ectotherm metabolic rate (Q10 = 2-3)
 	if (!needs_endothermy) {
 		auto q10 = 2.5f; // Typical value
-		auto temp_diff_K = in.environment.temperature_K - 298.15f; // Relative to 25°C
+		auto temp_diff_K = in.environment.temperature_K - temp_K(298.15f); // Relative to 25°C
 		float temp_factor = std::pow(q10, float(temp_diff_K) / 10.0f);
 
 		basal_rate_W *= temp_factor;

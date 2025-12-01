@@ -593,7 +593,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 		// Jet velocity from momentum conservation
 		// m_jet * v_jet = m_body * v_body
-		auto jet_mass_kg = jet.jet_pulse_volume_m3 * fluid_density;
+		auto jet_mass_kg = jet.jet_pulse_volume_m3 * fluid_density * std::exp2(in.mana.water);
 		jet.jet_velocity_m_s = (body_mass_kg * cruise_speed_m_s) / jet_mass_kg;
 
 		jet.siphon_articulation_range_rad = M_PI; // 180-degree steering
@@ -696,7 +696,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	if(body_density_kg_m3 > fluid_density)
 	{
 		// Negatively buoyant - sinks without swimming
-		auto weight_in_water_N = (body_density_kg_m3 - fluid_density) * body_volume_m3 * in.environment.gravity_m_s2;
+		auto weight_in_water_N = in.body_weight_N();
 
 		// Sink rate from terminal velocity: v = sqrt(2*mg / (ρ*Cd*A))
 		sink_rate_m_s = sqrt((2.0f * weight_in_water_N) /
@@ -715,8 +715,8 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	return Analysis_Aquatic{
 		.propulsors = shared_array<Analysis_Aquatic::Fin>::FromArray(fins),
 		.body_wave = body_wave,
-		.cruise_speed_m_s = cruise_speed_m_s,
-		.burst_speed_m_s = burst_speed_m_s,
+		.cruise_speed_m_s = cruise_speed_m_s * std::exp2(in.mana.air),
+		.burst_speed_m_s = burst_speed_m_s * std::exp2(in.mana.air),
 		.min_swim_speed_m_s = min_swim_speed_m_s,
 		.lift_per_meter_swam_N = lift_per_meter_N,
 		.sink_rate_m_s = sink_rate_m_s,
@@ -730,7 +730,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		.has_swim_bladder = has_swim_bladder,
 		.can_hover = can_hover,
 		.requires_constant_motion = requires_constant_motion,
-		.min_turning_radius_m = min_turning_radius_m,
+		.min_turning_radius_m = min_turning_radius_m * std::exp2(-in.mana.water),
 		.preferred_depth_min_m = preferred_depth_min_m,
 		.preferred_depth_max_m = preferred_depth_max_m,
 		.crush_depth_m = crush_depth_m,
@@ -746,7 +746,7 @@ using SF = SemanticFlags;
 	std::vector<TonTon::Analysis_Aquatic::Fin> r;
 	r.reserve(in.builder->appendages.size());
 	
-	auto area_scale = in.area_scale();
+	auto area_scale = in.surface_area_scale();
 	
 	for(auto & appendage : in.builder->appendages)
 	{

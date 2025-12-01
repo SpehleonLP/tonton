@@ -21,13 +21,10 @@ force_N TonTon::Input::body_weight_N() const
 
 	return volume
 		  * (body_density() - environment.fluidDensity_Kg_m3)
-		  * environment.gravity_m_s2;
+		  * environment.gravity_m_s2
+		  * std::exp2(-mana.aether);
 }
 
-area_m2 TonTon::Input::cross_sectional_area_m2() const
-{
-	return builder? scale_to<0>(builder->physical.cross_section_area, scale*scale) : 0.f; 
-}
 
 glm::mat3 TonTon::Input::inertia_restPose() const
 {

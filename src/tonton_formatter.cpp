@@ -156,7 +156,7 @@ std::string format(const Analysis_Sensory<optional>& s) {
 					"  vision.has_night_vision: %s\n"
 					"  vision.detection_range_m: %f\n",
 					s.vision->acuity,
-					s.vision->binocular_overlap,
+					float(s.vision->binocular_overlap),
 					s.vision->has_color_vision ? "true" : "false",
 					s.vision->has_night_vision ? "true" : "false",
 					float(s.vision->detection_range_m)
@@ -739,27 +739,37 @@ std::string format(const Builder_Chain& chain) {
 
 // Builder::SemanticAnalysis
 std::string format(const Builder::SemanticAnalysis& sa) {
-	std::string result = "SemanticAnalysis:\n";
-
-	if (sa.has_sharp_teeth) result += "  has_sharp_teeth: true\n";
-	if (sa.has_claws) result += "  has_claws: true\n";
-	if (sa.has_talons) result += "  has_talons: true\n";
-	if (sa.has_venom) result += "  has_venom: true\n";
-	if (sa.has_horns) result += "  has_horns: true\n";
-	if (sa.has_weapons) result += "  has_weapons: true\n";
-	if (sa.is_predator) result += "  is_predator: true\n";
-	if (sa.has_hearing_organs) result += "  has_hearing_organs: true\n";
-	if (sa.has_good_vision) result += "  has_good_vision: true\n";
-
-	char buffer[128];
-	auto chars_printed = snprintf(buffer, sizeof(buffer), "  eye_body_ratio: %f\n", sa.eye_body_ratio);
-	result += std::string(buffer, chars_printed);
-
-	if (sa.has_lateral_eyes) result += "  has_lateral_eyes: true\n";
-	if (sa.has_forward_eyes) result += "  has_forward_eyes: true\n";
-	if (sa.has_incisor_teeth) result += "  has_incisor_teeth: true\n";
-
-	return result;
+    char buffer[1024];
+    auto chars_printed = snprintf(buffer, sizeof(buffer),
+        "SemanticAnalysis:\n"
+        "  has_sharp_teeth: %s\n"
+        "  has_claws: %s\n"
+        "  has_talons: %s\n"
+        "  has_venom: %s\n"
+        "  has_horns: %s\n"
+        "  has_weapons: %s\n"
+        "  is_predator: %s\n"
+        "  has_hearing_organs: %s\n"
+        "  has_good_vision: %s\n"
+        "  eye_body_ratio: %f\n"
+        "  has_lateral_eyes: %s\n"
+        "  has_forward_eyes: %s\n"
+        "  has_incisor_teeth: %s\n",
+        sa.has_sharp_teeth ? "true" : "false",
+        sa.has_claws ? "true" : "false",
+        sa.has_talons ? "true" : "false",
+        sa.has_venom ? "true" : "false",
+        sa.has_horns ? "true" : "false",
+        sa.has_weapons ? "true" : "false",
+        sa.is_predator ? "true" : "false",
+        sa.has_hearing_organs ? "true" : "false",
+        sa.has_good_vision ? "true" : "false",
+        sa.eye_body_ratio,
+        sa.has_lateral_eyes ? "true" : "false",
+        sa.has_forward_eyes ? "true" : "false",
+        sa.has_incisor_teeth ? "true" : "false"
+    );
+    return std::string(buffer, chars_printed);
 }
 
 // Builder::Physical

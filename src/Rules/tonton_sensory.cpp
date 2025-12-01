@@ -175,7 +175,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
     auto & physical = s.physical;
     
     // BASE VALUES from geometry
-    auto ear_surface_area = scale_to<0>(in.builder->sensory.ear_surface_area, in.area_scale());
+    auto ear_surface_area = scale_to<0>(in.builder->sensory.ear_surface_area, in.surface_area_scale());
     bool has_external_ears = in.builder->sensory.has_external_ears;
     
     // SENSITIVITY: Blend geometry + social tendency + activity pattern
@@ -364,11 +364,11 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
     
     // BASE VALUES from geometry
     bool has_snout = in.builder->sensory.has_snout;
-    area_m2 nasal_surface_area = scale_to<0>(in.builder->sensory.nasal_surface_area, in.area_scale());
+    area_m2 nasal_surface_area = scale_to<0>(in.builder->sensory.nasal_surface_area, in.surface_area_scale());
     
     auto antennae = s.sensory.antennae;
     auto has_sensory_antennae = in.builder->sensory.antennae.is_sensory;
-    auto antennal_surface_area = scale_to<0>(in.builder->sensory.antennae.surface_area, in.area_scale());
+    auto antennal_surface_area = scale_to<0>(in.builder->sensory.antennae.surface_area, in.surface_area_scale());
     
     // If no olfactory organs at all, return nullopt
     if(!has_snout && !has_sensory_antennae) {

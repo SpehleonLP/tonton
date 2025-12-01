@@ -159,18 +159,27 @@ immutable_array<TonTon::SemanticFlags> TonTon::ArmatureMemo::GetSemanticFlags()
 
 	for(auto i = 0u; i < in.parents.size(); ++i)
 	{
+		bool is_hip = false;
 		for(auto & word : in.tags[i])
 		{
 			flags[i] |= ::TonTon::GetSemanticFlags(word);
+			is_hip |= (word == Word::hip);
 		}
 		
 // 'hip' could be hip-L, a limb, or hips as in pelvis.
-		if(HasFlag(flags[i], SemanticFlags::PELVIS)
-		&&(HasFlag(flags[i], SemanticFlags::LEFT)
-		|| HasFlag(flags[i], SemanticFlags::RIGHT)))
+		if(is_hip)
 		{
-			flags[i] &= SemanticFlags(~uint64_t(SemanticFlags::PELVIS));
-			flags[i] |= SemanticFlags::LIMB;
+			if(HasFlag(flags[i], SemanticFlags::LEFT)
+			|| HasFlag(flags[i], SemanticFlags::RIGHT))
+			{
+				flags[i] &= SemanticFlags(~uint64_t(SemanticFlags::ABDOMEN));
+				flags[i] |= SemanticFlags::LIMB;
+			}
+			else
+			{
+				flags[i] &= SemanticFlags(~uint64_t(SemanticFlags::LIMB));
+				flags[i] |= SemanticFlags::ABDOMEN;				
+			}
 		}
 		
 	}
