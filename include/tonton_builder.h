@@ -149,7 +149,7 @@ struct Builder
 	immutable_array<Builder_Appendage> appendages;
 	immutable_array<glm::vec3>		    gait_group_centers;
 // list of gait groups, -1 to separate lists of groups. 
-	immutable_array<int16_t>			ipsilateral_inhibition_groups;
+	//TODO: immutable_array<int16_t>			ipsilateral_inhibition_groups;
 	
 	int siphon_joint = -1;
 	

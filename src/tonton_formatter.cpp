@@ -677,6 +677,14 @@ std::string format(const Output& output) {
 	result += format(output.sensory) + "\n";
 	result += format(output.diagnostics) + "\n";
 	
+	if (output.aerial) {
+		result += format(*output.aerial) + "\n";
+	}
+	
+	if (output.aquatic) {
+		result += format(*output.aquatic) + "\n";
+	}
+	
 	if (output.terrestrial) {
 		result += format(*output.terrestrial) + "\n";
 	}
@@ -685,13 +693,6 @@ std::string format(const Output& output) {
 		result += format(*output.serpentine);
 	}
 	
-	if (output.aerial) {
-		result += format(*output.aerial) + "\n";
-	}
-	
-	if (output.aquatic) {
-		result += format(*output.aquatic) + "\n";
-	}
 	
 	if (output.climbing) {
 		result += format(*output.climbing) + "\n";

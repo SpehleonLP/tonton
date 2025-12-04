@@ -1185,5 +1185,43 @@ std::string_view TonTon::WordToString(NicheFlags f)
 	default: return "UNKNOWN";
 	}
 #undef CASE
+}
 
+TonTon::CladeFlags TonTon::GetParentClade(CladeFlags a)
+{
+	switch(a)
+	{
+	case CladeFlags::NONE:     return CladeFlags::NONE;
+	case CladeFlags::CHORDATA: return CladeFlags::NONE;
+	case CladeFlags::AMPHIBIA: return CladeFlags::CHORDATA;
+	case CladeFlags::REPTILIA: return CladeFlags::CHORDATA;
+	case CladeFlags::CHELONIA: return CladeFlags::CHORDATA;
+	case CladeFlags::AVES:		return CladeFlags::CHORDATA;
+	case CladeFlags::MAMMALIA: return CladeFlags::CHORDATA;
+	case CladeFlags::UNGULATA:	return CladeFlags::MAMMALIA;
+	case CladeFlags::EQUIDAE:	return CladeFlags::MAMMALIA;
+	case CladeFlags::CETACEA:	return CladeFlags::MAMMALIA;
+	case CladeFlags::PISCES:	return CladeFlags::CHORDATA;
+	case CladeFlags::ARTHROPODA:return CladeFlags::NONE;
+	case CladeFlags::INSECTA:   return CladeFlags::ARTHROPODA;
+	case CladeFlags::ARACHNIDA: return CladeFlags::ARTHROPODA;
+	case CladeFlags::CRUSTACEA: return CladeFlags::ARTHROPODA;
+	case CladeFlags::MOLLUSCA:  return CladeFlags::NONE;
+	case CladeFlags::CEPHALOPODA:return CladeFlags::MOLLUSCA; 
+		break;
+	}
+}
+
+bool TonTon::DoesContainChild(CladeFlags parent, CladeFlags child)
+{
+	for(auto i = 31; i >= 0; --i)
+	{
+		if(HasFlag(child, CladeFlags(1 << i)))
+		{
+			if(HasFlag(parent, GetParentClade(CladeFlags(1 << i))))
+				return true;
+		}
+	}
+	
+	return false;
 }

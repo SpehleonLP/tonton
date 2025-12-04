@@ -9,6 +9,7 @@
 #ifndef TONTON_WORDLIST_H
 #define TONTON_WORDLIST_H
 #include <cstdint>
+#include <span>
 #include <vector>
 #include <string_view>
 
@@ -197,7 +198,12 @@ enum class NicheFlags
 	
 	PREDATOR = 1 << 0,
 	HERBIVORE = 1 << 1,
-	CARNIVORE = 1 << 2
+	CARNIVORE = 1 << 2,
+	
+	// not currently set by anything. 
+	AERIAL = 1 << 3,
+	DEEP_SEA = 1 << 4,
+	NOCTURNAL = 1 << 5,
 };
 
 
@@ -216,6 +222,34 @@ FLAG_OPERATORS(NicheFlags)
 
 #undef FLAG_OPERATORS
 
+CladeFlags GetParentClade(CladeFlags a); 
+bool DoesContainChild(CladeFlags parent, CladeFlags child); 
+
+template<typename Func>
+uint32_t ForTopLevelClade(CladeFlags f, Func const& func)
+{
+	CladeFlags visited = CladeFlags::NONE;
+	uint32_t total_contributions = 0;
+	
+	for(auto i = 31; i >= 0; --i)
+	{
+		auto current = CladeFlags(1 << i);
+		if(HasFlag(f, current))
+		{
+			if(!DoesContainChild(current, visited) && func(current))	
+			{
+				visited |= current;
+				total_contributions += 1;
+			}
+		}
+	}
+	
+	if(visited == CladeFlags::NONE)
+		if(func(CladeFlags::NONE))
+			total_contributions += 1;
+			
+	return total_contributions;
+}
 
 }
 
