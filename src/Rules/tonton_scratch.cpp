@@ -74,8 +74,8 @@ TonTon::Scratch::Scratch(Input const& in)
 	//
 	// NOTE: The aerial analysis already correctly computes can_sustain_level_flight
 	// by comparing MECHANICAL power required vs MECHANICAL power available.
-	// The cost fields (flapping_cost_W_per_N, hovering_cost_W_per_N) are METABOLIC
-	// costs for energy budget reporting, not for capability checks.
+	// The power fields (flapping_power_W, hovering_power_W) are METABOLIC
+	// power for energy budget reporting, not for capability checks.
 	diagnostics.passes_power_budget_check =
 		!aerial.has_value() ||
 		aerial->can_sustain_level_flight;

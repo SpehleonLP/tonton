@@ -339,8 +339,8 @@ struct Analysis_Aerial {
 	omega_rad_s max_pitch_rate_rad_s{}; 
 	omega_rad_s max_yaw_rate_rad_s{}; 
 	
-	cost_W_N flapping_cost_W_per_N{};      // Power per unit weight (lower = better)
-	cost_W_N hovering_cost_W_per_N{};      // Extremely expensive
+	power_W flapping_power_W{};            // Metabolic power for forward flight
+	power_W hovering_power_W{};            // Metabolic power for hovering
 			
 	// Relative efficiency (0-1, higher = better strategy for this animal)
 	float flapping_efficiency{};

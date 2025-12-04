@@ -362,7 +362,7 @@ std::string format(const Analysis_Aerial& a) {
 				"  speeds (min/cruise/max): {}/{}/{} m/s\n"
 				"  turning radius: {} m\n"
 				"  manuverability (roll/pitch/yaw): {}/{}/{} rad/s\n"
-				"  cost (flap/hover): {}/{} W/N\n",
+				"  power (flap/hover): {}/{} W\n",
 				a.wingbeat_frequency_Hz,
 				a.can_sustain_level_flight ? "yes" : "no",
 				a.can_slow_descent ? "yes" : "no",
@@ -374,8 +374,8 @@ std::string format(const Analysis_Aerial& a) {
 				a.max_roll_rate_rad_s,
 				a.max_pitch_rate_rad_s,
 				a.max_yaw_rate_rad_s,
-				a.flapping_cost_W_per_N,
-				a.hovering_cost_W_per_N
+				a.flapping_power_W,
+				a.hovering_power_W
 				);
 	
 	return result;

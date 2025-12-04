@@ -51,8 +51,8 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     result.power_to_weight_W_kg = output.metabolic.available_muscle_power_W / body_mass_kg;
    
     // Estimate power needed for takeoff (hovering-like initially)
-    auto takeoff_power_needed_W = aerial.hovering_cost_W_per_N * weight_N;
-    result.takeoff_power_fraction = takeoff_power_needed_W / output.metabolic.available_muscle_power_W;
+    auto takeoff_power_needed_W = aerial.hovering_power_W;
+    result.takeoff_power_fraction = float(takeoff_power_needed_W) / float(output.metabolic.available_muscle_power_W);
     
     // ========================================================================
     // CONSTRAINT CHECKS

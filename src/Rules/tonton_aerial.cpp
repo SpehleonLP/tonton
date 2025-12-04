@@ -16,7 +16,7 @@ struct GaitGroupSpan
 	length_m total_span_m;
 };
 
-static std::vector<Analysis_Aerial::Wing> GetWings(Input const& in);
+static std::vector<Analysis_Aerial::Wing> GetWings(Input const& in, bool &likely_feathers);
 std::vector<GaitGroupSpan> GetGaitGroupSpan(Analysis_Aerial::Wing * data, size_t size);
 // Forward declaration for GetGaitGroupCenters
 }
@@ -24,204 +24,347 @@ std::vector<GaitGroupSpan> GetGaitGroupSpan(Analysis_Aerial::Wing * data, size_t
 std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Scratch& s)
 {
     TonTon::Analysis_Aerial r;
-    
-    auto wings = shared_array<TonTon::Analysis_Aerial::Wing>::FromArray(GetWings(in));
+
+	bool likely_feathers = false;
+    auto wings = shared_array<TonTon::Analysis_Aerial::Wing>::FromArray(GetWings(in, likely_feathers));
     r.wings = wings;
-    
+
     if (r.wings.empty()) {
         return {}; // No wings, no aerial capability
     }
-    
-    // Calculate total wing parameters
+
+    // ============================================================================
+    // WING GEOMETRY AGGREGATION
+    // ============================================================================
+
     area_m2 total_wing_area_m2 = 0.0f;
     length_m total_wing_span_m = 0.0f;
-	inertia_kgm2 wing_inertia_kg_m2 = 0.0f;
+    inertia_kgm2 wing_inertia_kg_m2 = 0.0f;
     length_m mean_chord_m = 0.0f;
-        
+
     for (const auto& wing : r.wings) {
         total_wing_area_m2 += wing.wing_area_m2;
-        total_wing_span_m += wing.span_m; 
-        wing_inertia_kg_m2 += wing.wing_inertia_kgm2; 
+        total_wing_span_m += wing.span_m;
+        wing_inertia_kg_m2 += wing.wing_inertia_kgm2;
         mean_chord_m += wing.chord_m;
     }
-    
-    struct WingDistanceMemo
-    {
-		uint16_t gait_group_front;
-		uint16_t gait_group_back;
-		uint16_t count;
-		length_m distance;
-    };
-            
-    
+
     mean_chord_m /= r.wings.size();
     total_wing_span_m = total_wing_span_m * 2.0 / r.wings.size();
     wing_inertia_kg_m2 /= r.wings.size();
-    
+
     r.wing_span_m = total_wing_span_m;
     r.wing_area_m2 = total_wing_area_m2;
-    
+
+    // Apply magical enhancement
     total_wing_span_m  *= std::exp2(in.mana.air);
     total_wing_area_m2 *= std::exp2(in.mana.air);
-    
+
     // ============================================================================
-    // DETERMINISTIC PHYSICS-BASED CALCULATIONS
+    // ENVIRONMENT PARAMETERS
     // ============================================================================
-    
+
     const auto rho = in.environment.fluidDensity_Kg_m3;
     const auto mu = in.environment.fluidViscosity_Pa_s;
-    const auto g = in.environment.gravity_m_s2 * std::max(0.0f, 1.0f - float(rho / in.body_density()));
+    const auto real_g = in.environment.gravity_m_s2;
+    // Effective gravity accounting for buoyancy (0 for neutrally buoyant)
+    const auto g_effective = real_g * std::max(0.0f, 1.0f - float(rho / in.body_density()));
     const auto body_mass_kg = in.body_mass_kg();
-    // can be negative due to bouyancy.
     const auto weight_N = std::max<force_N>(0.001, in.body_weight_N());
-    
-    // --- WING LOADING ---
-    // Pure physics: weight per unit wing area
-    r.wing_loading_N_m2 = weight_N / (total_wing_area_m2);
-    
-    // --- STALL SPEED (minimum flight speed) ---
-    // From lift equation: L = 0.5 * rho * v² * S * CL
-    // Solving for v at L = Weight and CL = CL_max
-    // CL_max varies by flight regime: birds ~1.2-1.8, insects with LEV ~1.5-3.5
+
+    // ============================================================================
+    // PURE PHYSICS LAMBDAS
+    // These encode fundamental physical relationships with no biological reasoning
+    // ============================================================================
+
+    // --- FLUID DYNAMICS ---
+
+    // Reynolds number: ratio of inertial to viscous forces
+    // Re = ρvL/μ (dimensionless)
+    auto reynolds_number = [](density_kg_m3 rho, velocity_m_s v, length_m L,
+                              viscosity_Pa_s mu) -> float {
+        return float((rho * v * L) / mu);
+    };
+
+    // --- AERODYNAMIC FORCES ---
+
+    // Stall speed from lift equation: L = 0.5ρv²SCL → v = √(2W/ρSCL)
+    auto stall_speed = [](force_N weight, density_kg_m3 rho, area_m2 S,
+                          float CL_max) -> velocity_m_s {
+        return sqrt((2.0f * weight) / (rho * S * CL_max));
+    };
+
+    // Wing loading: weight per unit wing area (returns N/m² = pressure)
+    auto wing_loading = [](force_N weight, area_m2 S) -> load_N_m2 {
+        return weight / S;
+    };
+
+    // --- OSCILLATORY PROPULSION ---
+
+    // Strouhal velocity: v = f×A×L/St (universal for efficient oscillation)
+    auto strouhal_velocity = [](freq_Hz f, angle_rad amplitude, length_m wing_length,
+                                float strouhal) -> velocity_m_s {
+        return (f * amplitude * wing_length) / strouhal;
+    };
+
+    // Power-limited frequency: P = coef×f³×A² → f = ∛(P/(coef×A²))
+    auto power_limited_frequency = [](power_W P, auto coef,
+                                      angle_rad amplitude) -> freq_Hz {
+        return cbrt(P / (coef * amplitude * amplitude));
+    };
+
+    // --- ADDED MASS (potential flow theory) ---
+
+    // Added mass coefficient for oscillating plate: k = (π/4)×(1 + 2/AR)
+    auto added_mass_coef = [](float aspect_ratio) -> float {
+        return (M_PI / 4.0f) * (1.0f + 2.0f / std::max(1.0f, aspect_ratio));
+    };
+
+    // Added inertia: I = k×ρ×c²×b³/3 (from potential flow integration)
+    auto added_inertia = [](float k, density_kg_m3 rho, length_m chord,
+                            length_m span) -> inertia_kgm2 {
+        return k * rho * (chord * chord) * pow3(span) / 3.0f;
+    };
+
+    // --- POWER REQUIREMENTS ---
+
+    // Induced power (momentum theory): P = kW²/(2ρAv)
+    auto induced_power = [](float k, force_N weight, density_kg_m3 rho,
+                            area_m2 disk_area, velocity_m_s v) -> power_W {
+        return k * weight * weight / (2.0f * rho * disk_area * v);
+    };
+
+    // Hover induced power: P = W×√(W/(2ρA))
+    auto hover_induced_power = [](force_N weight, density_kg_m3 rho,
+                                  area_m2 disk_area) -> power_W {
+        auto v_induced = sqrt(weight / (2.0f * rho * disk_area));
+        return weight * v_induced;
+    };
+
+    // Profile drag power: P = 0.5×ρ×v³×S×CD
+    auto profile_power = [](density_kg_m3 rho, velocity_m_s v, area_m2 S,
+                            float CD) -> power_W {
+        return 0.5f * rho * pow3(v) * S * CD;
+    };
+
+    // Inertial power: P = 8π²×I×f³×A² (with elastic recovery factor)
+    auto inertial_power = [](float elastic_recovery, inertia_kgm2 I, freq_Hz f,
+                             angle_rad amplitude) -> power_W {
+        return elastic_recovery * 8.0f * M_PI * M_PI * I * pow3(f) * amplitude * amplitude;
+    };
+
+    // Profile power coefficient: k = 0.5×ρ×(2π)³×A×R³×S×CD
+    auto profile_power_coef = [](density_kg_m3 rho, angle_rad amplitude,
+                                 length_m wing_length, area_m2 S, float CD) {
+        constexpr float two_pi_cubed = (2.0f * M_PI) * (2.0f * M_PI) * (2.0f * M_PI);
+        return 0.5f * rho * two_pi_cubed * amplitude * pow3(wing_length) * S * CD;
+    };
+
+    // --- TURNING DYNAMICS ---
+
+    // Aerial turn radius: r = v²/(g×√(n²-1)) where n = load factor
+    auto aerial_turn_radius = [](velocity_m_s v, acceleration_m_s2 g,
+                                 float load_factor) -> length_m {
+        return (v * v) / (g * std::sqrt(load_factor * load_factor - 1.0f));
+    };
+
+    // ============================================================================
+    // REGIME TRANSITION LAMBDAS
+    // These encode how aerodynamic behavior changes with Reynolds number
+    // ============================================================================
+
+    // Regime blend: smoothstep transition from insect (Re~5000) to bird (Re~50000)
+    auto compute_regime_blend = [](float Re) -> float {
+        auto log_Re = std::log10(std::max(100.0f, Re));
+        auto blend = std::clamp((log_Re - 3.7f) / 1.3f, 0.0f, 1.0f);
+        return blend * blend * (3.0f - 2.0f * blend);  // smoothstep
+    };
+
+    // ============================================================================
+    // ALLOMETRIC SCALING LAMBDAS
+    // These encode biological scaling relationships (empirical fits)
+    // ============================================================================
+
+    // Pennycuick wingbeat frequency: f = K×√(g/b)×(W/S)^0.375
+    // Valid for birds (high Re regime)
+    auto pennycuick_frequency = [](float K, acceleration_m_s2 g, length_m wingspan,
+                                   load_N_m2 loading) -> freq_Hz {
+        return K * sqrt(g / wingspan) * std::pow(float(loading), 0.375f);
+    };
+
+    // Insect allometric frequency: f = 80×(m/0.001)^-0.24 Hz
+    // Empirical fit across insect taxa
+    auto insect_allometric_frequency = [](mass_kg m) -> freq_Hz {
+        return 80.0f * std::pow(float(m) / 0.001f, -0.24f);
+    };
+
+    // ============================================================================
+    // WING LOADING (pure physics)
+    // ============================================================================
+
+    r.wing_loading_N_m2 = wing_loading(weight_N, total_wing_area_m2);
+
+    // ============================================================================
+    // REGIME DETERMINATION (iterative solver)
+    // Couples: Re ↔ regime ↔ frequency ↔ velocity
+    // ============================================================================
+
+    // Morphology-dependent constants
     auto CL_max_bird = 1.2f + 0.6f * in.feather_quality;
-    auto CL_max_insect = 2.0f + 1.0f * in.feather_quality;  // LEV enhancement
+    auto CL_max_insect = 2.0f + 1.0f * in.feather_quality;
+    auto K_pennycuick = 3.87f * (0.8f + 0.4f * in.scaling_strategy);
 
-    // Initial estimate using bird CL_max (will refine after Re calculation)
-    velocity_m_s stall_speed_estimate = sqrt((2.0f * weight_N) / (rho * total_wing_area_m2 * CL_max_bird));
+    // For underwater propulsion: use thrust-based "effective loading"
+    // when actual wing loading → 0 due to buoyancy
+    auto min_loading_N_m2 = (body_mass_kg * 0.1f * real_g) / total_wing_area_m2;
+    auto effective_loading_N_m2 = std::max(r.wing_loading_N_m2, min_loading_N_m2);
 
-    // --- REYNOLDS NUMBER AT STALL ---
-    // Re = (ρ * v * c) / μ - determines aerodynamic regime
-    // Calculate early to determine which frequency/lift model to use
-    auto Re_stall = (rho * stall_speed_estimate * mean_chord_m) / mu;
+    // Blend between insect and bird frequency models based on regime
+    auto compute_base_frequency = [&](float regime) -> freq_Hz {
+        freq_Hz insect_freq = insect_allometric_frequency(body_mass_kg);
+        freq_Hz bird_freq = pennycuick_frequency(K_pennycuick, real_g,
+                                                  total_wing_span_m, effective_loading_N_m2);
+        return glm::mix(float(insect_freq), float(bird_freq), regime);
+    };
 
-    // --- REGIME BLENDING ---
-    // Use log(Re) to smoothly transition between insect and bird models
-    // Insect regime: Re < 5,000 (LEV-dominated, unsteady aerodynamics)
-    // Bird regime: Re > 50,000 (quasi-steady aerodynamics)
-    // Transition zone: 5,000 - 50,000
-    auto log_Re = std::log10(std::max(100.0f, float(Re_stall)));
-    auto regime_blend = std::clamp((log_Re - 3.7f) / 1.3f, 0.0f, 1.0f);  // 5000 to 50000
-    regime_blend = regime_blend * regime_blend * (3.0f - 2.0f * regime_blend);  // smoothstep
+    // Strouhal number varies with regime: 0.45 (insects) → 0.25 (birds)
+    auto regime_strouhal = [](float regime) -> float {
+        return glm::mix(0.45f, 0.25f, regime);
+    };
 
-    // Blend CL_max based on regime
+    // Velocity from frequency via Strouhal constraint
+    auto compute_strouhal_velocity = [&](freq_Hz f, float regime) -> velocity_m_s {
+        angle_rad cruise_amplitude = 1.05f;  // ~60° peak-to-peak
+        return strouhal_velocity(f, cruise_amplitude, total_wing_span_m / 2.0f,
+                                 regime_strouhal(regime));
+    };
+
+    // Initial velocity estimate (body-size based, avoids weight=0 issues)
+    velocity_m_s v_estimate = velocity_m_s(std::sqrt(float(body_mass_kg)) * 0.5f);
+    v_estimate = std::max(v_estimate, velocity_m_s(0.1f));
+
+    // Iterative solve for self-consistent regime
+    float regime_blend = 0.0f;
+    freq_Hz base_frequency_Hz = insect_allometric_frequency(body_mass_kg);
+
+    for (int iter = 0; iter < 10; ++iter) {
+        float Re = reynolds_number(rho, v_estimate, mean_chord_m, mu);
+        float new_regime = compute_regime_blend(Re);
+        freq_Hz new_base_freq = compute_base_frequency(new_regime);
+        velocity_m_s new_v = compute_strouhal_velocity(new_base_freq, new_regime);
+
+        float v_change = std::abs(float(new_v - v_estimate)) / std::max(0.01f, float(v_estimate));
+
+        regime_blend = new_regime;
+        base_frequency_Hz = new_base_freq;
+        v_estimate = new_v;
+
+        if (v_change < 0.01f) break;
+    }
+
+    // ============================================================================
+    // STALL SPEED (from converged regime)
+    // ============================================================================
+
     auto CL_max = glm::mix(CL_max_insect, CL_max_bird, regime_blend);
-    r.min_flight_speed_m_s = sqrt((2.0f * weight_N) / (rho * total_wing_area_m2 * CL_max));
+    r.min_flight_speed_m_s = stall_speed(weight_N, rho, total_wing_area_m2, CL_max);
 
-    // --- WINGBEAT FREQUENCY ---
-    // Two models blended by Reynolds regime:
+    // ============================================================================
+    // BEAT AMPLITUDE (morphological adaptation)
+    // ============================================================================
 
-    // 1. Pennycuick (1996) - birds: f ∝ sqrt(g/L) * (wing_loading)^(3/8)
-    auto K = 3.87f * (0.8f + 0.4f * in.scaling_strategy); // 3.1 - 4.6 range
-    freq_Hz bird_frequency_Hz = K * sqrt(g / total_wing_span_m) *
-                                std::pow(float(r.wing_loading_N_m2), 0.375f);
+    // Cruise: ~60° p2p for efficiency, Hover: ~140° p2p for lift generation
+    angle_rad cruise_amplitude_rad = 1.05f;
+    angle_rad hover_amplitude_rad = 2.44f;
+    angle_rad base_beat_amplitude_rad = glm::mix(cruise_amplitude_rad, hover_amplitude_rad,
+                                                  in.stability_vs_speed);
 
-    // 2. Insect allometry - Dudley (2000): f ∝ M^(-0.24)
-    // Base coefficient adjusted for synchronous muscle insects
-    // Odonata (dragonflies): typically 25-40 Hz, averaging ~30 Hz
-    // Small synchronous: butterflies ~10-20 Hz
-    // Asynchronous (flies, bees): 100-1000 Hz
-    freq_Hz insect_frequency_Hz = 80.0f * std::pow(float(body_mass_kg) / 0.001f, -0.24f);
+    int noWingGroups = 1;
+    for (auto& wing : wings) {
+        wing.beat_amplitude_rad = base_beat_amplitude_rad;
+        wing.stroke_plane_angle_rad = (1.0f - in.stability_vs_speed) * (M_PI / 4.0f);
+    }
 
-    // Blend frequencies based on Reynolds regime
-    freq_Hz base_frequency_Hz = glm::mix(float(insect_frequency_Hz), float(bird_frequency_Hz), regime_blend);
-    
-    
+    // Multi-wing coordination (dragonflies)
+    if (r.wings.size() > 2) {
+        std::set<int32_t> gait_groups;
+        for (const auto& wing : r.wings) {
+            gait_groups.insert(wing.gait_group);
+        }
 
-	// --- BEAT AMPLITUDE ---
-	// Different amplitudes for different flight modes:
-	// - Cruise: smaller amplitude (~60°, 1.05 rad peak-to-peak) for efficiency
-	// - Hover: larger amplitude (~140°, 2.44 rad peak-to-peak) for lift generation
-	// stability_vs_speed is a MORPHOLOGICAL trait (what creature evolved for),
-	// NOT the current operating mode. Use mode-specific amplitudes for calculations.
-	// NOTE: These are PEAK-TO-PEAK angles. For velocity calculations, use half-amplitude.
-	angle_rad cruise_amplitude_rad = 1.05f;   // 60° peak-to-peak for forward flight
-	angle_rad hover_amplitude_rad = 2.44f;    // 140° peak-to-peak (for wing data storage, not power calc)
-	angle_rad cruise_half_amplitude = cruise_amplitude_rad / 2.0f;
-	// Note: actual hover amplitude is computed dynamically in hovering section based on morphology
+        noWingGroups = gait_groups.size();
+        if (gait_groups.size() == 2 && r.wings.size() == 4) {
+            for (auto& wing : wings) {
+                if (wing.gait_group == 0) {
+                    wing.stroke_plane_angle_rad = 0.1f + (1.0f - in.stability_vs_speed) * 0.6f;
+                    wing.phase_offset = 0.0f;
+                } else {
+                    wing.stroke_plane_angle_rad = 0.3f + (1.0f - in.stability_vs_speed) * 0.5f;
+                    wing.phase_offset = in.stability_vs_speed * M_PI;
+                }
+            }
+        }
+    }
 
-	// For wing data storage, use a weighted average based on morphological adaptation
-	// (creature optimized for hover will tend toward higher amplitude)
-	angle_rad base_beat_amplitude_rad = glm::mix(cruise_amplitude_rad, hover_amplitude_rad, in.stability_vs_speed);
-    
-	int noWingGroups = 1;
-	for (auto& wing : wings) {
-		wing.beat_amplitude_rad = base_beat_amplitude_rad;
-			
-		// --- STROKE PLANE ANGLE ---
-		// Hovering: ~0° (horizontal), forward flight: ~45-60° (angled back)
-		wing.stroke_plane_angle_rad = (1.0f - in.stability_vs_speed) * (M_PI / 4.0f);
-		// phase_offset already set in the wing data for left/right
-	}
-	
-	if(r.wings.size() > 2)
-	{
-		// Count unique gait groups
-		std::set<int32_t> gait_groups;
-		for (const auto& wing : r.wings) {
-			gait_groups.insert(wing.gait_group);
-		}
-		
-		noWingGroups = gait_groups.size();
-		if (gait_groups.size() == 2 && r.wings.size() == 4) {
-			// DRAGONFLY MODE: front and hind wings
-			
-			// Strategy depends on flight mode:
-			// - Hovering: counter-stroking (180° phase, different planes)
-			// - Fast forward: synchronous (0° phase, same plane)
-			// - Maneuvering: independent control
-			
-			for (auto& wing : wings) {
-				if (wing.gait_group == 0) {
-					// Front wings - more horizontal for hovering
-					wing.stroke_plane_angle_rad = 0.1f + (1.0f - in.stability_vs_speed) * 0.6f;
-					wing.phase_offset = 0.0f;
-				} else {
-					// Hind wings - steeper angle
-					wing.stroke_plane_angle_rad = 0.3f + (1.0f - in.stability_vs_speed) * 0.5f;
-					
-					// Phase offset: counter-stroking for hovering, sync for speed
-					wing.phase_offset = in.stability_vs_speed * M_PI; // 0° to 180°
-				}
-			}
-		}
-	}
-    
-    // Power density: 200-400 W/kg (Ellington et al. 1990)
-    power_W available_power_W = s.metabolic.available_muscle_power_W;
+    // ============================================================================
+    // AVAILABLE POWER (metabolic constraints)
+    // ============================================================================
 
-    // Profile drag coefficient (used in multiple calculations)
-    auto CD_profile = 0.02f + 0.01f * (1.0f - in.feather_quality);
+    // Sustained power limited by BOTH muscle capacity AND aerobic metabolism
+    power_W available_power_W;
+    if (s.metabolic.available_muscle_power_W < s.metabolic.max_rate_W) {
+        // Metabolism can support muscle output (small animals/insects)
+        available_power_W = s.metabolic.available_muscle_power_W;
+    } else {
+        // Metabolism is bottleneck (large endotherms)
+        auto sustained_efficiency = 0.20f + 0.05f * in.feather_quality;
+        available_power_W = s.metabolic.max_rate_W * sustained_efficiency;
+    }
 
-    // --- FREQUENCY LIMITS ---
-    // Power-limited frequency from TOTAL power: P = P_inertial + P_profile
-    // P_inertial = k_i × I × f³ × A² (accelerating wing mass)
-    // P_profile = k_p × ρ × S × c × A³ × f³ × C_D (drag on moving wing)
-    // Total: P = (k_i×I + k_p×ρ×S×c×A×C_D) × f³ × A²
+    // ============================================================================
+    // PROFILE DRAG COEFFICIENT (regime-dependent)
+    // ============================================================================
 
-    // Inertial power coefficient
-    auto inertial_coef = wing_inertia_kg_m2;
+    // Base CD for thin airfoils: 0.02-0.03
+    // At low Re, unsteady effects (LEV, wake capture) provide "free" thrust
+    auto CD_base = 0.02f + 0.01f * (1.0f - in.feather_quality);
+    auto CD_profile = glm::mix(CD_base * 0.3f, CD_base, regime_blend);  // 70% reduction for insects
 
-    // Profile drag power coefficient
-    // Wing tip velocity: v = 2πfAR (A = amplitude rad, R = wing span/2)
-    // P_profile = 0.5 × ρ × v³ × S × C_D = 0.5 × ρ × (2πfAR)³ × S × CD
-    //           = 0.5 × ρ × (2π)³ × f³ × A³ × R³ × S × CD
-    // Factor as: P = k × f³ × A², so k = 0.5 × ρ × (2π)³ × A × R³ × S × CD
-    auto wing_length_m = total_wing_span_m / 2.0f;  // Half-span = one wing length
-    constexpr float two_pi_cubed = (2.0f * M_PI) * (2.0f * M_PI) * (2.0f * M_PI);
-    auto profile_coef = 0.5f * rho * two_pi_cubed * base_beat_amplitude_rad *
-                        pow3(wing_length_m) * total_wing_area_m2 * CD_profile;
+    // ============================================================================
+    // POWER-LIMITED FREQUENCY
+    // ============================================================================
 
-    // Total power coefficient (both inertial and aerodynamic)
+    // Average aspect ratio for added mass calculation
+    float avg_aspect_ratio = 0.0f;
+    for (const auto& wing : wings) {
+        avg_aspect_ratio += wing.aspect_ratio();
+    }
+    avg_aspect_ratio = std::max(1.0f, avg_aspect_ratio / wings.size());
+
+    // Added mass inertia from potential flow theory
+    auto k = added_mass_coef(avg_aspect_ratio);
+    auto single_wing_span = total_wing_span_m / 2.0f;
+    inertia_kgm2 total_added_inertia = added_inertia(k, rho, mean_chord_m, single_wing_span)
+                                       * float(wings.size());
+    auto inertial_coef = wing_inertia_kg_m2 + total_added_inertia;
+
+    // Power amplitude for frequency calculation
+    angle_rad power_limit_amplitude_rad = glm::mix(cruise_amplitude_rad, base_beat_amplitude_rad, 0.5f);
+
+    // Profile power coefficient
+    auto profile_coef = profile_power_coef(rho, power_limit_amplitude_rad,
+                                           single_wing_span, total_wing_area_m2, CD_profile);
+
+    // Total power coefficient and frequency limit
     auto total_power_coef = inertial_coef + profile_coef;
+    freq_Hz power_limited_freq_Hz = power_limited_frequency(available_power_W, total_power_coef,
+                                                             power_limit_amplitude_rad);
 
-    freq_Hz power_limited_freq_Hz = cbrt(available_power_W /
-        (total_power_coef * base_beat_amplitude_rad * base_beat_amplitude_rad));
-    
     // Neural bandwidth limit (Sponberg et al. 2015)
     freq_Hz neural_limit_Hz = 200.0f;
-    
+
     r.wingbeat_frequency_Hz = std::min<freq_Hz>({base_frequency_Hz, power_limited_freq_Hz, neural_limit_Hz});
-    
+
     // --- STROUHAL NUMBER CONSTRAINT ---
     // Universal for efficient oscillatory locomotion: St = f·A/v ≈ 0.2-0.4
     // BUT: optimal St varies by Reynolds regime:
@@ -240,7 +383,11 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Kinematic cruise speed from Strouhal constraint
     velocity_m_s strouhal_cruise_m_s = (r.wingbeat_frequency_Hz * cruise_stroke_length_m) / strouhal_optimal;
 
-    // Ensure cruise speed is above stall
+    // Save the true Strouhal-limited speed before any overrides
+    // This represents what the creature can actually achieve kinematically
+    velocity_m_s true_strouhal_speed_m_s = strouhal_cruise_m_s;
+
+    // Ensure cruise speed is above stall (for reporting purposes)
     strouhal_cruise_m_s = std::max(strouhal_cruise_m_s, r.min_flight_speed_m_s * 1.2f);
 
     // Power-limited cruise speed: can't fly faster than power allows
@@ -261,65 +408,78 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     
     // --- REYNOLDS NUMBER ---
     // Re = (ρ * v * c) / μ - determines aerodynamic regime
-    auto reynolds_cruise = (rho * r.cruise_speed_m_s * mean_chord_m) / mu;
-    
+    // ============================================================================
+    // AERODYNAMIC POWER REQUIREMENTS
+    // ============================================================================
 
-    // --- AERODYNAMIC POWER REQUIREMENTS ---
-		
-	// FLAPPING FLIGHT (forward)
-	auto disk_area_m2 = M_PI * r.wing_span_m * r.wing_span_m / 4.0f;
-	
-	if (noWingGroups > 1) {
-		// Multiple wing pairs: sum their swept areas
-		disk_area_m2 = 0.0f;
-		auto groups = GetGaitGroupSpan(wings.data(), wings.size());
-		
-		for (const auto& group : groups) {
-			if (group.count == 2) {
-				disk_area_m2 += M_PI * group.total_span_m * group.total_span_m / 4.0f;  // bilateral
-			} else {
-				auto avg = group.total_span_m / group.count;
-				disk_area_m2 += group.count * M_PI * avg * avg / 4.0f;  // radial
-			}
-		}
-	}
-	
-	// Induced power (momentum theory for forward flight)
-	auto k_induced = 1.15f;  // non-ideal flow factor
-	auto induced_power_W = k_induced * weight_N * weight_N / 
-						   (2.0f * rho * disk_area_m2 * r.cruise_speed_m_s);
-	
-	// Profile drag power: wings (CD_profile defined earlier)
-	auto profile_power_W = 0.5f * rho * pow3(r.cruise_speed_m_s) *
-							total_wing_area_m2 * CD_profile;
-	
-	// Parasite drag power: body
-	auto CD_body = 0.1f + 0.05f * (1.0f - in.structure_vs_weight);
-	auto parasite_power_W = 0.5f * rho * pow3(r.cruise_speed_m_s) * 
-							 s.physical.cross_sectional_area_m2 * CD_body;
-	
-	// Inertial power (approximate as fraction of aerodynamic power)
-	auto aerodynamic_power_W = induced_power_W + profile_power_W + parasite_power_W;
-	
-	// Small, fast flappers actually have LOWER inertial costs relative to aerodynamic
-	// because they have tiny wing inertia
-	auto base_inertial_fraction = 0.10f;
-	auto size_factor = std::pow(float(wing_inertia_kg_m2) / 1e-6, 0.3f);  // Scale with inertia
-	auto inertial_fraction = base_inertial_fraction * size_factor;
+    // Disk area (swept by wings) - used for induced power calculations
+    auto disk_area_m2 = M_PI * r.wing_span_m * r.wing_span_m / 4.0f;
 
-	power_W inertial_power_W = aerodynamic_power_W * inertial_fraction;
-	
-	// Total mechanical power
-	power_W mechanical_power_W = aerodynamic_power_W + inertial_power_W;
-	
-	// Convert mechanical power to metabolic cost (for energy budget reporting)
-	// Muscle efficiency: mechanical work out / metabolic energy in
-	// Literature: 9-13% for dragonflies (Wakeling & Ellington), 20-25% for birds
-	auto muscle_efficiency = 0.10f + 0.13f * regime_blend;  // 10% insects → 23% birds
-	power_W metabolic_power_W = mechanical_power_W / muscle_efficiency;
+    if (noWingGroups > 1) {
+        // Multiple wing pairs: sum their swept areas
+        disk_area_m2 = 0.0f;
+        auto groups = GetGaitGroupSpan(wings.data(), wings.size());
+        for (const auto& group : groups) {
+            if (group.count == 2) {
+                disk_area_m2 += M_PI * group.total_span_m * group.total_span_m / 4.0f;
+            } else {
+                auto avg = group.total_span_m / group.count;
+                disk_area_m2 += group.count * M_PI * avg * avg / 4.0f;
+            }
+        }
+    }
 
-	// Report metabolic cost per unit weight (useful for energy budgets)
-	r.flapping_cost_W_per_N = metabolic_power_W / weight_N;
+    // Coefficients for power calculations
+    auto k_induced = 1.15f;      // Non-ideal induced flow factor
+    auto CD_body = 0.1f + 0.05f * (1.0f - in.structure_vs_weight);
+    auto elastic_recovery = 0.6f;  // ~40% elastic energy storage in tendons
+
+    // --- POWER AT STALL SPEED ---
+    // Direct lift check: can we generate enough power at minimum flight speed?
+    auto induced_power_at_stall_W = induced_power(k_induced, weight_N, rho,
+                                                   disk_area_m2, r.min_flight_speed_m_s);
+    auto profile_power_at_stall_W = profile_power(rho, r.min_flight_speed_m_s,
+                                                   total_wing_area_m2, CD_profile);
+    auto parasite_power_at_stall_W = profile_power(rho, r.min_flight_speed_m_s,
+                                                    s.physical.cross_sectional_area_m2, CD_body);
+    auto inertial_power_at_stall_W = inertial_power(elastic_recovery, wing_inertia_kg_m2,
+                                                     r.wingbeat_frequency_Hz, cruise_amplitude_rad);
+
+    power_W aero_power_at_stall_W = induced_power_at_stall_W +
+                                    profile_power_at_stall_W +
+                                    parasite_power_at_stall_W;
+    power_W power_required_at_stall_W = aero_power_at_stall_W + inertial_power_at_stall_W;
+
+    // Need 50% margin for control authority
+    bool has_power_for_lift = available_power_W >= power_required_at_stall_W * 1.5f;
+
+    // --- POWER AT CRUISE SPEED ---
+    auto induced_power_cruise_W = induced_power(k_induced, weight_N, rho,
+                                                 disk_area_m2, r.cruise_speed_m_s);
+    auto profile_power_cruise_W = profile_power(rho, r.cruise_speed_m_s,
+                                                 total_wing_area_m2, CD_profile);
+    auto parasite_power_cruise_W = profile_power(rho, r.cruise_speed_m_s,
+                                                  s.physical.cross_sectional_area_m2, CD_body);
+
+    auto aerodynamic_power_W = induced_power_cruise_W + profile_power_cruise_W + parasite_power_cruise_W;
+
+    // Inertial power scales with wing inertia (small flappers have tiny wings)
+    auto base_inertial_fraction = 0.10f;
+    auto size_factor = std::pow(float(wing_inertia_kg_m2) / 1e-6f, 0.3f);
+    auto inertial_fraction = base_inertial_fraction * size_factor;
+    power_W inertial_power_cruise_W = aerodynamic_power_W * inertial_fraction;
+
+    power_W mechanical_power_W = aerodynamic_power_W + inertial_power_cruise_W;
+
+    // --- METABOLIC CONVERSION ---
+    // Muscle efficiency: 10% (insects) → 23% (birds)
+    auto reynolds_cruise = reynolds_number(rho, r.cruise_speed_m_s, mean_chord_m, mu);
+    auto cruise_regime_blend = compute_regime_blend(reynolds_cruise);
+    auto muscle_efficiency = 0.10f + 0.13f * cruise_regime_blend;
+    power_W metabolic_power_W = mechanical_power_W / muscle_efficiency;
+
+	// Report metabolic power for forward flight (raw Watts, universally meaningful)
+	r.flapping_power_W = metabolic_power_W;
 
 	// Flapping capability: compare MECHANICAL power (apples to apples)
 	// available_power_W is muscle mechanical output capacity
@@ -345,10 +505,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // HOVERING FLIGHT
 	// Use disk area (swept area) not wing planform area
 
-	// Induced power: P = T * v_induced (momentum theory)
-	// This is the fundamental cost of generating lift by accelerating air downward
-	auto v_induced = sqrt(weight_N / (2.0f * rho * disk_area_m2));
-	auto hover_induced_power_W = weight_N * v_induced;
+	// Induced power from momentum theory: P = W×√(W/(2ρA))
+	auto hover_induced_power_W = hover_induced_power(weight_N, rho, disk_area_m2);
 
 	// --- HOVER AMPLITUDE ---
 	// Dragonflies hovering use SMALL amplitudes - they look nearly stationary!
@@ -414,7 +572,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 
 	// Convert to metabolic power for reporting (same efficiency as forward flight)
 	auto hover_metabolic_W = hover_mechanical_W / muscle_efficiency;
-	r.hovering_cost_W_per_N = hover_metabolic_W / weight_N;
+	r.hovering_power_W = hover_metabolic_W;
 
 	// Hovering capability: compare MECHANICAL power (apples to apples)
 	// Hovering requires more power margin than forward flight for stability
@@ -448,10 +606,10 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
         }
     }
     
-    auto hovering_power_W = (hover_induced_power_W + hover_profile_power_W + hover_inertial_power_W) / 
-                             hover_reynolds_efficiency;
-    r.hovering_cost_W_per_N = hovering_power_W / weight_N;
-    
+    auto hovering_power_total_W = (hover_induced_power_W + hover_profile_power_W + hover_inertial_power_W) /
+                                   hover_reynolds_efficiency;
+    r.hovering_power_W = hovering_power_total_W / muscle_efficiency;  // Convert to metabolic
+
     // --- POWER LOADING ---
     r.power_loading_W_N = available_power_W / weight_N;
     //auto power_margin = available_power_W / flapping_power_W;
@@ -461,7 +619,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     
 
     // Hovering efficiency: needs >2x power margin + other constraints
-    bool hover_power_ok = (available_power_W / hovering_power_W) > 2.0f;
+    bool hover_power_ok = (available_power_W / hovering_power_total_W) > 2.0f;
     bool hover_loading_ok = r.wing_loading_N_m2 < 80.0f;
     bool hover_frequency_ok = r.wingbeat_frequency_Hz > 50.0f;
     bool hover_reynolds_ok = reynolds_cruise > 1000.0f;
@@ -479,20 +637,71 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Re-evaluate flight capabilities based on final power ratios, after all
     // adjustments and clade-specific refinements.
     
-    // Note: flapping_cost_W_per_N and hovering_cost_W_per_N are METABOLIC costs
+    // Note: flapping_power_W and hovering_power_W are METABOLIC power (raw Watts)
     // available_power_W is MECHANICAL capacity
     // For flight capability, compare mechanical vs mechanical using the efficiency values
     // we already computed (r.flapping_efficiency, r.hovering_efficiency)
 
-    r.can_sustain_level_flight = (r.flapping_efficiency > 0.0f);
-    r.can_slow_descent = (available_power_W / mechanical_power_W) >= 0.5f;
+    // Flight requires ALL of:
+    // 1. Kinematic check: can flapping achieve stall speed? (Strouhal constraint)
+    // 2. Lift/power check: enough power to fly at stall speed? (direct lift check)
+    // 3. Sustained flight check: power margin for cruise? (flapping_efficiency)
+    bool can_reach_flight_speed = true_strouhal_speed_m_s >= r.min_flight_speed_m_s;
+
+    r.can_sustain_level_flight = can_reach_flight_speed && has_power_for_lift;
+
+    // Generate warnings explaining WHY flight fails
+    using Warning = Analysis_Diagnostics::Warning;
+    using Severity = Warning::Severity;
+
+    if (!can_reach_flight_speed) {
+        char buf[256];
+        float speed_deficit_pct = 100.0f * (1.0f - float(true_strouhal_speed_m_s / r.min_flight_speed_m_s));
+        float freq_needed = float(r.wingbeat_frequency_Hz) * float(r.min_flight_speed_m_s / true_strouhal_speed_m_s);
+        snprintf(buf, sizeof(buf),
+            "Cannot sustain level flight: wingbeat too slow. "
+            "Achievable speed %.1f m/s < stall speed %.1f m/s (%.0f%% deficit). "
+            "Would need %.1f Hz wingbeat (have %.1f Hz). "
+            "Reduce mass, increase wing area, or lower gravity.",
+            float(true_strouhal_speed_m_s), float(r.min_flight_speed_m_s),
+            speed_deficit_pct, freq_needed, float(r.wingbeat_frequency_Hz));
+        s.diagnostics.warnings.push_back({Severity::ERROR, buf});
+    }
+
+    if (!has_power_for_lift) {
+        char buf[256];
+        float power_deficit_pct = 100.0f * (1.0f - float(available_power_W / (power_required_at_stall_W * 1.5f)));
+        snprintf(buf, sizeof(buf),
+            "Cannot sustain level flight: insufficient power for lift. "
+            "Available %.1f W < required %.1f W (%.0f%% deficit). "
+            "Need %.1f W aerodynamic + %.1f W inertial with 50%% margin. "
+            "Reduce mass, increase air density, or lower gravity.",
+            float(available_power_W), float(power_required_at_stall_W * 1.5f),
+            power_deficit_pct, float(aero_power_at_stall_W), float(inertial_power_at_stall_W));
+        s.diagnostics.warnings.push_back({Severity::ERROR, buf});
+    }
+    // can_slow_descent: need enough power to partially counteract gravity
+    // Requires ~50% of level flight power to meaningfully slow descent
+    // Use power_required_at_stall for consistency with level flight check
+    r.can_slow_descent = (available_power_W >= power_required_at_stall_W * 0.5f);
+    // Logical constraint: if you can sustain level flight, you can slow descent
+    if (r.can_sustain_level_flight) r.can_slow_descent = true;
+
     r.can_hover = (r.hovering_efficiency > 0.0f);
-    
+
     // --- TURNING PERFORMANCE ---
-    // Minimum radius limited by structural loads (typically 2-4g max)
-    auto max_load_factor = glm::mix(3.0, 9.0, in.structure_vs_weight); // 2.0-3.5g
-    r.min_turning_radius_m = (r.cruise_speed_m_s * r.cruise_speed_m_s) / 
-                             (g * std::sqrt(max_load_factor * max_load_factor - 1.0f));
+    // In air: minimum radius limited by structural g-loads (typically 2-9g max)
+    // In water (neutrally buoyant): limited by hydrodynamic control authority
+    auto max_load_factor = glm::mix(3.0f, 9.0f, in.structure_vs_weight);
+    if (g_effective > 0.1f) {
+        // Standard aerial turning: r = v² / (g × sqrt(n² - 1))
+        r.min_turning_radius_m = aerial_turn_radius(r.cruise_speed_m_s, g_effective, max_load_factor);
+    } else {
+        // Hydrodynamic turning for neutrally buoyant creatures
+        // Most aquatic animals can turn within 1-3 body lengths
+        auto body_lengths_per_turn = 1.0f + 2.0f * (1.0f - in.stability_vs_speed);
+        r.min_turning_radius_m = s.physical.body_length_m * body_lengths_per_turn;
+    }
     
     auto GetInertia = [I=in.inertia_restPose()](glm::vec3 const& axis) -> inertia_kgm2
     {
@@ -572,7 +781,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     return r;
 }
 
-std::vector<TonTon::Analysis_Aerial::Wing> TonTon::GetWings(Input const& in)
+std::vector<TonTon::Analysis_Aerial::Wing> TonTon::GetWings(Input const& in, bool & likely_feathers)
 {
 using SF = SemanticFlags;
 	
@@ -613,6 +822,7 @@ using SF = SemanticFlags;
 		{
 			wing.wing_mass_kg = wing_mass_kg;
 			wing.wing_inertia_kgm2 = wing_inertia_kg_m2;
+			likely_feathers = true;
 		}
 		
 		r.push_back(wing);

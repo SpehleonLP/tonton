@@ -6,8 +6,36 @@
 #include "Rules/tonton_scratch.h"
 #include <cmath>
 #include <vector>
+#include <sstream>
 
 using CF = TonTon::CladeFlags;
+using Severity = TonTon::Analysis_Diagnostics::Warning::Severity;
+
+namespace {
+
+// Helper to build a string of all active clade flags
+std::string CladeFlagsToString(TonTon::CladeFlags clade) {
+	std::string result;
+
+	// List of all clade flags to check
+	static const TonTon::CladeFlags all_clades[] = {
+		CF::CHORDATA, CF::AMPHIBIA, CF::REPTILIA, CF::CHELONIA,
+		CF::AVES, CF::MAMMALIA, CF::UNGULATA, CF::EQUIDAE, CF::CETACEA,
+		CF::PISCES, CF::ARTHROPODA, CF::INSECTA, CF::ARACHNIDA, CF::CRUSTACEA,
+		CF::MOLLUSCA, CF::CEPHALOPODA
+	};
+
+	for (auto f : all_clades) {
+		if (HasFlag(clade, f)) {
+			if (!result.empty()) result += " | ";
+			result += TonTon::WordToString(f);
+		}
+	}
+
+	return result.empty() ? "NONE (fallback heuristics used)" : result;
+}
+
+} // anonymous namespace
 
 TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s)
 {
@@ -30,9 +58,19 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	// Flight or high-speed running requires endothermy for sustained high power output
 
 	bool needs_endothermy = false;
-
+	bool has_wings = false;
+	
+	for(auto ap : in.builder->appendages)
+	{
+		if(HasFlag(ap.semantic_flags, SemanticFlags::WING))
+		{
+			has_wings = true;
+			break;
+		}
+	}
+	
 	// Check for functional wings (flight requires high metabolic rate)
-	if (s.aerial.has_value() && HasFlag(clade, CF::CHORDATA)) {
+	if (has_wings && HasFlag(clade, CF::CHORDATA)) {
 		needs_endothermy = true;
 	}
 
@@ -149,22 +187,10 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	// Niven & Scharlemann (2005): FMR = 35.08 * M^1.10 for flying insects (R² = 0.95)
 	// Note: Different exponent from vertebrates due to tracheal respiratory system
 	if (HasFlag(clade, CF::ARTHROPODA)) {
-		// Flying insects have higher metabolic coefficients
-		bool is_flying_insect = false;
-		
-		for(auto ap : in.builder->appendages)
-		{
-			if(HasFlag(ap.semantic_flags, SemanticFlags::WING))
-			{
-				is_flying_insect = true;
-				break;
-			}
-		}
-
 		// Flying insect muscle power: Odonata (dragonflies) achieve 200-400 W/kg
 		// Ellington (1985): flight muscle power ~250 W/kg at 25°C
 		// Higher than non-flying arthropods (100 W/kg)
-		auto insect_muscle_power = is_flying_insect ?
+		auto insect_muscle_power = has_wings ?
 			(200.0f + 100.0f * in.muscle_quality) :  // 200-300 W/kg for fliers
 			100.0f;
 
@@ -247,6 +273,23 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 		}
 	}
 
+	// ========== DIAGNOSTICS: CLADE DETECTION ==========
+	{
+		char buf[256];
+		snprintf(buf, sizeof(buf), "Metabolic: detected clades = %s", CladeFlagsToString(clade).c_str());
+		s.diagnostics.warnings.push_back({Severity::INFO, buf});
+
+		if (contributions.size() > 1) {
+			snprintf(buf, sizeof(buf), "Metabolic: hybrid creature - blending %zu clade contributions", contributions.size());
+			s.diagnostics.warnings.push_back({Severity::INFO, buf});
+		}
+
+		snprintf(buf, sizeof(buf), "Metabolic: thermal strategy = %s%s",
+			needs_endothermy ? "ENDOTHERM" : "ECTOTHERM",
+			(needs_endothermy && has_wings) ? " (required for flight)" : "");
+		s.diagnostics.warnings.push_back({Severity::INFO, buf});
+	}
+
 	// ========== WEIGHTED BLEND FOR HYBRIDS ==========
 	// Example: Pegasus (EQUIDAE + AVES) blends horse body with bird wings
 
@@ -279,6 +322,9 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 		body_temperature_K = 310.15f;   // Force endotherm body temp
 		rmr_coefficient *= 5.0f;         // Boost to endotherm levels (~5x ectotherm)
 		muscle_power_W_kg = std::max<cost_W_kg>(muscle_power_W_kg, 200.0f);
+
+		s.diagnostics.warnings.push_back({Severity::INFO,
+			"Metabolic: upgraded ectotherm clade to endotherm (flight requires sustained high power output)"});
 	}
 
 	// ========== COMPUTE FINAL METABOLIC RATES ==========
@@ -325,15 +371,75 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 
 	// ========== ENVIRONMENTAL ADJUSTMENTS ==========
 
+	// Diagnostic: report environment temperature
+	{
+		char buf[256];
+		float temp_C = float(in.environment.temperature_K) - 273.15f;
+		snprintf(buf, sizeof(buf), "Metabolic: environment temperature = %.1f K (%.1f °C)",
+			float(in.environment.temperature_K), temp_C);
+		s.diagnostics.warnings.push_back({Severity::INFO, buf});
+	}
+
 	// Temperature affects ectotherm metabolic rate (Q10 = 2-3)
 	if (!needs_endothermy) {
 		auto q10 = 2.5f; // Typical value
 		auto temp_diff_K = in.environment.temperature_K - temp_K(298.15f); // Relative to 25°C
 		float temp_factor = std::pow(q10, float(temp_diff_K) / 10.0f);
 
+		// Diagnostic: report Q10 temperature adjustment
+		{
+			char buf[256];
+			float temp_C = float(in.environment.temperature_K) - 273.15f;
+			snprintf(buf, sizeof(buf),
+				"Metabolic: Q10 adjustment = %.3fx (env %.1f°C vs reference 25°C)",
+				temp_factor, temp_C);
+			s.diagnostics.warnings.push_back({Severity::INFO, buf});
+
+			// Temperature warnings for ectotherms
+			if (temp_factor < 0.1f) {
+				snprintf(buf, sizeof(buf),
+					"Metabolic: CRITICAL - temperature %.1f°C severely impairs ectotherm function (Q10=%.3f)",
+					temp_C, temp_factor);
+				s.diagnostics.warnings.push_back({Severity::ERROR, buf});
+			} else if (temp_factor < 0.3f) {
+				snprintf(buf, sizeof(buf),
+					"Metabolic: temperature %.1f°C significantly reduces ectotherm performance (Q10=%.3f)",
+					temp_C, temp_factor);
+				s.diagnostics.warnings.push_back({Severity::CAUTION, buf});
+			} else if (temp_factor < 0.6f) {
+				snprintf(buf, sizeof(buf),
+					"Metabolic: cool temperature %.1f°C reduces ectotherm metabolic rate (Q10=%.3f)",
+					temp_C, temp_factor);
+				s.diagnostics.warnings.push_back({Severity::INFO, buf});
+			} else if (temp_factor > 4.0f) {
+				snprintf(buf, sizeof(buf),
+					"Metabolic: WARNING - high temperature %.1f°C may cause heat stress (Q10=%.3f)",
+					temp_C, temp_factor);
+				s.diagnostics.warnings.push_back({Severity::CAUTION, buf});
+			}
+		}
+
 		basal_rate_W *= temp_factor;
 		max_rate_W *= temp_factor;
 		available_muscle_power_W *= temp_factor;
+	} else {
+		// Endotherm thermal stress warnings
+		float temp_C = float(in.environment.temperature_K) - 273.15f;
+		if (float(in.environment.temperature_K) < float(thermal_neutral_zone_min_K)) {
+			char buf[256];
+			float below_tnz = float(thermal_neutral_zone_min_K) - float(in.environment.temperature_K);
+			snprintf(buf, sizeof(buf),
+				"Metabolic: environment %.1f°C is %.1f K below thermal neutral zone (%.1f-%.1f K) - increased heat production required",
+				temp_C, below_tnz, float(thermal_neutral_zone_min_K), float(thermal_neutral_zone_max_K));
+			s.diagnostics.warnings.push_back({Severity::INFO, buf});
+		} else if (float(in.environment.temperature_K) > float(thermal_neutral_zone_max_K)) {
+			char buf[256];
+			float above_tnz = float(in.environment.temperature_K) - float(thermal_neutral_zone_max_K);
+			snprintf(buf, sizeof(buf),
+				"Metabolic: environment %.1f°C is %.1f K above thermal neutral zone - heat dissipation required",
+				temp_C, above_tnz);
+			s.diagnostics.warnings.push_back({Severity::CAUTION, buf});
+		}
 	}
 
 	return Analysis_Metabolic{
