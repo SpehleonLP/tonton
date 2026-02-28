@@ -1,4 +1,5 @@
 #include "../include/tonton_builder.h"
+#include "../include/tonton_rigsolver.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "dodeedum.h"
@@ -10,11 +11,13 @@ using SF = TonTon::SemanticFlags;
 
 struct TonTon::Builder::BuilderCommand
 {
-	BuilderCommand(SkinnedMesh const&, 
+	BuilderCommand(SkinnedMesh const&,
 	glm::vec3 body_scale,
-	std::span<const BuilderScale> bone_scales);
-	
+	std::span<const BuilderScale> bone_scales,
+	const Articulations& articulations);
+
 	SkinnedMesh const& skinnedMesh;
+	const Articulations& articulations;
 	
 	// should be pose * invbindpose
 	shared_array<glm::mat4> transforms;
@@ -45,26 +48,34 @@ private:
 counted_ptr<const TonTon::Builder> TonTon::Builder::Factory(
 	counted_ptr<const SkinnedMesh> skinnedMesh,
 	glm::vec3 body_scale,
-	std::span<const BuilderScale> bone_scales	
+	std::span<const BuilderScale> bone_scales,
+	Articulations articulations
 )
 {
 	if(skinnedMesh == nullptr
 	|| skinnedMesh->mesh == nullptr
 	|| skinnedMesh->skin == nullptr)
 		throw std::invalid_argument("skinnedMesh");
-			
-	if(bone_scales.size() != 0 && bone_scales.size() != skinnedMesh->skin->position.size())	
+
+	if(bone_scales.size() != 0 && bone_scales.size() != skinnedMesh->skin->position.size())
 		throw std::invalid_argument("bone_scales");
-			
-	BuilderCommand cmd(*skinnedMesh, body_scale, bone_scales);
-	return UncountedWrap(new Builder(cmd));
+
+	if(!articulations.empty() && articulations.joints.size() != skinnedMesh->skin->position.size())
+		throw std::invalid_argument("articulations");
+
+	BuilderCommand cmd(*skinnedMesh, body_scale, bone_scales, articulations);
+	auto builder = UncountedWrap(new Builder(cmd));
+	const_cast<Builder*>(builder.get())->articulations = std::move(articulations);
+	return builder;
 };
 
 TonTon::Builder::BuilderCommand::BuilderCommand(
-	SkinnedMesh const& skinnedMesh, 
+	SkinnedMesh const& skinnedMesh,
 	glm::vec3 body_scale,
-	std::span<const BuilderScale> bone_scales) :
+	std::span<const BuilderScale> bone_scales,
+	const Articulations& articulations) :
 	skinnedMesh(skinnedMesh),
+	articulations(articulations),
 	_bone_tails(skinnedMesh->GetBoneTails())
 {
 	auto skin = skinnedMesh.skin;
@@ -509,17 +520,18 @@ TonTon::Builder::Physical TonTon::Builder::BuilderCommand::GetPhysicalAnalysis(B
 	max_body_length += tail_to_root_dist;
 	
 	auto C = skinnedMesh.GetCovariance(std::span<uint16_t>{}, transforms);
-		
-	
+	auto bodyCentroid = skinnedMesh.GetCentroid(std::span<uint16_t>{}, transforms);
+
 	return {
 		.body_length=max_body_length+max_tail_length,
 		.body_volume=volume,
 		.tail_length=max_tail_length,
-		
+
 		.surface_area=surfaceArea,
 		.cross_section_area=crossSectionArea,
+		.body_centroid=glm::vec3(bodyCentroid),
 		.spine_root=static_cast<int16_t>(spine_root),
-		.upright=is_upright,		
+		.upright=is_upright,
 		.clade=(sk_memo->GetCladeFlags()[root]|sk_memo->GetRelativeCladeFlags()[root].child_flags),
 		.covariance_restPose=std::array<float, 6>{
 			float(C[0]),
@@ -1329,28 +1341,35 @@ TonTon::Builder_Chain TonTon::Builder::GetChain(TonTon::Builder::BuilderCommand 
 	float minMoment=FLT_MAX;
 	float maxMoment=-FLT_MAX;
 	float accMoment={};
+	float minRadius_=FLT_MAX;
+	float maxRadius_=-FLT_MAX;
 	float surface_area={};
 	float length={};
 	float volume={};
 	glm::dvec3 accCentroid={};
 	int32_t jointsInChain{};
-		
-	for(int32_t j = leaf, p; ; j = parents[j])	
-	{					
+
+	for(int32_t j = leaf, p; ; j = parents[j])
+	{
 		double vol = in.skinnedMesh.volume[j] * in.volume_scale[j];
-		
+
 		auto vec = in.bone_tails(j) - in.positions(j);
-		double moment{};
-		auto crossSection = in.skinnedMesh.EstimateCrossSection(j, in.transforms[j], vec, &moment);
+		double moment{}, radius{};
+		auto crossSection = in.skinnedMesh.EstimateCrossSection(j, in.transforms[j], vec, &moment, &radius);
 					
 		if(crossSection)
-		{			
+		{
 			minCrossSection= std::min<float>(minCrossSection, crossSection);
 			minMoment= std::min<float>(minMoment, moment);
 		}
-		
+
+		if(radius > 0) {
+			minRadius_= std::min<float>(minRadius_, radius);
+		}
+
 		maxCrossSection= std::max<float>(maxCrossSection, crossSection);
 		maxMoment= std::max<float>(maxMoment, moment);
+		maxRadius_= std::max<float>(maxRadius_, radius);
 		
 		accCrossSection += crossSection;
 		accMoment += moment;
@@ -1368,29 +1387,54 @@ TonTon::Builder_Chain TonTon::Builder::GetChain(TonTon::Builder::BuilderCommand 
 		minMoment       = maxMoment;
 		maxCrossSection = maxCrossSection;
 	}
-		
-	double invVolume = volume? 1.0 / volume : 0.0;	
-	float invJoints = jointsInChain? 1.0 / jointsInChain : 0.0;	
-		
+	if(minRadius_ == FLT_MAX)
+	{
+		minRadius_ = maxRadius_;
+	}
+
+	double invVolume = volume? 1.0 / volume : 0.0;
+	float invJoints = jointsInChain? 1.0 / jointsInChain : 0.0;
+
+	auto rest_len = glm::distance(in.positions(leaf), in.positions(root));
+
+	// Compute crouch_length via CCD solver with capsule collision when articulations available
+	float crouch_len;
+	if (!in.articulations.empty())
+	{
+		auto solver = RigSolver::Factory(
+			counted_ptr<const SkinnedMesh>::Wrap(const_cast<SkinnedMesh*>(&in.skinnedMesh)),
+			in.articulations);
+		crouch_len = solver->SolveCrouchLength(uint16_t(root), uint16_t(leaf));
+	}
+	else
+	{
+		crouch_len = rest_len * 0.3f; // placeholder: leg compresses to ~30% of rest length
+	}
+
 	return Builder_Chain{
 			.root=uint16_t(root),
 			.tip=uint16_t(leaf),
 			.commonAncestor=int16_t(parents[root]),
 			.noJoints=int16_t(jointsInChain),
-			
+
 			.surface_area=surface_area,
 			.volume=volume,
 			.centroid=glm::vec3(accCentroid * invVolume),
-			
+
 			.stretched_length=float(length),
-			.rest_length=glm::distance(in.positions(leaf), in.positions(root)),
-			
+			.rest_length=rest_len,
+
 			.minCrossSection=minCrossSection,
 			.avgCrossSection=accCrossSection * invJoints,
 			.maxCrossSection=maxCrossSection,
 			.minMoment=minMoment,
 			.avgMoment=accMoment * invJoints,
 			.maxMoment=maxMoment,
+
+			.minRadius=minRadius_,
+			.maxRadius=maxRadius_,
+			.crouch_length=crouch_len,
+			.root_position=in.positions(root),
 		};
 }
 

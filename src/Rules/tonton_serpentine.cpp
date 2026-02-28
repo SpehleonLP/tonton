@@ -193,6 +193,8 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 	auto efficiency = glm::clamp(result.friction_anisotropy_ratio / 3.0f, 0.3f, 1.0f);
 	lateral_speed_m_s *= efficiency;
 
+	result.lateral_undulation_speed_m_s = lateral_speed_m_s;
+
 	// ========================================================================
 	// CAPABLE MODES
 	// ========================================================================

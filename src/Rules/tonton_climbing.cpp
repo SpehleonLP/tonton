@@ -376,8 +376,8 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 		// Most birds don't "climb" in traditional sense (they fly)
 		// But parrots and woodpeckers do
 
-		if (any_claws && limb_count >= 4) {
-			// Parrots use beak + feet (zygodactyl toes)
+		if (any_claws && limb_count >= 2) {
+			// Parrots use beak + feet (zygodactyl toes), woodpeckers use feet + tail
 			// Sustaita et al. (2013): Parrots use beak as 3rd limb
 			result.max_climb_speed_m_s *= 0.8f; // Slower (not specialized)
 			result.min_roughness_required = 0.4f;
@@ -470,8 +470,17 @@ std::optional<TonTon::Analysis_Brachiation>  TonTon::ComputeBrachiation(Input co
 	// Center of mass falls and rises with each swing
 
 	// Effective pendulum length = arm_length + distance from shoulder to CoM
-	// Approximate body CoM at 0.5 * body_length from shoulder
-	auto shoulder_to_com = body_length * 0.4f;
+	// Use arm root position and body centroid when available
+	length_m shoulder_to_com = body_length * 0.4f; // fallback
+	if (!arms.empty()) {
+		auto& arm_chain = in.builder->appendages[arms[0].id];
+		auto arm_root_pos = glm::vec3(arm_chain.root_position) * float(in.scale);
+		auto body_centroid = glm::vec3(in.builder->physical.body_centroid) * float(in.scale);
+		auto dist = glm::distance(arm_root_pos, body_centroid);
+		if (dist > 0.001f) {
+			shoulder_to_com = dist;
+		}
+	}
 	auto pendulum_length_m = avg_arm_length + shoulder_to_com;
 
 	// Natural frequency: f = (1/2π) * sqrt(g/L)
@@ -725,248 +734,3 @@ std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const In
 }
 
 
-#if ORIGINAL
-
-std::optional<TonTon::Analysis_Manipulator> TonTon::ComputeManipulation(const Input &in, uint32_t idx) 
-{
-	auto & appendage = in.builder->appendages[idx];
-	
-	Analysis_Manipulator out;
-	appendage.copy_into(out, );
-	static_cast<Analysis_Appendage&>(	out) = appendages[i];
-	auto idx = out.tip;
-	
-	int relevant_root = out.tip;
-	for(auto j = out.tip; j >= out.root; j = parents[j])
-	{
-		if(HasFlag(semantic_flags[j], SF::CONTACT|SF::GRASPER))
-			relevant_root = j;		
-	}
-	
-	auto relevant_joints = sk_memo->GetAllChildrenOfRoot(relevant_root);
-	// get all *excluding grasper itself* (just fingers)
-	auto which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
-		
-	auto metrics = in.skinnedMesh->GetMetrics(which, in.behavior.scale);
-	TonTon::Silhouette silhouette;
-	
-	out.subtree_flags = relative_flags[idx].child_flags|semantic_flags[idx];
-	
-	// it is a spike.. or trunk.. or something, no fingers!
-	// trunks have fingers but in an armature they probably don't.
-	if(metrics.volume == 0.0)
-	{
-		auto tip = out.tip;
-	
-		out.surface_area_m2 = sk.EstimateCrossSection(tip, in.behavior.scale, position[tip] - position[parents[tip]]);
-		out.surface_normal  = glm::normalize(position[tip] - position[parents[tip]]);
-	}
-	else
-	{
-	// get all *including grasper itself*
-		which = std::span<uint16_t>(relevant_joints.data(), relevant_joints.size());
-				
-		std::pair<glm::quat, glm::vec3> eigen_decomp;
-		auto projection = in.skinnedMesh->memo()->GetProjectionMatrix(EigenValue::Small, in.behavior.scale, which, &metrics, &eigen_decomp);
-		silhouette = in.skinnedMesh->memo()->GetSilhouettes(projection, in.behavior.scale, which);
-		
-		// get projection direction.
-		out.surface_area_m2 = silhouette.area;
-		out.surface_normal =  glm::mat3(eigen_decomp.first)[2];
-	}
-	
-	auto counter = 0;
-	area_m2 accumulator = 0;
-	moment_m4 accumulator_2nd_moment = 0;
-	for(auto j = out.tip; j != out.root; j = parents[j])
-	{
-		auto p =  parents[j];
-		if(p < 0) break;
-		double secondMoment = 0;
-		auto area_m2 = sk.EstimateCrossSection(p, in.behavior.scale, position[j] - position[p], &secondMoment);
-	
-		accumulator += area_m2;
-		accumulator_2nd_moment += secondMoment;
-		++counter;
-	}
-	
-	if(counter)
-	{
-		area_m2 avg_area = accumulator / counter;
-		auto avg_moment = accumulator_2nd_moment / counter;
-		
-		// 1. MUSCLE VOLUME ESTIMATION
-		// Assume ~40-60% of limb volume is muscle (depends on type)
-		auto muscle_fraction = glm::mix(0.35f, 0.65f, in.behavior.endurance_vs_power);
-	//	double muscle_volume_m3 = metrics.volume * muscle_fraction;
-	//	double muscle_mass_kg = muscle_volume_m3 * glm::mix(700.0, 1050.0, in.average_density);
-		
-		// 2. GRIP FORCE (from finger/digit flexors)
-		// Peak muscle stress: 20-40 N/cm² (200,000-400,000 Pa)
-		// Quality affects max stress achievable
-		pressure_Pa muscle_stress_Pa = glm::mix(200000.0f, 400000.0f, in.muscle_quality);
-		
-		// Effective cross-sectional area (perpendicular to force direction)
-		// For grip, this is roughly the cross-section of the muscles
-		area_m2 grip_muscle_area_m2 = avg_area * muscle_fraction;
-		force_N base_grip_force_N = muscle_stress_Pa * grip_muscle_area_m2;
-
-		// Grip force depends on mechanical advantage / limb geometry
-		// Short thick limbs (penguin legs) have poor leverage despite high muscle mass
-		// Compare limb length to thickness (sqrt of cross-sectional area)
-		auto limb_thickness_m = sqrt(avg_area); // Characteristic thickness
-		auto aspect_ratio = out.stretched_length_m / std::max(0.001f, limb_thickness_m);
-		// Typical limb: aspect_ratio ~5-15 (length is 5-15x thickness)
-		// Penguin legs: aspect_ratio ~2-3 (short and thick), poor mechanical advantage
-		// Primate arms: aspect_ratio ~10-20 (long and slender), good leverage
-		auto length_factor = glm::clamp(aspect_ratio / 10.0f, 0.3f, 1.2f); // 0.3x at stubby, 1.0x at normal
-
-		out.max_grip_force_N = base_grip_force_N * length_factor;
-		
-		// 3. LIFT FORCE (constrained by joint torque limits)
-		// Torque = Force × moment_arm
-		// Max torque ≈ muscle_PCSA × muscle_stress × moment_arm
-		length_m moment_arm_m = sqrt(avg_moment / avg_area); // Radius of gyration
-		auto max_torque_Nm = muscle_stress_Pa * grip_muscle_area_m2 * moment_arm_m;
-		
-		// Convert torque to force at tip (lever arm = chain length)
-		auto lever_arm_m = out.stretched_length_m;
-		if(lever_arm_m > 0.001f) {
-			out.max_lift_force_N = max_torque_Nm / lever_arm_m;
-		} else {
-			out.max_lift_force_N = 0.0f;
-		}
-		
-		// Apply structure vs weight scaling
-		// More robust structure = can handle more force
-		auto structure_bonus = glm::mix(0.7f, 1.3f, in.structure_vs_weight);
-		out.max_lift_force_N *= structure_bonus;
-		out.max_grip_force_N *= structure_bonus;
-	}
-	
-	// 4. ADHESION FORCE (for specialized structures)
-	out.max_adhesion_force_N = 0.0f;
-	
-// grab each thing in the subtree		
-	bool has_suckers = false;
-	bool has_setae = false;
-	bool has_claws = false;
-	bool has_thumb = false;
-	bool has_wet_grip = false; // what word do i look for for a treefrog?		
-	
-	for(auto node : relevant_joints)
-	{
-		for(auto word : sk.skin->tags[node])
-		{
-			switch(word)
-			{
-			default: break;
-			case Word::sucker:
-				has_suckers = true;
-				break;
-			case Word::setae:
-				has_setae = true;
-				break;		
-			case Word::claw:
-			case Word::talon:
-				has_claws = true;
-				break;		
-			case Word::thumb:
-				has_thumb = true;
-				break;	
-			case Word::pad:
-			case Word::adhesive:
-				has_wet_grip = true;
-				break;
-			}
-		}
-	}
-	
-	out.has_claws=has_claws;
-	out.has_suckers=has_suckers;
-	out.has_setae=has_setae;
-	out.has_thumb=has_thumb;
-	out.has_wet_grip=has_wet_grip;
-	
-	if(has_suckers) {
-		// Suction force: F = ΔP × Area
-		// Assume can create ~0.8 atm (80 kPa) pressure differential
-		pressure_Pa suction_pressure_Pa = 80000.0f;
-		
-		// Estimate sucker area from surface area
-		auto sucker_coverage = 0.3f; // ~30% of surface is actual suction cups
-		auto effective_sucker_area = out.surface_area_m2 * sucker_coverage;
-		
-		out.max_adhesion_force_N = suction_pressure_Pa * effective_sucker_area;
-	}
-	
-	if(has_setae) {
-		// Van der Waals adhesion (gecko-like)
-		// ~10 N/cm² for optimal setae density
-		pressure_Pa setae_stress_Pa = 100000.0f; // 10 N/cm²
-		
-		// Assume setae cover the contact surface
-		out.max_adhesion_force_N += 
-			setae_stress_Pa * out.surface_area_m2;
-	}
-		
-	if(has_wet_grip) {
-		// Tree frog adhesion: capillary forces + mucus adhesion
-		// ~1-5 N/cm² depending on surface wetness
-		// Formula: F = 2πRγ (capillary) + μ×Area (mucus)
-		pressure_Pa wet_adhesion_Pa = 30000.0f; // ~3 N/cm² typical
-		
-		// Pad coverage (tree frogs have ~60% of toe surface as pad)
-		auto pad_coverage = 0.6f;
-		auto effective_pad_area = out.surface_area_m2 * pad_coverage;
-		
-		out.max_adhesion_force_N = 
-			wet_adhesion_Pa * effective_pad_area;
-		
-		// Requires wet/humid surface - note this in metadata somewhere?
-	}
-	
-	if(out.has_friction_pads()) {
-		// Primate friction grip (no true adhesion, just high friction)
-		// Not really "adhesion" but contributes to grip force
-		// Coefficient of friction ~0.5-1.5 for primate skin
-		auto friction_coef = 1.0f;
-		
-		// This multiplies the normal force (which comes from grip force)
-		// So it enhances grip_force rather than being separate
-		out.max_grip_force_N *= (1.0f + friction_coef * 0.3f);
-	}
-
-	// 5. SCALING ADJUSTMENTS
-	// Square-cube law: Force scales with cross-section (area), not volume
-	auto size_scale = in.area_scale(); // Already accounts for anisotropic scaling
-	
-	// Apply conservative allometric scaling
-	// Smaller animals have relatively stronger muscles (force/mass ratio)
-	auto allometric_factor = std::pow(float(size_scale), 0.67f); // Between area (1.0) and volume (0.67)
-	
-	out.max_lift_force_N *= allometric_factor;
-	out.max_grip_force_N *= allometric_factor;
-	out.max_adhesion_force_N *= allometric_factor;
-	
-	// 6. TYPE-SPECIFIC ADJUSTMENTS
-	if(HasFlag(out.subtree_flags, SF::TENTACLE)) {
-		// Tentacles are hydrostatic - different force characteristics
-		// Generally weaker in grip but good adhesion
-		out.max_grip_force_N *= 0.6f;
-		if(has_suckers) {
-			out.max_adhesion_force_N *= 1.5f; // Octopus-level suction
-		}
-	}
-	
-	// trunks and monkey tails.
-	if(HasFlag(out.subtree_flags, SF::FACIAL|SF::TAIL)) {
-		// Elephant trunks: excellent lift, moderate grip
-		out.max_lift_force_N *= 1.4f;
-		out.max_grip_force_N *= 0.8f;
-	}
-	
-	return out;
-}
-
-#endif

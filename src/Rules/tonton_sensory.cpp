@@ -68,8 +68,10 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
 	// DETECTION RANGE
 	// ===================================================================
 	
-	auto scale_factor = cbrt(s.physical.body_volume_m3);
-	vision.detection_range_m = scale_factor * 100.0f * vision.acuity;
+	// Eye-diameter-based detection range
+	// Human eye ~22mm detects ~1000m targets at acuity 1.0
+	auto eye_factor = float(max_eye_diameter) / 0.022f;
+	vision.detection_range_m = eye_factor * 1000.0f * vision.acuity;
 	
 	// Eyestalks give better view distance (periscope effect)
 	bool has_eyestalks = false;
@@ -349,21 +351,24 @@ static length_m PredictedEyeDiameter(Analysis_Physical const& physical)
 		{
 			// Generic chordate: use conservative vertebrate scaling
 			length_m eye_diameter = 0.02f * std::pow(float(physical.body_mass_kg), 0.35);
+			accumulator += eye_diameter;
 			return true;
 		}
-		
+
 		case CladeFlags::ARTHROPODA:
 		{
 			// Generic arthropod: conservative compound eye estimate
 			length_m body_diameter = cbrt(physical.body_volume_m3);
 			length_m eye_diameter = body_diameter * 0.1f;
+			accumulator += eye_diameter;
 			return true;
 		}
-		
+
 		case CladeFlags::MOLLUSCA:
 		{
 			// Generic mollusk: most have simple eyes or eyespots
 			length_m eye_diameter = 0.005f * std::pow(float(physical.body_mass_kg), 0.25f);
+			accumulator += eye_diameter;
 			return true;
 		}
 		

@@ -50,7 +50,15 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     }
 
     mean_chord_m /= r.wings.size();
-    total_wing_span_m = total_wing_span_m * 2.0 / r.wings.size();
+    // Wingspan = max tip-to-tip across any symmetrical pair
+    // Each wing's span_m is one side, so a pair spans 2 * max(span_m)
+    {
+        length_m max_single_wing_span = 0.0f;
+        for (const auto& wing : r.wings) {
+            max_single_wing_span = std::max(max_single_wing_span, wing.span_m);
+        }
+        total_wing_span_m = max_single_wing_span * 2.0f;
+    }
     wing_inertia_kg_m2 /= r.wings.size();
 
     r.wing_span_m = total_wing_span_m;
@@ -344,9 +352,9 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Added mass inertia from potential flow theory
     auto k = added_mass_coef(avg_aspect_ratio);
     auto single_wing_span = total_wing_span_m / 2.0f;
-    inertia_kgm2 total_added_inertia = added_inertia(k, rho, mean_chord_m, single_wing_span)
-                                       * float(wings.size());
-    auto inertial_coef = wing_inertia_kg_m2 + total_added_inertia;
+    inertia_kgm2 per_wing_added_inertia = added_inertia(k, rho, mean_chord_m, single_wing_span);
+    // wing_inertia_kg_m2 is per-wing (averaged on line 54), so use per-wing added inertia
+    auto inertial_coef = (wing_inertia_kg_m2 + per_wing_added_inertia) * float(wings.size());
 
     // Power amplitude for frequency calculation
     angle_rad power_limit_amplitude_rad = glm::mix(cruise_amplitude_rad, base_beat_amplitude_rad, 0.5f);
@@ -586,50 +594,6 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 		r.hovering_efficiency = 0.0f;
 	}
 
-   #if 0
-    // HOVERING FLIGHT
-    // Hovering requires 2-3x power due to no forward velocity benefit
-    // Momentum theory: P_hover = T × sqrt(T / (2 * rho * A))
-    auto vortex_interaction_benefit = noWingGroups > 1? 0.2 : 0.0;
-    auto hover_induced_power_W = weight_N * std::sqrt(weight_N / (2.0f * rho * total_wing_area_m2));
-    auto hover_profile_power_W = profile_power_W * 1.5f * (1.0f - vortex_interaction_benefit); // Higher angle of attack
-    auto hover_inertial_power_W = inertial_power_W * 1.2f; // Figure-8 pattern costs more
-    
-    // Reynolds-dependent efficiency for hovering (LEV contribution)
-    auto hover_reynolds_efficiency = 1.0f;
-    if (reynolds_cruise < 10000.0f) {
-        // Leading edge vortices help at low Reynolds
-        hover_reynolds_efficiency = 0.85f + 0.15f * (reynolds_cruise / 10000.0f);
-        // Need larger amplitude for LEV stabilization
-        for (auto& wing : wings) {
-            wing.beat_amplitude_rad *= 1.4f; // ~140-160° full figure-8
-        }
-    }
-    
-    auto hovering_power_total_W = (hover_induced_power_W + hover_profile_power_W + hover_inertial_power_W) /
-                                   hover_reynolds_efficiency;
-    r.hovering_power_W = hovering_power_total_W / muscle_efficiency;  // Convert to metabolic
-
-    // --- POWER LOADING ---
-    r.power_loading_W_N = available_power_W / weight_N;
-    //auto power_margin = available_power_W / flapping_power_W;
-    
-    // --- EFFICIENCY CALCULATIONS ---
-    // Efficiency = ability to sustain mode (0 = impossible, 1 = optimal)
-    
-
-    // Hovering efficiency: needs >2x power margin + other constraints
-    bool hover_power_ok = (available_power_W / hovering_power_total_W) > 2.0f;
-    bool hover_loading_ok = r.wing_loading_N_m2 < 80.0f;
-    bool hover_frequency_ok = r.wingbeat_frequency_Hz > 50.0f;
-    bool hover_reynolds_ok = reynolds_cruise > 1000.0f;
-    
-    if (hover_power_ok && hover_loading_ok && hover_frequency_ok && hover_reynolds_ok) {
-        r.hovering_efficiency = std::min(1.0f, (available_power_W / hovering_power_W) / 3.0f);
-    } else {
-        r.hovering_efficiency = 0.0f;
-    }
-    #endif
     
     // ============================================================================
     // FINAL FLIGHT CAPABILITIES EVALUATION
@@ -722,7 +686,21 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	torque_rad_s2 roll_torque = differential_force * (total_wing_span_m / 2.0);
 		
 	// Pitch: fore vs aft wings (moment arm = fore-aft separation)
-	length_m forewing_aft_separation = 0.0056; // distance between fore and aft wing roots
+	// Compute from gait group centers: wings in different gait groups (e.g. dragonfly fore/aft)
+	// have measurable separation. Single-pair fliers get 0 pitch torque from this.
+	length_m forewing_aft_separation = 0;
+	{
+		std::set<uint16_t> wing_gait_groups;
+		for (const auto& wing : r.wings) {
+			wing_gait_groups.insert(wing.gait_group);
+		}
+		for (auto it1 = wing_gait_groups.begin(); it1 != wing_gait_groups.end(); ++it1) {
+			for (auto it2 = std::next(it1); it2 != wing_gait_groups.end(); ++it2) {
+				auto dist = glm::distance(centers[*it1], centers[*it2]);
+				forewing_aft_separation = std::max(forewing_aft_separation, length_m(dist));
+			}
+		}
+	}
 	torque_rad_s2 pitch_torque = differential_force * (forewing_aft_separation);
 	
 	// Yaw: typically weaker, dominated by drag forces
@@ -764,7 +742,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     
     // Activity level affects cruise speed choice
     // Soaring birds fly slower, flapping birds faster
-    r.cruise_speed_m_s *= (0.8f + 0.4f * (1.0f - in.activity_level));
+    r.cruise_speed_m_s *= (0.8f + 0.4f * in.activity_level);
     
     
     // ============================================================================
@@ -815,7 +793,8 @@ using SF = SemanticFlags;
 		// only applies to birds.
 		auto wing_mass_fraction = 0.10f + 0.05f * in.stability_vs_speed;
 		auto wing_mass_kg = in.body_mass_kg() * wing_mass_fraction;
-		auto wing_inertia_kg_m2 = 0.33f * wing_mass_kg * wing.span_m * wing.span_m * 4.0;
+		// I = (1/3) * m * L² for rod rotating about one end (wing root)
+		auto wing_inertia_kg_m2 = 0.33f * wing_mass_kg * wing.span_m * wing.span_m;
 		
 	// indicates feathers	
 		if(wing_mass_kg < wing.wing_mass_kg)	

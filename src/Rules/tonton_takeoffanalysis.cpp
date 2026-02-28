@@ -2,6 +2,7 @@
 #include "tonton_scratch.h"
 #include "../include/tonton_analysis.h"
 #include "../include/tonton_input.h"
+#include "tonton_builder.h"
 
 namespace TonTon {
 
@@ -37,8 +38,14 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     result.net_vertical_force_N = result.max_instantaneous_lift_N + 
                                   result.max_instantaneous_thrust_N * 0.7f;
     
-    // Apply ground effect bonus (assume starting at 0.5m height)
-    result.ground_effect_bonus = T::GroundEffectBonus(aerial.wing_span_m, length_m(0.5f));
+    // Apply ground effect bonus (height = max leg length, or 0.5m fallback)
+    length_m ground_height_m = 0.5f;
+    if (output.terrestrial.has_value()) {
+        for (const auto& leg : output.terrestrial->legs) {
+            ground_height_m = std::max(ground_height_m, leg.rest_length_m);
+        }
+    }
+    result.ground_effect_bonus = T::GroundEffectBonus(aerial.wing_span_m, ground_height_m);
     result.net_vertical_force_N *= result.ground_effect_bonus;
     
     result.vertical_acceleration_m_s2 = (result.net_vertical_force_N - weight_N) / body_mass_kg;
@@ -84,8 +91,15 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
                                                                  result.max_instantaneous_lift_N,
                                                                  in.environment.gravity_m_s2);
         
-        // needs an R^2
-        length_m estimated_jump_height_m = length_m(float(body_mass_kg) * 0.1f);  // Rough: 10% body mass -> 0.1m
+        // Estimate jump height from leg stroke distance (stretched - crouch length)
+        // Work = F×d ≈ m×g×h when force ≈ body weight over the stroke
+        length_m estimated_jump_height_m = 0;
+        for (const auto& leg : output.terrestrial->legs) {
+            auto crouch = scale_to<0>(in.builder->appendages[leg.id].crouch_length, in.scale);
+            auto crouch_m = (crouch > 0) ? crouch : leg.rest_length_m * 0.3f;
+            auto stroke = leg.stretched_length_m - crouch_m;
+            estimated_jump_height_m = std::max(estimated_jump_height_m, stroke);
+        }
         velocity_m_s estimated_jump_velocity = sqrt(2.0f * in.environment.gravity_m_s2 * estimated_jump_height_m);
         result.constraints.leg_strength_ok = estimated_jump_velocity >= result.required_jump_velocity_m_s;
     }
@@ -174,7 +188,7 @@ inline force_N TakeoffAnalysis::EstimateMaxThrust(const Analysis_Aerial& aerial,
     // Thrust from momentum theory: T = mass_flow * velocity_change
     
     // Wing disk area (swept by wings)
-    auto disk_area = M_PI * aerial.wing_span_m * aerial.wing_span_m;
+    auto disk_area = M_PI * aerial.wing_span_m * aerial.wing_span_m / 4.0f;
     
     // Average wing tip velocity
     velocity_m_s tip_velocity;

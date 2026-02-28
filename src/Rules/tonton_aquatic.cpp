@@ -41,7 +41,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	bool has_fins = false;
 	bool is_tail_horizontal = false;
 	bool has_paddle_limbs = false;
-	bool has_assymetric_tail = false;
+	bool has_asymmetric_tail = false;
 	auto clade = in.builder->physical.clade;
 	
 	std::vector<bool> is_tail_fin(fins.size(), false);
@@ -71,7 +71,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 					offset = offset / float(aabb.max.y - aabb.min.y);
 					
 	// therefore the tail generates lift and we don't have a swim bladder!				
-					has_assymetric_tail |= (offset > 0.01);
+					has_asymmetric_tail |= (offset > 0.01);
 				}
 			}
 		}
@@ -210,7 +210,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	bool has_swim_bladder = HasFlag(clade, CladeFlags::PISCES); // Default for fish
 	
 	// Asymmetric tail = generates lift = NO swim bladder (sharks, sturgeons)
-	if (has_assymetric_tail) {
+	if (has_asymmetric_tail) {
 	  has_swim_bladder = false;
 	}
 
@@ -593,7 +593,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 		// Jet velocity from momentum conservation
 		// m_jet * v_jet = m_body * v_body
-		auto jet_mass_kg = jet.jet_pulse_volume_m3 * fluid_density * std::exp2(in.mana.water);
+		auto jet_mass_kg = jet.jet_pulse_volume_m3 * fluid_density;
 		jet.jet_velocity_m_s = (body_mass_kg * cruise_speed_m_s) / jet_mass_kg;
 
 		jet.siphon_articulation_range_rad = M_PI; // 180-degree steering

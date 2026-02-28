@@ -253,7 +253,8 @@ std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in
 
 	// Constriction pressure = (muscle stress) × (muscle fraction) × (coil overlap factor)
 	// Multiple coils increase pressure
-	auto typical_coils = std::max<float>(3.0f, float(s.physical.body_length_m / (2.0f * s.physical.cross_sectional_area_m2)));
+	auto body_diameter_m = s.physical.cross_sectional_diameter_m();
+	auto typical_coils = std::max<float>(3.0f, float(s.physical.body_length_m / (M_PI * body_diameter_m)));
 	typical_coils = std::min(typical_coils, 12.0f); // Cap at ~12 coils
 
 	// Each coil adds pressure, but with diminishing returns
@@ -281,7 +282,7 @@ std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in
 	// Minimum diameter: typically can't constrict prey much smaller than body diameter
 	// Maximum diameter: limited by body length and flexibility
 
-	length_m body_diameter_m = sqrt(s.physical.cross_sectional_area_m2 / 3.14159f) * 2.0f;
+	// body_diameter_m already computed above via cross_sectional_diameter_m()
 
 	// Minimum coil: ~1-2× body diameter
 	result.coil_diameter_range_min_m = body_diameter_m * 1.5f;

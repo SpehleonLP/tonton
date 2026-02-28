@@ -123,31 +123,98 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     result.aggression = glm::clamp(result.aggression, 0.0f, 1.0f);
     
     // ========================================================================
+    // AMBUSH VS PURSUIT (computed early — used by social_tendency, activity, territoriality)
+    // ========================================================================
+
+    result.ambush_vs_pursuit = 0.5f;
+
+    if (scratch.terrestrial) {
+        // High acceleration -> ambush (Webb 1984)
+        if (scratch.terrestrial->max_acceleration_m_s2 > 30.0f) {
+            result.ambush_vs_pursuit += 0.3f;
+        }
+
+        // High endurance -> pursuit
+        auto endurance_ratio = scratch.terrestrial->max_sustainable_speed_m_s /
+                               scratch.terrestrial->max_sprint_speed_m_s;
+        if (endurance_ratio > 0.7f) {
+            result.ambush_vs_pursuit -= 0.3f; // Pursuit hunter
+        }
+    }
+
+    if (scratch.aquatic) {
+        // Maneuverability -> ambush
+        if (scratch.aquatic->can_hover) {
+            result.ambush_vs_pursuit += 0.2f;
+        }
+
+        // Requires constant motion -> pursuit
+        if (scratch.aquatic->requires_constant_motion) {
+            result.ambush_vs_pursuit = 0.1f; // Must be pursuit
+        }
+    }
+
+    // Body plan: stocky -> ambush, slender -> pursuit (Fulton et al. 2001)
+    float fineness = scratch.physical.fineness_ratio();
+    if (fineness < 3.0f) {
+        result.ambush_vs_pursuit += 0.2f; // Stocky
+    } else if (fineness > 5.0f) {
+        result.ambush_vs_pursuit -= 0.3f; // Streamlined
+    }
+
+    result.ambush_vs_pursuit = glm::clamp(result.ambush_vs_pursuit, 0.0f, 1.0f);
+
+    // ========================================================================
+    // MIGRATORY BEHAVIOR (computed early — used by territoriality)
+    // ========================================================================
+
+    result.is_migratory = false;
+
+    // Long-distance fliers may migrate (high aspect ratio wings)
+    if (scratch.aerial) {
+        auto avg_aspect_ratio = 0.0f;
+        for (auto& wing : scratch.aerial->wings) {
+            avg_aspect_ratio += wing.aspect_ratio();
+        }
+        avg_aspect_ratio /= scratch.aerial->wings.size();
+
+        // High aspect ratio (>7) suggests soaring/long-distance flight
+        if (avg_aspect_ratio > 7.0f && body_mass_kg > 0.5f) {
+            result.is_migratory = true;
+        }
+    }
+
+    // User override from seasonal_behavior input
+    if (in.behavior.seasonal_behavior > 0.7f) {
+        result.is_migratory = true;
+    }
+
+    // ========================================================================
     // SOCIAL TENDENCY
     // ========================================================================
-    
+
     result.social_tendency = in.behavior.social_tendency;
-    
+
     // Eye position indicates social strategy (Kotrschal et al. 1998)
     if (sem.has_lateral_eyes && !sem.has_forward_eyes) {
         // Prey fish with lateral vision -> schooling
         result.social_tendency += 0.3f;
     }
-    
+
     // Good hearing suggests vocal communication (Heffner & Heffner 2008)
     if (sem.has_hearing_organs && scratch.sensory.hearing) {
         if (scratch.sensory.hearing->sensitivity > 0.7f) {
             result.social_tendency += 0.2f;
         }
     }
-    
+
     // Small, defenseless creatures seek safety in numbers
     if (body_mass_kg < 1.0f && !sem.has_weapons) {
         result.social_tendency += 0.25f;
     }
-    
+
     // Ambush predators are solitary
-    if (scratch.behavior.ambush_vs_pursuit > 0.7f) {
+    if (result.ambush_vs_pursuit > 0.7f) {
         result.social_tendency -= 0.3f;
     }
 
@@ -155,54 +222,54 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     if (scratch.aerial && is_predator && body_mass_kg > 5.0f) {
         result.social_tendency -= 0.2f;
     }
-    
+
     result.social_tendency = glm::clamp(result.social_tendency, 0.0f, 1.0f);
-    
+
     // ========================================================================
     // ACTIVITY LEVEL
     // ========================================================================
-    
+
     result.activity_level = in.behavior.activity_adjustment;
-    
+
     // High aerobic scope enables sustained activity
     if (scratch.metabolic.aerobic_scope() > 12.0f) {
         result.activity_level += 0.2f;
     }
-    
+
     // Obligate ram ventilators must keep moving
     if (scratch.aquatic && scratch.aquatic->requires_constant_motion) {
         result.activity_level = 0.9f; // Override
     }
-    
+
     // Sit-and-wait predators are less active
-    if (scratch.behavior.ambush_vs_pursuit > 0.7f) {
+    if (result.ambush_vs_pursuit > 0.7f) {
         result.activity_level = glm::min(result.activity_level, 0.3f);
     }
-    
+
     // Ectotherms have lower baseline activity
     if (!is_endotherm) {
         result.activity_level *= 0.7f;
     }
-    
+
     // Thermal soaring birds conserve energy (low activity)
     if (scratch.aerial && scratch.aerial->flapping_efficiency < 0.3f) {
         result.activity_level *= 0.6f; // Soaring/gliding
     }
-    
+
     result.activity_level = glm::clamp(result.activity_level, 0.0f, 1.0f);
-    
+
     // ========================================================================
     // CURIOSITY
     // ========================================================================
-    
+
     // Brain size relative to body suggests intelligence/curiosity
     // Using activity level and sensory investment as proxies
     result.curiosity = 0.5f;
-    
+
     if (scratch.sensory.vision && scratch.sensory.vision->acuity > 0.7f) {
         result.curiosity += 0.2f; // Good vision = investigative
     }
-    
+
     // Manipulators suggest exploratory behavior
     if (!scratch.appendages.manipulation.empty()) {
         result.curiosity += 0.3f;
@@ -212,50 +279,50 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     if (is_predator) {
         result.curiosity += 0.15f;
     }
-    
+
     result.curiosity = glm::clamp(result.curiosity, 0.0f, 1.0f);
-    
+
     // ========================================================================
     // TERRITORIALITY
     // ========================================================================
-    
+
     result.territoriality = 0.5f;
 
     // Large predators defend territories
     if (body_mass_kg > 5.0f && is_predator) {
         result.territoriality = 0.8f;
     }
-    
+
     // Ambush hunters defend feeding sites
-    if (scratch.behavior.ambush_vs_pursuit > 0.7f) {
+    if (result.ambush_vs_pursuit > 0.7f) {
         result.territoriality += 0.2f;
     }
-    
+
     // Horned animals fight for territory
     if (sem.has_horns) {
         result.territoriality += 0.2f;
     }
-    
+
     // Schooling species are less territorial
     if (result.social_tendency > 0.7f) {
         result.territoriality -= 0.3f;
     }
-    
+
     // Migratory animals don't defend territories
     if (result.is_migratory) {
         result.territoriality = 0.1f;
     }
-    
+
     result.territoriality = glm::clamp(result.territoriality, 0.0f, 1.0f);
-    
+
     // ========================================================================
     // DIURNAL PREFERENCE
     // ========================================================================
-    
+
     if (scratch.sensory.vision) {
         // Large eyes relative to body -> nocturnal (Kirk 2006)
         auto eye_ratio = sem.eye_body_ratio;
-        
+
         if (eye_ratio > 0.15f) {
             result.diurnal_preference = 0.2f; // Nocturnal
         } else if (eye_ratio < 0.08f) {
@@ -266,73 +333,6 @@ TonTon::Analysis_Behavior TonTon::ComputeBehavior(Input const& in, Scratch & scr
     } else {
         result.diurnal_preference = 0.5f; // Unknown
     }
-    
-    // ========================================================================
-    // MIGRATORY BEHAVIOR
-    // ========================================================================
-    
-    result.is_migratory = false;
-    
-    // Long-distance fliers may migrate (high aspect ratio wings)
-    if (scratch.aerial) {
-        auto avg_aspect_ratio = 0.0f;
-        for (auto& wing : scratch.aerial->wings) {
-            avg_aspect_ratio += wing.aspect_ratio();
-        }
-        avg_aspect_ratio /= scratch.aerial->wings.size();
-        
-        // High aspect ratio (>7) suggests soaring/long-distance flight
-        if (avg_aspect_ratio > 7.0f && body_mass_kg > 0.5f) {
-            result.is_migratory = true;
-        }
-    }
-    
-    // User override from seasonal_behavior input
-    if (in.behavior.seasonal_behavior > 0.7f) {
-        result.is_migratory = true;
-    }
-    
-    // ========================================================================
-    // AMBUSH VS PURSUIT
-    // ========================================================================
-    
-    result.ambush_vs_pursuit = 0.5f;
-    
-    if (scratch.terrestrial) {
-        // High acceleration -> ambush (Webb 1984)
-        if (scratch.terrestrial->max_acceleration_m_s2 > 30.0f) {
-            result.ambush_vs_pursuit += 0.3f;
-        }
-        
-        // High endurance -> pursuit
-        auto endurance_ratio = scratch.terrestrial->max_sustainable_speed_m_s /
-                               scratch.terrestrial->max_sprint_speed_m_s;
-        if (endurance_ratio > 0.7f) {
-            result.ambush_vs_pursuit -= 0.3f; // Pursuit hunter
-        }
-    }
-    
-    if (scratch.aquatic) {
-        // Maneuverability -> ambush
-        if (scratch.aquatic->can_hover) {
-            result.ambush_vs_pursuit += 0.2f;
-        }
-        
-        // Requires constant motion -> pursuit
-        if (scratch.aquatic->requires_constant_motion) {
-            result.ambush_vs_pursuit = 0.1f; // Must be pursuit
-        }
-    }
-    
-    // Body plan: stocky -> ambush, slender -> pursuit (Fulton et al. 2001)
-    float fineness = scratch.physical.fineness_ratio();
-    if (fineness < 3.0f) {
-        result.ambush_vs_pursuit += 0.2f; // Stocky
-    } else if (fineness > 5.0f) {
-        result.ambush_vs_pursuit -= 0.3f; // Streamlined
-    }
-    
-    result.ambush_vs_pursuit = glm::clamp(result.ambush_vs_pursuit, 0.0f, 1.0f);
     
     // ========================================================================
     // PREY SIZE PREFERENCE

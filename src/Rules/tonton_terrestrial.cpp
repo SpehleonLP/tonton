@@ -119,20 +119,29 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		
 	// Turning radius limited by centripetal force
 	// F_centripetal = m*v²/r, limited by friction coefficient * weight
-	auto friction_coeff = glm::mix(0.8f, 0.6f, posture); // sprawling has lower CoM
-	auto max_lateral_accel = friction_coeff * 9.81f;
-	
+	auto friction_coeff = glm::mix(0.8f, 0.6f, posture) * std::exp2(in.mana.shadow); // shadow mana increases traction
+	auto max_lateral_accel = float(friction_coeff * in.environment.gravity_m_s2);
+
 	length_m min_turning_radius_m = (base_sprint * base_sprint) / max_lateral_accel;
 	
-	// Forward acceleration limited by muscle force
-	// Very rough: force ~ cross_sectional_area of muscles ~ mass^(2/3)
-	auto force_to_mass_ratio = 15.0f * std::pow(float(out.physical.body_mass_kg), -0.33f); // N/kg
-	acceleration_m_s2 max_acceleration_m_s2 = force_to_mass_ratio * glm::mix(1.0f, 0.7f, posture);
+	// Forward acceleration from measured leg forces when available
+	force_N total_leg_grip_force = 0;
+	for (const auto& leg : legs) {
+		total_leg_grip_force += leg.max_grip_force_N;
+	}
+
+	acceleration_m_s2 force_to_mass_accel;
+	if (total_leg_grip_force > 0) {
+		// Leg extension force ≈ grip force (same muscle groups)
+		force_to_mass_accel = total_leg_grip_force / out.physical.body_mass_kg;
+	} else {
+		// Fallback: allometric estimate
+		force_to_mass_accel = 15.0f * std::pow(float(out.physical.body_mass_kg), -0.33f); // N/kg
+	}
+	acceleration_m_s2 max_acceleration_m_s2 = force_to_mass_accel * glm::mix(1.0f, 0.7f, posture);
 
 	// ========== CLADE-SPECIFIC REFINEMENTS ==========
 	// Applied after generic terrestrial locomotion physics
-
-	using CF = CladeFlags;
 
 	// ARTHROPODA: Temperature-dependent performance (Q10 effects)
 	if (HasFlag(out.physical.clade, CF::ARTHROPODA)) {
@@ -168,7 +177,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		}
 
 		if (in.environment.temperature_K > 323.15f) { // Above 50°C
-			auto heat_penalty = (323.15f - float(in.environment.temperature_K)) / 10.0f;
+			auto heat_penalty = 1.0f - (float(in.environment.temperature_K) - 323.15f) / 10.0f;
 			heat_penalty = std::clamp(heat_penalty, 0.1f, 1.0f);
 			base_sprint *= heat_penalty;
 			max_sustainable_speed_m_s *= heat_penalty;
@@ -245,7 +254,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 		.max_sprint_speed_m_s=base_sprint,
 		.max_sustainable_speed_m_s=max_sustainable_speed_m_s,
 		.optimal_speed_m_s=max_sustainable_speed_m_s*0.7f,
-		.min_turning_radius_m=min_turning_radius_m * std::exp2(in.mana.water),
+		.min_turning_radius_m=min_turning_radius_m * std::exp2(-in.mana.water),
 		.max_acceleration_m_s2=max_acceleration_m_s2,
 		
 		.max_sprint_duration_s=max_sprint_duration_s,
@@ -283,7 +292,7 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	length_m max_stretched_length = -FLT_MAX;
 	length_m min_stretched_length = FLT_MAX;
 	length_m max_rest_length = -FLT_MAX;
-	auto total_compression_ratio = 0;
+	auto total_compression_ratio = 0.0f;
 
 	for(auto const& leg : terrestrial.legs)
 	{
@@ -340,8 +349,14 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	// Work-energy: F*d = 0.5*m*v²
 	// Stroke distance ≈ leg_length * extension_ratio
 
-	// Typical leg extension during jump
-	auto stroke_distance_m =  max_stretched_length - (min_rest_length * 0.3f);
+	// Stroke distance = stretched length - crouch length (fully folded)
+	length_m min_crouch_length = FLT_MAX;
+	for (const auto& leg : terrestrial.legs) {
+		auto crouch = scale_to<0>(in.builder->appendages[leg.id].crouch_length, in.scale);
+		if (crouch > 0) min_crouch_length = std::min(min_crouch_length, crouch);
+	}
+	if (min_crouch_length == FLT_MAX) min_crouch_length = min_rest_length * 0.3f;
+	auto stroke_distance_m = max_stretched_length - min_crouch_length;
 	
 	// Work done = force * distance
 	auto work_J = effective_force_N * stroke_distance_m;
@@ -409,6 +424,9 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 
 		// Enhance jump performance for catapult mechanism
 		takeoff_velocity_m_s *= std::sqrt(power_amplification_ratio) * 0.5f;
+		v_vertical = takeoff_velocity_m_s * std::sin(takeoff_angle_rad);
+		v_horizontal = takeoff_velocity_m_s * std::cos(takeoff_angle_rad);
+		flight_time_s = 2.0f * v_vertical / in.environment.gravity_m_s2;
 		max_jump_height_m = (v_vertical * v_vertical) / (2.0f * in.environment.gravity_m_s2);
 		max_jump_distance_m = v_horizontal * flight_time_s;
 	}
@@ -452,8 +470,16 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		// Cuticle: 1-20 GPa (stiff for leverage)
 		pressure_Pa cuticle_modulus_Pa = glm::mix(1e9f, 20e9f, in.structure_vs_weight);
 
-		// Leg cross-section scales with (body_length)²
-		auto leg_cross_section_m2 = avg_leg_length_m * avg_leg_length_m * 0.01f;
+		// Leg cross-section from measured data
+		area_m2 leg_cross_section_m2 = 0;
+		{
+			int leg_count = 0;
+			for (const auto& leg : terrestrial.legs) {
+				leg_cross_section_m2 += scale_to<0>(in.builder->appendages[leg.id].avgCrossSection, in.cross_section_area_scale());
+				++leg_count;
+			}
+			if (leg_count > 0) leg_cross_section_m2 /= leg_count;
+		}
 
 		// Spring stiffness k = EA/L where E=modulus, A=area, L=length
 		auto leg_stiffness_N_m = (cuticle_modulus_Pa * leg_cross_section_m2) / avg_leg_length_m;
@@ -506,7 +532,17 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 
 		// Frog tendon elastic modulus ~1-2 GPa (less than arthropod cuticle)
 		pressure_Pa tendon_modulus_Pa = 1.5e9f;
-		area_m2 tendon_area_m2 = avg_leg_length_m * avg_leg_length_m * 0.005f;
+		// Compute average leg cross-section for tendon area estimate
+		area_m2 avg_leg_cs_m2 = 0;
+		{
+			int lc = 0;
+			for (const auto& leg : terrestrial.legs) {
+				avg_leg_cs_m2 += scale_to<0>(in.builder->appendages[leg.id].avgCrossSection, in.cross_section_area_scale());
+				++lc;
+			}
+			if (lc > 0) avg_leg_cs_m2 /= lc;
+		}
+		area_m2 tendon_area_m2 = avg_leg_cs_m2 * 0.05f; // Tendons ~5% of limb cross-section
 		auto spring_stiffness = (tendon_modulus_Pa * tendon_area_m2) / avg_leg_length_m;
 
 		// Frogs achieve ~70-90% efficiency (lower than insects)

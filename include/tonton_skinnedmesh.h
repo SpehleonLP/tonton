@@ -122,13 +122,13 @@ struct SkinnedMesh
 	
 	glm::dmat3 GetInertia(uint32_t i,  glm::mat4 const& scale) const;	
 	std::array<double, 6> GetCovariance(uint32_t i, glm::mat4 const& scale) const;		
-	double EstimateCrossSection(uint32_t i,  glm::mat4 const& scale, glm::vec3 direction, double * second_moment_area = nullptr) const;
+	double EstimateCrossSection(uint32_t i,  glm::mat4 const& scale, glm::vec3 direction, double * second_moment_area = nullptr, double * max_radius = nullptr) const;
 	
 	double GetSurfaceArea(std::span<const uint16_t> joints, std::span<const glm::vec3> scale) const;
 	glm::dvec3 GetCentroid(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, double * volume_out = nullptr) const;
 	glm::dmat3 GetInertia(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms,  glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
 	std::array<double, 6> GetCovariance(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::dvec3 *centroid_out = nullptr, double * volume_out = nullptr) const;
-	double EstimateCrossSection(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::vec3 direction, double * second_moment_area = nullptr) const;
+	double EstimateCrossSection(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::vec3 direction, double * second_moment_area = nullptr, double * max_radius = nullptr) const;
 		
 	struct LimbMetrics
 	{

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libdodeedum.a CMakeFiles/dodeedum.dir/src/dodeedum.cpp.o CMakeFiles/dodeedum.dir/src/dodeedum_mesh.cpp.o CMakeFiles/dodeedum.dir/src/dodeedum_meshedges.cpp.o CMakeFiles/dodeedum.dir/src/dodeedum_project2d.cpp.o CMakeFiles/dodeedum.dir/src/dodeedum_quadtree.cpp.o CMakeFiles/dodeedum.dir/src/dodeedum_skinning.cpp.o
+/usr/bin/ranlib libdodeedum.a

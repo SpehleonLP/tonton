@@ -1,5 +1,6 @@
 #ifndef TONTON_BUILDER_H
 #define TONTON_BUILDER_H
+#include "tonton_articulations.h"
 #include "tonton_counted_ptr.hpp"
 #include "tonton_analysis.h"
 #include "tonton_shared_array.hpp"
@@ -49,6 +50,11 @@ struct Builder_Chain
 	length4_b minMoment{};
 	length4_b avgMoment{};
 	length4_b maxMoment{};
+
+	length_b minRadius{};
+	length_b maxRadius{};
+	length_b crouch_length{}; // minimum compressed length of chain (fully folded)
+	position_b root_position{0}; // world-space position of chain root joint
 	
 	void copy_into(Analysis_Chain &, length_b_to_m) const;
 };
@@ -62,7 +68,8 @@ struct Builder
 	static counted_ptr<const Builder> Factory(
 		counted_ptr<const SkinnedMesh>,
 		glm::vec3 body_scale = glm::vec3(1),
-		std::span<const BuilderScale> bone_scales = {}	
+		std::span<const BuilderScale> bone_scales = {},
+		Articulations articulations = {}
 	);
 		
 	struct SemanticAnalysis {
@@ -85,10 +92,11 @@ struct Builder
 		length_b body_length{};
 		volume_b body_volume{};
 		length_b tail_length{};
-			
+
 		// Body plan characteristics
 		area_b surface_area{};
 		area_b cross_section_area{};
+		position_b body_centroid{0}; // volume-weighted center of mass in rest pose
 		
 		int16_t		spine_root{};
 		bool		upright{};
@@ -152,8 +160,9 @@ struct Builder
 	//TODO: immutable_array<int16_t>			ipsilateral_inhibition_groups;
 	
 	int siphon_joint = -1;
+
+	Articulations articulations;
 	
-			
 	
 	void AddRef() const { ++_refCount; };
 	void Release() const { if(--_refCount == 0) delete this; }

@@ -221,24 +221,24 @@ glm::dvec3 TonTon::SkinnedMesh::GetCentroid(std::span<const uint16_t> joints, st
 	return numerator;
 }
 
-static double EstimateCrossSection(std::array<double, 6> const& I, double volume, glm::vec3 direction, double * second_moment_area);
+static double EstimateCrossSection(std::array<double, 6> const& I, double volume, glm::vec3 direction, double * second_moment_area, double * max_radius = nullptr);
 
-double  TonTon::SkinnedMesh::EstimateCrossSection(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::vec3 direction, double * second_moment_area) const
+double  TonTon::SkinnedMesh::EstimateCrossSection(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::vec3 direction, double * second_moment_area, double * max_radius) const
 {
 	double volume{};
 	auto cov = GetCovariance(joints, transforms, nullptr, &volume);
-	
-	return ::EstimateCrossSection(cov, volume, direction, second_moment_area);
+
+	return ::EstimateCrossSection(cov, volume, direction, second_moment_area, max_radius);
 }
-	
-double TonTon::SkinnedMesh::EstimateCrossSection(uint32_t i, glm::mat4 const& transform, glm::vec3 direction, double * second_moment_area) const
+
+double TonTon::SkinnedMesh::EstimateCrossSection(uint32_t i, glm::mat4 const& transform, glm::vec3 direction, double * second_moment_area, double * max_radius) const
 {
-	return ::EstimateCrossSection(GetCovariance(i, transform), volume[i], direction, second_moment_area);
+	return ::EstimateCrossSection(GetCovariance(i, transform), volume[i], direction, second_moment_area, max_radius);
 }
    
-static double EstimateCrossSection(std::array<double, 6> const& I, double volume, glm::vec3 direction, double * second_moment_area) 
+static double EstimateCrossSection(std::array<double, 6> const& I, double volume, glm::vec3 direction, double * second_moment_area, double * max_radius)
 {
-    // its covariance * volume already 
+    // its covariance * volume already
     // so inertia is shuffled covariance * density
     // meaning that units are M^5
     glm::dmat3 cov{
@@ -329,6 +329,11 @@ static double EstimateCrossSection(std::array<double, 6> const& I, double volume
         // *second_moment_area = (glm::pi<double>() / 4.0) * a * b * (a*a + b*b);
     }
     
+    // Max radius of the cross-section ellipse
+    if (max_radius) {
+        *max_radius = std::max(a, b);
+    }
+
     // Cross-sectional area (ellipse)
     auto elipse_cross_section = glm::pi<double>() * a * b;
     return elipse_cross_section;
