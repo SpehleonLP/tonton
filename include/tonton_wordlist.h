@@ -120,7 +120,7 @@ enum class SemanticFlags : uint64_t
     WING        = 1ULL << 27,
     FIN         = 1ULL << 28,
     TENTACLE    = 1ULL << 29,
-    MEMBRANE    = 1ULL << 20,
+    MEMBRANE    = 1ULL << 30,
     
     // External features
     ARMOR       = 1ULL << 31, // scales, plates, shell
