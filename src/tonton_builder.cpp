@@ -1,4 +1,5 @@
 #include "../include/tonton_builder.h"
+#include "../include/tonton.h"
 #include "../include/tonton_rigsolver.h"
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
@@ -6,6 +7,9 @@
 #include "tonton_skinnedmesh.h"
 #include <functional>
 #include <cfloat>
+#include <istream>
+#include <ostream>
+#include <type_traits>
 
 using SF = TonTon::SemanticFlags;
 
@@ -1438,7 +1442,192 @@ TonTon::Builder_Chain TonTon::Builder::GetChain(TonTon::Builder::BuilderCommand 
 		};
 }
 
+// ---- Builder binary (de)serialization -------------------------------------
+//
+// Layout-tagged with TONTON_VERSION at the head of Builder's payload. Most
+// sub-structs are POD blobs; the only recursion is through Builder_Tail's
+// branches array. Composes into larger bins because the API is just
+// std::ostream& / std::istream&.
 
+namespace {
 
+template<typename T>
+void WritePOD(std::ostream& os, T const& v)
+{
+	// Caller must only pass POD-blob types — Builder_Appendage (derived) and
+	// std::pair (libstdc++) fail strict trivially_copyable / standard_layout
+	// checks even though their bytes are stable. Trust the call sites here.
+	static_assert(std::is_trivially_destructible_v<T>);
+	os.write(reinterpret_cast<char const*>(&v), sizeof(T));
+}
 
+template<typename T>
+bool ReadPOD(std::istream& is, T& v)
+{
+	// Caller must only pass POD-blob types — Builder_Appendage (derived) and
+	// std::pair (libstdc++) fail strict trivially_copyable / standard_layout
+	// checks even though their bytes are stable. Trust the call sites here.
+	static_assert(std::is_trivially_destructible_v<T>);
+	is.read(reinterpret_cast<char*>(&v), sizeof(T));
+	return is.good();
+}
+
+template<typename T>
+void WriteArrPOD(std::ostream& os, immutable_array<T> const& a)
+{
+	// Caller must only pass POD-blob types — Builder_Appendage (derived) and
+	// std::pair (libstdc++) fail strict trivially_copyable / standard_layout
+	// checks even though their bytes are stable. Trust the call sites here.
+	static_assert(std::is_trivially_destructible_v<T>);
+	uint32_t n = uint32_t(a.size());
+	WritePOD(os, n);
+	if(n) os.write(reinterpret_cast<char const*>(&a[0]), sizeof(T) * size_t(n));
+}
+
+template<typename T>
+shared_array<T> ReadArrPOD(std::istream& is)
+{
+	// Caller must only pass POD-blob types — Builder_Appendage (derived) and
+	// std::pair (libstdc++) fail strict trivially_copyable / standard_layout
+	// checks even though their bytes are stable. Trust the call sites here.
+	static_assert(std::is_trivially_destructible_v<T>);
+	uint32_t n = 0;
+	if(!ReadPOD(is, n)) return {};
+	if(!n) return {};
+	shared_array<T> a(n);
+	is.read(reinterpret_cast<char*>(&a[0]), sizeof(T) * size_t(n));
+	return a;
+}
+
+void WriteTail(std::ostream& os, TonTon::Builder_Tail const& t)
+{
+	WritePOD(os, static_cast<TonTon::Builder_Chain const&>(t));
+	WritePOD(os, t.total_volume);
+	WritePOD(os, t.used_for);
+	WritePOD(os, t.venom_joint);
+	WritePOD(os, t.venom_joint_volume);
+	uint32_t n = uint32_t(t.branches.size());
+	WritePOD(os, n);
+	for(uint32_t i = 0; i < n; ++i) WriteTail(os, t.branches[i]);
+}
+
+bool ReadTail(std::istream& is, TonTon::Builder_Tail& t)
+{
+	if(!ReadPOD(is, static_cast<TonTon::Builder_Chain&>(t))) return false;
+	if(!ReadPOD(is, t.total_volume))       return false;
+	if(!ReadPOD(is, t.used_for))           return false;
+	if(!ReadPOD(is, t.venom_joint))        return false;
+	if(!ReadPOD(is, t.venom_joint_volume)) return false;
+	uint32_t n = 0;
+	if(!ReadPOD(is, n)) return false;
+	if(n)
+	{
+		shared_array<TonTon::Builder_Tail> b(n);
+		for(uint32_t i = 0; i < n; ++i)
+			if(!ReadTail(is, b[i])) return false;
+		t.branches = b;
+	}
+	return true;
+}
+
+}
+
+void TonTon::Builder::Serialize(std::ostream& os) const
+{
+	uint32_t version = TONTON_VERSION;
+	WritePOD(os, version);
+
+	WritePOD(os, semanticAnalyisis);
+	WritePOD(os, physical);
+
+	WritePOD(os, sensory.has_snout);
+	WritePOD(os, sensory.has_external_ears);
+	WritePOD(os, sensory.nasal_surface_area);
+	WritePOD(os, sensory.ear_surface_area);
+	WritePOD(os, sensory.antennae.is_sensory);
+	WritePOD(os, sensory.antennae.surface_area);
+	WriteArrPOD(os, sensory.antennae.chains);
+	WritePOD(os, sensory.vision.angular_separation_rad);
+	WritePOD(os, sensory.vision.centering);
+	WriteArrPOD(os, sensory.vision.eyes);
+
+	uint32_t no_tails = uint32_t(tails.size());
+	WritePOD(os, no_tails);
+	for(uint32_t i = 0; i < no_tails; ++i) WriteTail(os, tails[i]);
+
+	uint8_t has_body_wave = bodyWave.has_value() ? 1 : 0;
+	WritePOD(os, has_body_wave);
+	if(has_body_wave) WritePOD(os, *bodyWave);
+
+	WriteArrPOD(os, appendages);
+	WriteArrPOD(os, gait_group_centers);
+	WritePOD(os, siphon_joint);
+
+	WriteArrPOD(os, articulations.joints);
+	WriteArrPOD(os, articulations.stages);
+}
+
+counted_ptr<const TonTon::Builder> TonTon::Builder::Deserialize(std::istream& is)
+{
+	uint32_t version = 0;
+	if(!ReadPOD(is, version) || version != TONTON_VERSION)
+		return {};
+
+	auto* b = new Builder();
+
+	bool ok = true;
+	ok = ok && ReadPOD(is, b->semanticAnalyisis);
+	ok = ok && ReadPOD(is, b->physical);
+
+	ok = ok && ReadPOD(is, b->sensory.has_snout);
+	ok = ok && ReadPOD(is, b->sensory.has_external_ears);
+	ok = ok && ReadPOD(is, b->sensory.nasal_surface_area);
+	ok = ok && ReadPOD(is, b->sensory.ear_surface_area);
+	ok = ok && ReadPOD(is, b->sensory.antennae.is_sensory);
+	ok = ok && ReadPOD(is, b->sensory.antennae.surface_area);
+	if(ok) b->sensory.antennae.chains = ReadArrPOD<Builder_Chain>(is);
+	ok = ok && is.good();
+	ok = ok && ReadPOD(is, b->sensory.vision.angular_separation_rad);
+	ok = ok && ReadPOD(is, b->sensory.vision.centering);
+	if(ok) b->sensory.vision.eyes = ReadArrPOD<Sensory::Vision::EyeInfo>(is);
+	ok = ok && is.good();
+
+	uint32_t no_tails = 0;
+	ok = ok && ReadPOD(is, no_tails);
+	if(ok && no_tails)
+	{
+		shared_array<Builder_Tail> t(no_tails);
+		for(uint32_t i = 0; ok && i < no_tails; ++i)
+			ok = ReadTail(is, t[i]);
+		if(ok) b->tails = t;
+	}
+
+	uint8_t has_body_wave = 0;
+	ok = ok && ReadPOD(is, has_body_wave);
+	if(ok && has_body_wave)
+	{
+		Builder_Chain c{};
+		ok = ReadPOD(is, c);
+		if(ok) b->bodyWave = c;
+	}
+
+	if(ok) b->appendages         = ReadArrPOD<Builder_Appendage>(is);
+	ok = ok && is.good();
+	if(ok) b->gait_group_centers = ReadArrPOD<glm::vec3>(is);
+	ok = ok && is.good();
+	ok = ok && ReadPOD(is, b->siphon_joint);
+
+	if(ok) b->articulations.joints = ReadArrPOD<std::pair<uint16_t, uint16_t>>(is);
+	ok = ok && is.good();
+	if(ok) b->articulations.stages = ReadArrPOD<ArticulationStage>(is);
+	ok = ok && is.good();
+
+	if(!ok)
+	{
+		b->Release();
+		return {};
+	}
+
+	return counted_ptr<const Builder>::asWrap(b);
+}
 

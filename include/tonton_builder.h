@@ -7,6 +7,7 @@
 #include "tonton_skinnedmesh.h"
 #include "tonton_units.hpp"
 #include <glm/vec3.hpp>
+#include <iosfwd>
 
 namespace TonTon
 {
@@ -166,9 +167,17 @@ struct Builder
 	
 	void AddRef() const { ++_refCount; };
 	void Release() const { if(--_refCount == 0) delete this; }
-	
+
+	// Binary serialization. Composes into larger bins by taking a stream
+	// directly. Format is versioned with TONTON_VERSION (in tonton.h);
+	// Deserialize returns null counted_ptr on version mismatch or stream
+	// failure so callers can decide whether to rebuild from source.
+	void Serialize(std::ostream&) const;
+	static counted_ptr<const Builder> Deserialize(std::istream&);
+
 private:
 	struct BuilderCommand;
+	Builder() = default;
 	Builder(BuilderCommand&);
 
 	mutable std::atomic<int> _refCount{1};
