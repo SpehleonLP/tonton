@@ -1207,9 +1207,9 @@ TonTon::CladeFlags TonTon::GetParentClade(CladeFlags a)
 	case CladeFlags::ARACHNIDA: return CladeFlags::ARTHROPODA;
 	case CladeFlags::CRUSTACEA: return CladeFlags::ARTHROPODA;
 	case CladeFlags::MOLLUSCA:  return CladeFlags::NONE;
-	case CladeFlags::CEPHALOPODA:return CladeFlags::MOLLUSCA; 
-		break;
+	case CladeFlags::CEPHALOPODA:return CladeFlags::MOLLUSCA;
 	}
+	return CladeFlags::NONE;
 }
 
 bool TonTon::DoesContainChild(CladeFlags parent, CladeFlags child)
