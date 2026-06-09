@@ -1,4 +1,5 @@
 #include "tonton_eigen.h"
+#include "tonton_tensors.hpp"
 #include <glm/gtc/quaternion.hpp>
 
 
@@ -205,6 +206,16 @@ std::pair<glm::quat, glm::vec3> TonTon::EigenDecomposition(glm::dmat3 const& m)
 {
 	auto tmp = compute_eigen_m3(m);
 	return {compute_rotation_quat(tmp), tmp.values};
+}
+
+std::pair<glm::quat, glm::vec3> TonTon::EigenDecomposition(InertiaTensor const& i)
+{
+	return EigenDecomposition(i.I);
+}
+
+std::pair<glm::quat, glm::vec3> TonTon::EigenDecomposition(SecondMomentTensor const& c)
+{
+	return EigenDecomposition(c.C);
 }
 
 TonTon::MatrixClassification TonTon::ClassifySymmetricMatrix(glm::dmat3 const& it) {

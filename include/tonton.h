@@ -10,7 +10,20 @@
 #include "tonton_analysis.h"
 #include "tonton_wordlist.h"
 #include "tonton_formatter.h"
- 
+#include "tonton_tensors.hpp"
+
+#include <glm/fwd.hpp>
+#include <utility>
+
+namespace TonTon {
+
+// Typed entry points. Polarity differs by kind — see tonton_tensors.hpp.
+//   InertiaTensor      → eigenvalues ascending; Small = principal/long axis.
+//   SecondMomentTensor → eigenvalues ascending; Small = thinnest axis.
+std::pair<glm::quat, glm::vec3> EigenDecomposition(InertiaTensor const& i);
+std::pair<glm::quat, glm::vec3> EigenDecomposition(SecondMomentTensor const& c);
+
+} // namespace TonTon
 
 #endif
 
