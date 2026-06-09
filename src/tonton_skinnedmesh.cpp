@@ -255,7 +255,7 @@ static double EstimateCrossSection(std::array<double, 6> const& I, double volume
     glm::dmat3 proj = glm::dmat3(1.0) - glm::outerProduct(d, d);
     glm::dmat3 projected_cov = proj * cov * proj;
     
-	std::pair<glm::quat, glm::vec3> eigen_decomp = TonTon::EigenDecomposition(projected_cov);
+	std::pair<glm::quat, glm::vec3> eigen_decomp = TonTon::EigenDecomposition(TonTon::SecondMomentTensor{projected_cov});
 #if 0
 	auto unit_test_eigen = [&]()
 	{
@@ -580,7 +580,7 @@ bool  TonTon::SkinnedMesh::GetStalkData(StalkData & dst, int root, int tip, std:
             auto metrics = GetMetrics(region_joints, transforms);
             auto inertia = metrics.GetInertia(metrics.centroid, 1.0f); // Unit density
             
-            auto eigen_decomp = EigenDecomposition(inertia);
+            auto eigen_decomp = TonTon::EigenDecomposition(TonTon::InertiaTensor{inertia});
             glm::vec3 eigenvalues = eigen_decomp.second;
             
             // For a long thin rod: λ₀ << λ₁ ≈ λ₂

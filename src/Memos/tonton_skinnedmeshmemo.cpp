@@ -5,6 +5,7 @@
 #include "../include/tonton_input.h"
 #include "dodeedum.h"
 #include "tonton_eigen.h"
+#include "tonton_tensors.hpp"
 #include "dodeedum_mesh.h"
 #include <functional>
 #include <unordered_set>
@@ -38,18 +39,19 @@ glm::mat4 TonTon::GetProjectionMatrix(EigenValue projection, glm::quat eigen_dir
 	switch(projection)
 	{
 	case EigenValue::Small:
-		// View along the axis with smallest eigenvalue (thinnest direction)
+		// Decomposition source is an INERTIA tensor: smallest eigenvalue = principal/long axis.
+		// Viewing along it looks down the body's long axis.
 		return glm::mat4(rotation);  // rotation columns are the eigenvectors
 	case EigenValue::Medium:
-		// Rotate so we're looking along the medium eigenvector
+		// Medium inertia eigenvalue axis (inertia decomposition).
 		return glm::mat4(
-			glm::vec4(rotation[2], 0), 
-			glm::vec4(rotation[1], 0), 
-			glm::vec4(rotation[0], 0), 
+			glm::vec4(rotation[2], 0),
+			glm::vec4(rotation[1], 0),
+			glm::vec4(rotation[0], 0),
 			glm::vec4(0,0,0,1)
 		);
 	case EigenValue::Large:
-		// View along the axis with largest eigenvalue (widest direction)
+		// Largest inertia eigenvalue = the axis the body is "fattest" about (a short axis).
 		return glm::mat4(
 			glm::vec4(rotation[1], 0), 
 			glm::vec4(rotation[2], 0), 
@@ -67,6 +69,8 @@ glm::vec3 TonTon::GetProjectionDirection(EigenValue projection, glm::quat eigen_
     glm::mat3 rotation = glm::mat3(eigen_direction);
  //   rotation = glm::transpose(rotation);
 
+    // NOTE: eigen_direction is produced from an INERTIA decomposition; column indices below
+    // are calibrated for that convention (smallest inertia = long axis).
     switch(projection)
     {
     case EigenValue::Small:
@@ -84,7 +88,7 @@ glm::mat4 TonTon::SkinnedMeshMemo::GetProjectionMatrix(EigenValue projection, st
 {
 	auto m = in.GetMetrics(joints, transforms);
 	// convert inertia tensor to [rotation, eigenvectors, form]
-	auto[rotation_q, vectors] = EigenDecomposition(m.unitInertia);
+	auto[rotation_q, vectors] = EigenDecomposition(InertiaTensor{m.unitInertia});
 	
 	glm::mat4 matrix = ::TonTon::GetProjectionMatrix(projection, rotation_q);
 	

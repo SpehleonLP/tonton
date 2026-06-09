@@ -1,6 +1,7 @@
 #include "../include/tonton_rigsolver.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "tonton_eigen.h"
+#include "tonton_tensors.hpp"
 #include <glm/gtx/norm.hpp>
 #include <algorithm>
 #include <cmath>
@@ -367,7 +368,7 @@ counted_ptr<const RigSolver> RigSolver::Factory(
 		glm::dmat3 proj = glm::dmat3(1.0) - glm::outerProduct(d, d);
 		glm::dmat3 projected_cov = proj * C * proj;
 
-		auto [rotation, eigenvalues] = EigenDecomposition(projected_cov);
+		auto [rotation, eigenvalues] = EigenDecomposition(SecondMomentTensor{projected_cov});
 
 		// Radius = 2 * sqrt(max perpendicular eigenvalue)
 		// eigenvalues sorted smallest→largest; largest is z
