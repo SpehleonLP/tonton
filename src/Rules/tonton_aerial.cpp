@@ -79,6 +79,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     const auto g_effective = real_g * std::max(0.0f, 1.0f - float(rho / in.body_density()));
     const auto body_mass_kg = in.body_mass_kg();
     const auto weight_N = std::max<force_N>(0.001, in.body_weight_N());
+    // Weight that lift must actually support, reduced by buoyancy (0 when neutrally buoyant).
+    const auto effective_weight_N = std::max<force_N>(0.001f, body_mass_kg * g_effective);
 
     // ============================================================================
     // PURE PHYSICS LAMBDAS
@@ -109,10 +111,11 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 
     // --- OSCILLATORY PROPULSION ---
 
-    // Strouhal velocity: v = f×A×L/St (universal for efficient oscillation)
+    // Strouhal velocity: v = f×A_pp×L/St (universal for efficient oscillation)
+    // St = f·A_pp/U uses PEAK-TO-PEAK amplitude (factor 2 over single-sided).
     auto strouhal_velocity = [](freq_Hz f, angle_rad amplitude, length_m wing_length,
                                 float strouhal) -> velocity_m_s {
-        return (f * amplitude * wing_length) / strouhal;
+        return (f * (2.0f * amplitude) * wing_length) / strouhal;
     };
 
     // Power-limited frequency: P = coef×f³×A² → f = ∛(P/(coef×A²))
@@ -173,7 +176,9 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Aerial turn radius: r = v²/(g×√(n²-1)) where n = load factor
     auto aerial_turn_radius = [](velocity_m_s v, acceleration_m_s2 g,
                                  float load_factor) -> length_m {
-        return (v * v) / (g * std::sqrt(load_factor * load_factor - 1.0f));
+        float n2 = load_factor * load_factor - 1.0f;
+        if (n2 <= 1e-4f || float(g) <= 0.0f) return length_m(1e6f); // ~straight line
+        return (v * v) / (g * std::sqrt(n2));
     };
 
     // ============================================================================
@@ -193,11 +198,19 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // These encode biological scaling relationships (empirical fits)
     // ============================================================================
 
-    // Pennycuick wingbeat frequency: f = K×√(g/b)×(W/S)^0.375
-    // Valid for birds (high Re regime)
-    auto pennycuick_frequency = [](float K, acceleration_m_s2 g, length_m wingspan,
-                                   load_N_m2 loading) -> freq_Hz {
-        return K * sqrt(g / wingspan) * std::pow(float(loading), 0.375f);
+    // Pennycuick (1996) full allometric form:
+    //   f = K · m^(3/8) · g^(1/2) · b^(−23/24) · S^(−1/3) · ρ^(−3/8)
+    // Restores span/area exponents and the air-density dependence (matters for thin/dense atmospheres).
+    // Valid for birds (high Re regime).
+    auto pennycuick_frequency = [](float K, mass_kg m, acceleration_m_s2 g,
+                                   length_m wingspan, area_m2 wing_area,
+                                   density_kg_m3 rho) -> freq_Hz {
+        return K
+             * std::pow(float(m), 0.375f)
+             * std::sqrt(float(g))
+             * std::pow(float(wingspan), -23.0f/24.0f)
+             * std::pow(float(wing_area), -1.0f/3.0f)
+             * std::pow(float(rho), -0.375f);
     };
 
     // Insect allometric frequency: f = 80×(m/0.001)^-0.24 Hz
@@ -220,7 +233,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Morphology-dependent constants
     auto CL_max_bird = 1.2f + 0.6f * in.feather_quality;
     auto CL_max_insect = 2.0f + 1.0f * in.feather_quality;
-    auto K_pennycuick = 3.87f * (0.8f + 0.4f * in.scaling_strategy);
+    // Pennycuick (1996) SI constant K ≈ 1.08, modulated by scaling strategy.
+    auto K_pennycuick = 1.08f * (0.8f + 0.4f * in.scaling_strategy);
 
     // For underwater propulsion: use thrust-based "effective loading"
     // when actual wing loading → 0 due to buoyancy
@@ -230,8 +244,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Blend between insect and bird frequency models based on regime
     auto compute_base_frequency = [&](float regime) -> freq_Hz {
         freq_Hz insect_freq = insect_allometric_frequency(body_mass_kg);
-        freq_Hz bird_freq = pennycuick_frequency(K_pennycuick, real_g,
-                                                  total_wing_span_m, effective_loading_N_m2);
+        freq_Hz bird_freq = pennycuick_frequency(K_pennycuick, body_mass_kg, real_g,
+                                                  total_wing_span_m, total_wing_area_m2, rho);
         return glm::mix(float(insect_freq), float(bird_freq), regime);
     };
 
@@ -275,7 +289,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // ============================================================================
 
     auto CL_max = glm::mix(CL_max_insect, CL_max_bird, regime_blend);
-    r.min_flight_speed_m_s = stall_speed(weight_N, rho, total_wing_area_m2, CL_max);
+    r.min_flight_speed_m_s = stall_speed(effective_weight_N, rho, total_wing_area_m2, CL_max);
 
     // ============================================================================
     // BEAT AMPLITUDE (morphological adaptation)
@@ -381,7 +395,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Stroke length = wingtip excursion = arc length = half_amplitude × wing_radius × 2
     // (factor of 2 for peak-to-peak excursion, but Strouhal uses peak-to-peak)
     // Use CRUISE amplitude for cruise speed calculation, not morphological average
-    length_m cruise_stroke_length_m = cruise_amplitude_rad * (total_wing_span_m / 2.0f);
+    // Strouhal requires PEAK-TO-PEAK amplitude (factor 2 over single-sided).
+    length_m cruise_stroke_length_m = 2.0f * cruise_amplitude_rad * (total_wing_span_m / 2.0f);
 
     // Blend Strouhal based on regime (insects operate at higher St)
     auto strouhal_bird = 0.25f;   // Birds cruise near lower end of efficient range
@@ -444,7 +459,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 
     // --- POWER AT STALL SPEED ---
     // Direct lift check: can we generate enough power at minimum flight speed?
-    auto induced_power_at_stall_W = induced_power(k_induced, weight_N, rho,
+    auto induced_power_at_stall_W = induced_power(k_induced, effective_weight_N, rho,
                                                    disk_area_m2, r.min_flight_speed_m_s);
     auto profile_power_at_stall_W = profile_power(rho, r.min_flight_speed_m_s,
                                                    total_wing_area_m2, CD_profile);
@@ -462,7 +477,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     bool has_power_for_lift = available_power_W >= power_required_at_stall_W * 1.5f;
 
     // --- POWER AT CRUISE SPEED ---
-    auto induced_power_cruise_W = induced_power(k_induced, weight_N, rho,
+    auto induced_power_cruise_W = induced_power(k_induced, effective_weight_N, rho,
                                                  disk_area_m2, r.cruise_speed_m_s);
     auto profile_power_cruise_W = profile_power(rho, r.cruise_speed_m_s,
                                                  total_wing_area_m2, CD_profile);
@@ -471,11 +486,13 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 
     auto aerodynamic_power_W = induced_power_cruise_W + profile_power_cruise_W + parasite_power_cruise_W;
 
-    // Inertial power scales with wing inertia (small flappers have tiny wings)
-    auto base_inertial_fraction = 0.10f;
-    auto size_factor = std::pow(float(wing_inertia_kg_m2) / 1e-6f, 0.3f);
-    auto inertial_fraction = base_inertial_fraction * size_factor;
-    power_W inertial_power_cruise_W = aerodynamic_power_W * inertial_fraction;
+    // Inertial power to reverse the wing each half-stroke (Weis-Fogh / Van Den Berg & Rayner):
+    //   P_inertial = k · 8π² · I · Φ² · f³   (Φ = stroke amplitude rad, f = wingbeat Hz)
+    // k≈0.5: part of the kinetic energy is recovered elastically/aerodynamically.
+    // Replaces the old I^0.3 heuristic with a single physical model (matches inertial_power lambda).
+    const float k_recovery = 0.5f;
+    power_W inertial_power_cruise_W = inertial_power(k_recovery, wing_inertia_kg_m2,
+                                                     r.wingbeat_frequency_Hz, cruise_amplitude_rad);
 
     power_W mechanical_power_W = aerodynamic_power_W + inertial_power_cruise_W;
 
@@ -514,7 +531,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	// Use disk area (swept area) not wing planform area
 
 	// Induced power from momentum theory: P = W×√(W/(2ρA))
-	auto hover_induced_power_W = hover_induced_power(weight_N, rho, disk_area_m2);
+	auto hover_induced_power_W = hover_induced_power(effective_weight_N, rho, disk_area_m2);
 
 	// --- HOVER AMPLITUDE ---
 	// Dragonflies hovering use SMALL amplitudes - they look nearly stationary!
@@ -569,9 +586,10 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	// Must recalculate from hover parameters, not reuse forward flight value
 	// Inertial power = energy to reverse wing direction each half-stroke
 	// For small amplitudes, this is much lower than forward flight
-	auto hover_aero_power = hover_induced_power_W + hover_profile_power_W;
-	auto hover_inertial_fraction = inertial_fraction * 0.8f;  // Lower amplitude = less inertia cost
-	auto hover_inertial_power_W = hover_aero_power * hover_inertial_fraction;
+	// Physical model (Weis-Fogh): P_inertial = k·8π²·I·Φ²·f³ at the hover amplitude.
+	// Lower hover amplitude => lower inertial cost falls out naturally from Φ².
+	power_W hover_inertial_power_W = inertial_power(k_recovery, wing_inertia_kg_m2,
+	                                                r.wingbeat_frequency_Hz, hover_half_amp);
 
 	// --- TOTAL MECHANICAL POWER ---
 	// Apply LEV benefit and multi-wing benefit
@@ -793,8 +811,9 @@ using SF = SemanticFlags;
 		// only applies to birds.
 		auto wing_mass_fraction = 0.10f + 0.05f * in.stability_vs_speed;
 		auto wing_mass_kg = in.body_mass_kg() * wing_mass_fraction;
-		// I = (1/3) * m * L² for rod rotating about one end (wing root)
-		auto wing_inertia_kg_m2 = 0.33f * wing_mass_kg * wing.span_m * wing.span_m;
+		// Van Den Berg & Rayner (1995): I ≈ 0.1–0.15·m·L² for a real (tapered) wing,
+		// not 0.33 (uniform rod about one end).
+		auto wing_inertia_kg_m2 = 0.15f * wing_mass_kg * wing.span_m * wing.span_m;
 		
 	// indicates feathers	
 		if(wing_mass_kg < wing.wing_mass_kg)	
