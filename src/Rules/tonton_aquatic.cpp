@@ -45,35 +45,40 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	auto clade = in.builder->physical.clade;
 	
 	std::vector<bool> is_tail_fin(fins.size(), false);
-	{		
+	{
 		for(auto i = 0u; i < fins.size(); ++i)
 		{
 			if(HasFlag(fins[i].type, SF::FIN))
 				has_fins = true;
 			else
 				has_paddle_limbs = true;
-			
+
 			if(HasFlag(fins[i].type, SF::TAIL))
 				is_tail_fin[i] = true;
-				
-			if(is_tail_fin[i])
-			{
-				auto const& app = in.builder->appendages[fins[i].id];
-				auto const& aabb = app.aabb;
-								
-				is_tail_horizontal |= (aabb.max.x - aabb.min.x) > (aabb.max.y - aabb.min.y); 
-				
-				if(!is_tail_horizontal)
-				{
-					auto center = (aabb.min + aabb.max) / length_b(2.f);
-					
-					float offset = float((app.centroid - center).y);
-					offset = offset / float(aabb.max.y - aabb.min.y);
-					
-	// therefore the tail generates lift and we don't have a swim bladder!				
-					has_asymmetric_tail |= (offset > 0.01);
-				}
-			}
+		}
+
+		// Heterocercal-tail detection (e.g. sharks): a vertically-tall caudal
+		// appendage whose mass centroid sits dorsal of its AABB centre generates
+		// lift, implying NO swim bladder. The propulsion-grade tail is carried as
+		// a builder appendage (it may lack the WING flag and so be absent from the
+		// `fins` list above), so scan the builder appendages directly here.
+		for(auto const& app : in.builder->appendages)
+		{
+			if(!HasFlag(app.semantic_flags, SF::TAIL))
+				continue;
+
+			auto const& aabb = app.aabb;
+			bool horizontal = (aabb.max.x - aabb.min.x) > (aabb.max.y - aabb.min.y);
+			is_tail_horizontal |= horizontal;
+
+			if(horizontal)
+				continue;
+
+			auto center = (aabb.min + aabb.max) / length_b(2.f);
+			float offset = float((app.centroid - center).y) / float(aabb.max.y - aabb.min.y);
+
+	// therefore the tail generates lift and we don't have a swim bladder!
+			has_asymmetric_tail |= (offset > 0.01);   // dorsal centroid offset; symmetric (homocercal) tails ~0
 		}
 	};
 
@@ -328,9 +333,12 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 	// Calculate amplitude from power requirements
 	// A³ = P / (4π³ × ρ × A_tail × f³ × C_d)
+	// v_peak = 2π f A → P_peak = ½ρ A_tail Cd (2π f A)³.
+	// Available power is the CYCLE MEAN: ⟨P⟩ = (4/3π)·P_peak. Invert for A using ⟨P⟩.
+	const float cycle_mean = 4.0f / (3.0f * float(M_PI));
 	auto amplitude_cubed = swim_power_W /
-		(4.0f * M_PI * M_PI * M_PI * fluid_density * tail_area_m2 *
-		 pow3(beat_frequency_Hz) * oscillation_drag_coef);
+		(cycle_mean * 0.5f * fluid_density * tail_area_m2 *
+		 pow3(2.0f * float(M_PI) * beat_frequency_Hz) * oscillation_drag_coef);
 
 	auto tail_amplitude_m = cbrt(amplitude_cubed);
 
@@ -418,7 +426,8 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	}
 
 	// Cruise speed from Strouhal: U = f*A/St
-	auto cruise_speed_m_s = (beat_frequency_Hz * tail_amplitude_m) / strouhal_optimal;
+	// Strouhal uses peak-to-peak amplitude (2× the single-sided tail_amplitude_m).
+	auto cruise_speed_m_s = (beat_frequency_Hz * (2.0f * tail_amplitude_m)) / strouhal_optimal;
 
 	// Drag-based speed limit
 	// Drag: D = 0.5 * ρ * v² * Cd * A
@@ -499,8 +508,10 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		time_s c_start_duration_s = 0.05f; // ~50ms typical
 		angle_rad max_curvature_rad = M_PI / 2.0f; // 90-degree bend
 
-		// Acceleration = v / t, where v ≈ burst_speed
-		auto c_start_acceleration = burst_speed_m_s / c_start_duration_s;
+		// Fast-start: the body straightens through ~one body length in the stage,
+		// peak velocity v ≈ 2L/t; a ≈ 2v/t = 4L/t² (Domenici & Blake 1997: ~40–150 m/s²).
+		velocity_m_s c_start_peak_v = 2.0f * body_length_m / c_start_duration_s;
+		auto c_start_acceleration = 2.0f * c_start_peak_v / c_start_duration_s;
 
 		c_start = Analysis_Aquatic::CStartResponse{
 			.duration_s = c_start_duration_s,
@@ -591,10 +602,13 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		jet.mantle_contraction_frequency_Hz = beat_frequency_Hz * 1.5f;
 		jet.jet_pulse_volume_m3 = body_volume_m3 * 0.1f; // ~10% of body volume per pulse
 
-		// Jet velocity from momentum conservation
-		// m_jet * v_jet = m_body * v_body
-		auto jet_mass_kg = jet.jet_pulse_volume_m3 * fluid_density;
-		jet.jet_velocity_m_s = (body_mass_kg * cruise_speed_m_s) / jet_mass_kg;
+		// Steady jet: thrust ṁ·v_jet balances body drag ½ρ v_body² Cd A.
+		// ṁ = ρ·A_siphon·v_jet ⇒ ρ A_siphon v_jet² = ½ρ Cd A_body v_body²
+		// ⇒ v_jet = v_body·√(½ Cd A_body / A_siphon).
+		auto siphon_area_m2 = std::max(0.0001f, float(jet.jet_pulse_volume_m3) /
+			std::max(0.01f, float(body_length_m))); // crude siphon area proxy
+		jet.jet_velocity_m_s = cruise_speed_m_s *
+			std::sqrt(0.5f * drag_coefficient * float(cross_section_m2) / siphon_area_m2);
 
 		jet.siphon_articulation_range_rad = M_PI; // 180-degree steering
 
@@ -693,7 +707,7 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	lift_N_per_m lift_per_meter_N = 0.0f;
 	velocity_m_s sink_rate_m_s = 0.0f;
 
-	if(body_density_kg_m3 > fluid_density)
+	if(!has_swim_bladder && body_density_kg_m3 > fluid_density)
 	{
 		// Negatively buoyant - sinks without swimming
 		auto weight_in_water_N = in.body_weight_N();
@@ -703,9 +717,8 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 			(fluid_density * drag_coefficient * cross_section_m2));
 
 		// Lift per meter: needs to generate enough lift to balance weight over distance
-		// Simplified: lift_per_meter ≈ weight / glide_ratio
-		// For fish without dedicated lifting surfaces, this is about supporting weight
-		lift_per_meter_N = float(weight_in_water_N);
+		// Lift needed per metre of travel = weight spread over a glide length ~ body length.
+		lift_per_meter_N = float(weight_in_water_N) / std::max(0.01f, float(body_length_m));
 	}
 
 	// Reynolds number at cruise speed
