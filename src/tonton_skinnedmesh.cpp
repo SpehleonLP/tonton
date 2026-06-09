@@ -1,4 +1,5 @@
 #include "dodeedum_mesh.h"
+#include "tonton_tensors.hpp"
 #include "Memos/tonton_armaturememo.h"
 #include "Memos/tonton_skinnedmeshmemo.h"
 #include "Memos/tonton_meshmemo.h"
@@ -162,23 +163,21 @@ std::array<double, 6>  TonTon::SkinnedMesh::GetCovariance(uint32_t i, glm::mat4 
 glm::dmat3 TonTon::SkinnedMesh::GetInertia(uint32_t i, const glm::mat4 &scale) const
 {
 	std::array<double, 6> I = GetCovariance(i, scale);
-		
-	return glm::dmat3{
-		 I[1] +I[2],-I[3],-I[4],
-		-I[3], I[0] +I[2],-I[5],
-		-I[4],-I[5], I[0] +I[1]
-	};
+	TonTon::SecondMomentTensor smt{ glm::dmat3{
+		I[0], I[3], I[4],
+		I[3], I[1], I[5],
+		I[4], I[5], I[2] } };
+	return TonTon::ToInertia(smt).I;
 }
 
 glm::dmat3 TonTon::SkinnedMesh::GetInertia(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, glm::dvec3 *centroid_out, double * volume_out) const
 {
 	auto I = GetCovariance(joints, transforms, centroid_out, volume_out);
-	
-	return glm::dmat3{
-		 I[1] +I[2],-I[3],-I[4],
-		-I[3], I[0] +I[2],-I[5],
-		-I[4],-I[5], I[0] +I[1]
-	};
+	TonTon::SecondMomentTensor smt{ glm::dmat3{
+		I[0], I[3], I[4],
+		I[3], I[1], I[5],
+		I[4], I[5], I[2] } };
+	return TonTon::ToInertia(smt).I;
 }
 
 glm::dvec3 TonTon::SkinnedMesh::GetCentroid(std::span<const uint16_t> joints, std::span<const glm::mat4> transforms, double * volume_out) const

@@ -5,6 +5,7 @@
 #include "tonton_shared_array.hpp"
 #include "tonton_optional.hpp"
 #include "tonton_wordlist.h"
+#include "tonton_tensors.hpp"
 #include <atomic>
 #include <glm/vec3.hpp>
 #include <glm/mat3x3.hpp>
@@ -104,14 +105,14 @@ struct Analysis_Physical {
 	NicheFlags  niche{NicheFlags::NONE};
 	
 	std::array<float, 6>  covariance_restPose{1.f, 1.f, 1.f, 0.f, 0.f, 0.f};
-	inline glm::mat3 inertia_restPose() const 
+	inline glm::mat3 inertia_restPose() const
 	{
-		auto & I = covariance_restPose;
-		return glm::mat3{ 
-			 I[1] +I[2],-I[3],-I[4],
-			-I[3], I[0] +I[2],-I[5],
-			-I[4],-I[5], I[0] +I[1] 
-	};
+		auto & C = covariance_restPose;
+		TonTon::SecondMomentTensor smt{ glm::dmat3{
+			C[0], C[3], C[4],
+			C[3], C[1], C[5],
+			C[4], C[5], C[2] } };
+		return glm::mat3(TonTon::ToInertia(smt).I);
 	}
 	
 };
