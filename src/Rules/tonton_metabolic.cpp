@@ -82,13 +82,17 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	// ========== GATHER CLADE CONTRIBUTIONS ==========
 
 	// AVES: Highest metabolic rate
-	// Lasiewski & Dawson (1967): RMR = 6.25 * M^0.72 for passerines
-	// Aschoff & Pohl (1970): Similar scaling confirmed across 92 species
+	// McKechnie & Wolf (2004) / Lasiewski & Dawson (1967): avian BMR allometry.
+	// Coefficient expressed in WATTS: a ~1 kg bird BMR is ~5-7 W (non-passerines
+	// near mammalian level, passerines somewhat higher). 4.8*1^0.72 = 4.8 W sits in
+	// that band; the prior 6.25 reads as a kcal/day-based regression figure (6.25 W
+	// at 1 kg, and with exp 0.72 < mammal 0.75 it diverges further above Kleiber's
+	// 4.18*M^0.75 only at sub-kg masses) which is ~too high when interpreted as Watts.
 	// Ellington et al. (1990): Flight muscle: 200-400 W/kg sustained power
 	if (HasFlag(clade, CF::AVES)) {
 		contributions.push_back({
 			.weight = 1.0f,
-			.rmr_coef = 6.25f,
+			.rmr_coef = 4.8f,    // avian BMR in W (was 6.25 — that figure reads as kcal/day, ~too high in W)
 			.rmr_exp = 0.72f,
 			.muscle_W_kg = (200.0f + 200.0f * in.muscle_quality),      // High-performance flight muscle
 			.body_temp_K = 313.15f,     // 40°C (birds run hot)
@@ -145,7 +149,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	if (HasFlag(clade, CF::PISCES)) {
 		contributions.push_back({
 			.weight = 1.0f,
-			.rmr_coef = 0.8f,           // Low ectotherm basal rate
+			.rmr_coef = 0.8f,           // Low ectotherm basal rate, in WATTS (0.8 W at 1 kg — consistent with Watts)
 			.rmr_exp = 0.80f,
 			.muscle_W_kg = (200.0f + 50.0f * in.muscle_quality),      // Red muscle sustained (white burst handled in aquatic rules)
 			.body_temp_K = in.environment.temperature_K,
@@ -160,7 +164,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	if (HasFlag(clade, CF::REPTILIA) || HasFlag(clade, CF::CHELONIA)) {
 		contributions.push_back({
 			.weight = 1.0f,
-			.rmr_coef = 0.5f,
+			.rmr_coef = 0.5f,           // Reptile ectotherm basal rate, in WATTS (0.5 W at 1 kg — consistent with Watts)
 			.rmr_exp = 0.80f,
 			.muscle_W_kg = 100.0f + 100.0f * in.muscle_quality,
 			.body_temp_K = in.environment.temperature_K,
@@ -320,7 +324,9 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 
 	if (needs_endothermy && body_temperature_K < 300.0f) {
 		body_temperature_K = 310.15f;   // Force endotherm body temp
-		rmr_coefficient *= 5.0f;         // Boost to endotherm levels (~5x ectotherm)
+		// Target a floor at the mammalian endotherm level rather than blindly stacking ×5
+		// (which can push an already-warm clade past mammalian RMR).
+		rmr_coefficient = std::max(rmr_coefficient, 4.18f);
 		muscle_power_W_kg = std::max<cost_W_kg>(muscle_power_W_kg, 200.0f);
 
 		s.diagnostics.warnings.push_back({Severity::INFO,
@@ -382,9 +388,12 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 
 	// Temperature affects ectotherm metabolic rate (Q10 = 2-3)
 	if (!needs_endothermy) {
-		auto q10 = 2.5f; // Typical value
+		auto q10 = 2.5f; // Typical value for metabolic RATE
+		// Muscle MECHANICAL power is less temperature-sensitive than metabolic rate.
+		auto power_q10 = 1.8f; // Muscle mechanical power is less temperature-sensitive than metabolic rate
 		auto temp_diff_K = in.environment.temperature_K - temp_K(298.15f); // Relative to 25°C
 		float temp_factor = std::pow(q10, float(temp_diff_K) / 10.0f);
+		float power_temp_factor = std::pow(power_q10, float(temp_diff_K) / 10.0f);
 
 		// Diagnostic: report Q10 temperature adjustment
 		{
@@ -421,7 +430,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 
 		basal_rate_W *= temp_factor;
 		max_rate_W *= temp_factor;
-		available_muscle_power_W *= temp_factor;
+		available_muscle_power_W *= power_temp_factor;
 	} else {
 		// Endotherm thermal stress warnings
 		float temp_C = float(in.environment.temperature_K) - 273.15f;
