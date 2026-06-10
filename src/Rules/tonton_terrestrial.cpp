@@ -51,15 +51,15 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 	using CF = CladeFlags;
 
 	auto mass_exponent = 0.17f;
-	auto base_constant = 0.9f; // Default for general vertebrates
+	auto base_constant = 0.5f; // Recalibrated to Garland (1983) regression; old 0.9 over-predicted small-animal speed ~2-3×
 
 	// Clade-specific adjustments
 	if (HasFlag(out.physical.clade, CF::MAMMALIA)) {
-		base_constant = 1.05f; // Mammals are generally fast runners
+		base_constant = 1.05f; // Mammals fast runners; kept at cat-calibrated value (cat ~13 m/s empirical)
 	} else if (HasFlag(out.physical.clade, CF::AVES)) {
-		base_constant = 0.85f; // Ground birds vary widely
+		base_constant = 0.45f; // Ground birds vary widely
 	} else if (HasFlag(out.physical.clade, CF::REPTILIA)) {
-		base_constant = 0.70f; // Reptiles generally slower
+		base_constant = 0.30f; // Reptiles generally slower
 	}
 
 	// Base speed from mass allometry (in m/s)
@@ -89,8 +89,10 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 	// Leg length correction factor
 	// Short legs (penguins, seals): functional_length < expected → reduce speed
 	// Long legs (kangaroos, ostriches): functional_length > expected → increase speed
-	auto leg_length_ratio = functional_length / expected_leg_m;
-	auto leg_correction = std::sqrt(leg_length_ratio); // sqrt because speed ∝ sqrt(leg_length) from Froude
+	auto leg_length_ratio = (float(expected_leg_m) > 1e-6f)
+		? functional_length / expected_leg_m
+		: 1.0f;
+	auto leg_correction = std::sqrt(std::max(0.0f, float(leg_length_ratio)));
 	leg_correction = std::clamp(leg_correction, 0.3f, 2.0f); // Don't go crazy with extremes
 
 	auto base_sprint = allometric_speed_m_s * leg_correction;
@@ -122,7 +124,9 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 	auto friction_coeff = glm::mix(0.8f, 0.6f, posture) * std::exp2(in.mana.shadow); // shadow mana increases traction
 	auto max_lateral_accel = float(friction_coeff * in.environment.gravity_m_s2);
 
-	length_m min_turning_radius_m = (base_sprint * base_sprint) / max_lateral_accel;
+	length_m min_turning_radius_m = (float(max_lateral_accel) > 1e-4f)
+		? (base_sprint * base_sprint) / max_lateral_accel
+		: length_m(1e6f);   // ~no turning constraint in micro-gravity
 	
 	// Forward acceleration from measured leg forces when available
 	force_N total_leg_grip_force = 0;
@@ -156,32 +160,16 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 			q10 = 3.0f; // Small insects respond faster to temperature
 		}
 
-		// Temperature difference from reference (25°C)
-		temp_K reference_temp_K = 298.15f;
-		auto temp_diff_K = in.environment.temperature_K - reference_temp_K;
-
-		// Performance multiplier from Q10 (Huey & Stevenson 1979)
-		auto q10_multiplier = std::pow(q10, float(temp_diff_K) / 10.0f);
-
-		// Apply to all speed/acceleration metrics
-		base_sprint *= q10_multiplier;
-		max_sustainable_speed_m_s *= q10_multiplier;
-		max_acceleration_m_s2 *= q10_multiplier;
-
-		// Clamp to reasonable limits (arthropods inactive below ~5°C, above ~50°C)
-		if (in.environment.temperature_K < 278.15f) { // Below 5°C
-			auto cold_penalty = float(in.environment.temperature_K - temp_K(273.15f)) / 5.0f;
-			cold_penalty = std::max(cold_penalty, 0.1f);
-			base_sprint *= cold_penalty;
-			max_sustainable_speed_m_s *= cold_penalty;
-		}
-
-		if (in.environment.temperature_K > 323.15f) { // Above 50°C
-			auto heat_penalty = 1.0f - (float(in.environment.temperature_K) - 323.15f) / 10.0f;
-			heat_penalty = std::clamp(heat_penalty, 0.1f, 1.0f);
-			base_sprint *= heat_penalty;
-			max_sustainable_speed_m_s *= heat_penalty;
-		}
+		// Thermal performance curve: rises with Q10 toward an optimum, then declines.
+		// Topt ~ 35 °C (308 K) for typical ectotherms; CTmax ~ 45 °C.
+		const float Topt_K = 308.15f, width_K = 12.0f;
+		float T_K = float(in.environment.temperature_K);
+		float rise = std::pow(q10, std::min(0.0f, (T_K - Topt_K)) / 10.0f); // Q10 below optimum
+		float fall = std::exp(-((T_K - Topt_K) * (T_K - Topt_K)) / (2.0f * width_K * width_K));
+		float thermal_perf = std::clamp(rise * fall, 0.05f, 1.0f);
+		base_sprint *= thermal_perf;
+		max_sustainable_speed_m_s *= thermal_perf;
+		max_acceleration_m_s2 *= thermal_perf;
 
 		// Exoskeleton scaling constraint (Full 1989)
 		// Exoskeleton mass scales as M^1.0 (not M^0.67 like internal skeleton)
@@ -192,7 +180,7 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 			// Square-cube law: strength ∝ area (M^0.67), weight ∝ volume (M^1.0)
 			// Large arthropods become strength-limited
 
-			auto size_penalty = 0.1f / float(out.physical.body_mass_kg); // Linear penalty above 100g
+			auto size_penalty = std::pow(0.1f / float(out.physical.body_mass_kg), 1.0f/3.0f); // strength ∝ area: M^(-1/3)
 			size_penalty = std::clamp(size_penalty, 0.1f, 1.0f);
 
 			base_sprint *= size_penalty;
@@ -245,6 +233,13 @@ std::optional<TonTon::Analysis_Terrestrial>  TonTon::ComputeTerrestrial(Input co
 			// Endotherms can sprint for minutes, not seconds
 			max_sprint_duration_s = std::max(max_sprint_duration_s, time_s(60.0f));
 		}
+	}
+
+	// Sprint speed scales with √g (Froude similarity); 9.81 is the calibration gravity.
+	{
+		float g_scale = std::sqrt(std::max(1e-3f, float(in.environment.gravity_m_s2)) / 9.81f);
+		base_sprint *= g_scale;
+		max_sustainable_speed_m_s *= g_scale;
 	}
 
 	return Analysis_Terrestrial
@@ -422,8 +417,9 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 
 		power_amplification_ratio = muscle_contraction_time_s / tendon_release_time_s;
 
-		// Enhance jump performance for catapult mechanism
-		takeoff_velocity_m_s *= std::sqrt(power_amplification_ratio) * 0.5f;
+		// Power amplification changes the RATE of energy release, not total work (W=F·d is
+		// already counted). It does not add kinetic energy — no velocity multiplier here.
+		// (power_amplification_ratio retained for diagnostics / timing only.)
 		v_vertical = takeoff_velocity_m_s * std::sin(takeoff_angle_rad);
 		v_horizontal = takeoff_velocity_m_s * std::cos(takeoff_angle_rad);
 		flight_time_s = 2.0f * v_vertical / in.environment.gravity_m_s2;
@@ -484,8 +480,8 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		// Spring stiffness k = EA/L where E=modulus, A=area, L=length
 		auto leg_stiffness_N_m = (cuticle_modulus_Pa * leg_cross_section_m2) / avg_leg_length_m;
 
-		// Maximum extension limited by joint geometry (typically 2-3x resting length)
-		auto max_extension_m = avg_leg_length_m * 2.0f;
+		// Tendon strain at failure ~8–10%; use ε=0.08 of the spring's working length.
+		auto max_extension_m = avg_leg_length_m * 0.08f;
 
 		// Elastic energy stored: E = 0.5 * k * x²
 		elastic_storage_J = 0.5f * leg_stiffness_N_m * max_extension_m * max_extension_m;
@@ -547,18 +543,21 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 
 		// Frogs achieve ~70-90% efficiency (lower than insects)
 		auto efficiency = 0.80f;
-		elastic_storage_J = 0.5f * spring_stiffness * (avg_leg_length_m * 3.0f) * (avg_leg_length_m * 3.0f);
+		// Cuticle/tendon strain ε≈0.03 (insect cuticle); x = ε·L.
+		auto spring_extension_m = avg_leg_length_m * 0.03f;
+		elastic_storage_J = 0.5f * spring_stiffness * spring_extension_m * spring_extension_m;
 
 		// Peplowski & Marsh (1997): Frogs achieve 10-20x power amplification
 		power_amplification_ratio = 15.0f;
 
-		// Enhance jump performance
-		takeoff_velocity_m_s *= 1.3f; // 30% boost from elastic storage
+		// Elastic storage is already added to the work budget below; do not double-count as a velocity boost.
 	}
 
 	// 7. SANITY CHECKS
 	// Jump height should be reasonable (< 50x body length for most animals)
-	auto max_reasonable_height = s.physical.body_length_m * 50.0f;
+	// Borelli's law: absolute jump height is ~size-independent (~1-2 m for good jumpers),
+	// so a "×body length" ceiling wrongly truncates small animals. Use an absolute floor.
+	auto max_reasonable_height = std::max<length_m>(s.physical.body_length_m * 50.0f, length_m(2.0f));
 	if(max_jump_height_m > max_reasonable_height)
 	{
 		// Scale back unrealistic jumps
