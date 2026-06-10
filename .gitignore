@@ -4,6 +4,9 @@
 CLAUDE.md
 ornothopter.pdf
 
+# CMake build directory
+build/
+
 # Object files
 *.o
 *.ko
