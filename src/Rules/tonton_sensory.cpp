@@ -24,9 +24,12 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
 	// Binocular overlap = (2 × FOV - separation) / FOV
 	// If eyes are close together and pointing same direction: high overlap
 	// If eyes are on sides of head: low/no overlap
-	auto overlap_angle = 2.0f * fov_per_eye_rad - in.builder->sensory.vision.angular_separation_rad;
-	
-	vision.binocular_overlap = overlap_angle;
+	// Fraction of one eye's field that overlaps the other: (2·FOV − separation)/(2·FOV), clamped 0..1.
+	float two_fov = 2.0f * float(fov_per_eye_rad);
+	float overlap_frac = (two_fov > 1e-4f)
+	    ? (two_fov - float(in.builder->sensory.vision.angular_separation_rad)) / two_fov
+	    : 0.0f;
+	vision.binocular_overlap = std::clamp(overlap_frac, 0.0f, 1.0f);
 	vision.centering = in.builder->sensory.vision.centering; // Single eye is "centered" by default
 	
 	if(eyes.empty()) {
@@ -53,16 +56,16 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
 	auto geometric_acuity = std::clamp(float(max_eye_diameter) / 0.05f, 0.0f, 1.0f);
 	
 	// Behavioral modifier: diurnal animals need better vision
-	auto activity_bonus = in.behavior.activity_pattern;
-	vision.acuity = geometric_acuity * glm::mix(0.7f, 1.3f, activity_bonus);
+	// diurnal(0) → sharper acuity ×1.3, nocturnal(1) → ×0.7
+	vision.acuity = geometric_acuity * glm::mix(1.3f, 0.7f, in.behavior.activity_pattern);
 	vision.acuity = std::clamp(vision.acuity, 0.0f, 1.0f);
 	
 	// ===================================================================
 	// COLOR & NIGHT VISION
 	// ===================================================================
 	
-	vision.has_color_vision = (in.behavior.activity_pattern > 0.4f); // Diurnal
-	vision.has_night_vision = (in.behavior.activity_pattern < 0.6f); // Nocturnal
+	vision.has_color_vision = (in.behavior.activity_pattern < 0.6f); // Diurnal
+	vision.has_night_vision = (in.behavior.activity_pattern > 0.4f); // Nocturnal
 	
 	// ===================================================================
 	// DETECTION RANGE
@@ -85,7 +88,11 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
 	
 	if(has_eyestalks) {
 		// Higher eyes see further (horizon distance)
-		auto horizon_bonus = 1.0f + std::sqrt(float(max_stalk_height) * 2.0f); // Rough approximation
+		// Horizon distance ≈ 3.57·√h km (h in m). Express as a modest detection-range
+		// multiplier relative to a 1.7 m eye height baseline.
+		float horizon_km = 3.57f * std::sqrt(std::max(0.0f, float(max_stalk_height)));
+		float baseline_km = 3.57f * std::sqrt(1.7f);
+		auto horizon_bonus = std::clamp(horizon_km / baseline_km, 1.0f, 3.0f);
 		vision.detection_range_m *= horizon_bonus;
 	}
 	
@@ -146,7 +153,7 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
 			vision.thermal_sensitivity_K = 0.01f; // 0.01°C threshold
 			
 			// Snakes often have reduced visual acuity (except diurnal species)
-			if (in.behavior.activity_pattern < 0.5f) { // Nocturnal
+			if (in.behavior.activity_pattern > 0.5f) { // Nocturnal
 				vision.acuity *= 0.7f; // Reduced visual acuity
 			}
 		}
@@ -169,7 +176,7 @@ static Analysis_Vision ComputeVision(Input const& in, Scratch const& s) {
 		// Forward-facing eyes in raptors for binocular vision
 		// Martin (2007): Owls have 50-70% binocular overlap
 		if (s.aerial.has_value() && HasFlag(s.physical.clade, CF::MAMMALIA) == false) {
-			vision.binocular_overlap = std::max<angle_rad>(vision.binocular_overlap, 0.5f);
+			vision.binocular_overlap = std::max<float>(vision.binocular_overlap, 0.5f);
 		}
 	}
 	
@@ -377,6 +384,7 @@ static length_m PredictedEyeDiameter(Analysis_Physical const& physical)
 		{
 			// Fallback: very conservative estimate based on body size
 			length_m eye_diameter = 0.015f * std::cbrt(float(physical.body_mass_kg));
+			accumulator += eye_diameter;   // was missing — value computed but dropped
 			return true;
 		}
 		}
@@ -405,7 +413,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
 	// Social animals need good hearing (communication)
 	// Nocturnal animals need good hearing (can't see)
 	auto social_bonus = in.behavior.social_tendency;
-	auto nocturnal_bonus = 1.0f - in.behavior.activity_pattern;
+	auto nocturnal_bonus = in.behavior.activity_pattern;
 	auto behavioral_sensitivity = std::max(social_bonus, nocturnal_bonus);
 	
 	hearing.sensitivity = (geometric_sensitivity + behavioral_sensitivity) * 0.5f;
@@ -518,7 +526,7 @@ static std::optional<Analysis_Hearing> ComputeHearing(Input const& in, Scratch c
 		
 		// Owls have exceptional hearing for nocturnal hunting
 		// Konishi (1973): Barn owls localize to ±1° in azimuth
-		if (s.aerial.has_value() && in.behavior.activity_pattern < 0.4f) { // Nocturnal
+		if (s.aerial.has_value() && in.behavior.activity_pattern > 0.6f) { // Nocturnal
 			hearing.sensitivity = std::min(hearing.sensitivity * 1.5f, 1.0f);
 			hearing.directional_accuracy_rad = 1.0f * (M_PI / 180);
 			
@@ -621,7 +629,7 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
 	// BEHAVIORAL MODIFIERS
 	
 	// Nocturnal animals rely more on smell
-	auto nocturnal_bonus = 1.0f - in.behavior.activity_pattern;
+	auto nocturnal_bonus = in.behavior.activity_pattern;
 	
 	// Predators (high aggression) often have good smell for tracking prey
 	auto predator_bonus = in.behavior.aggression_adjustment;
@@ -734,7 +742,7 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
 			}
 			
 			// Nocturnal mammals rely more on smell
-			if (in.behavior.activity_pattern < 0.4f) {
+			if (in.behavior.activity_pattern > 0.6f) {
 				olfaction.sensitivity = std::min(olfaction.sensitivity * 1.3f, 1.0f);
 			}
 		}
@@ -763,7 +771,7 @@ static std::optional<Analysis_Olfaction> ComputeOlfaction(
 				olfaction.sensitivity *= 0.5f;
 				olfaction.detection_range_m *= 0.5f;
 			}
-		} else if (in.behavior.activity_pattern < 0.3f) {
+		} else if (in.behavior.activity_pattern > 0.7f) {
 			// Nocturnal flightless birds (kiwi) have excellent olfaction
 			// Corfield et al. (2015): Kiwi olfactory bulb 30% of brain
 			olfaction.sensitivity = 0.9f;

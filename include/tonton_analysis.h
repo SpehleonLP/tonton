@@ -616,7 +616,7 @@ struct Analysis_Behavior {
 // ============================================================================
 struct Analysis_Vision {
 	float acuity{};                 // 0=poor, 1=excellent
-	angle_rad binocular_overlap{};      // 0=none, 1=full overlap
+	float binocular_overlap{};      // 0=none, 1=full overlap (fraction)
 	length_m detection_range_m{};
 	float centering{}; // how centered are the eyes? -1 or +1 indicates flatfish
 	
