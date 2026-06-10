@@ -105,8 +105,11 @@ TonTon::Scratch::Scratch(Input const& in)
 	// Check for obviously wrong values
 	bool reasonable_mass = (physical.body_mass_kg > 0.0001f && physical.body_mass_kg < 200000.0f);
 	bool reasonable_length = (physical.body_length_m > 0.001f && physical.body_length_m < 50.0f);
-	bool reasonable_density = (physical.body_mass_kg / physical.body_volume_m3 > 100.0f &&
-	                          physical.body_mass_kg / physical.body_volume_m3 < 2000.0f);
+	bool reasonable_density = false;
+	if (float(physical.body_volume_m3) > 1e-9f) {
+		float density = float(physical.body_mass_kg) / float(physical.body_volume_m3);
+		reasonable_density = (density > 100.0f && density < 2000.0f);
+	}
 	bool reasonable_metabolic = (metabolic.basal_rate_W > 0.0f && metabolic.max_rate_W > metabolic.basal_rate_W);
 
 	diagnostics.is_physically_plausible =
@@ -231,7 +234,9 @@ static	TonTon::Analysis_Tail ComputeTail(TonTon::Input const& in, TonTon::Builde
 	}
 	
 	r.branches = branches;
-	r.natural_sway_frequency_Hz = sqrt(in.environment.gravity_m_s2 / (r.stretched_length_m + max_length)) / M_PI;
+	// Simple pendulum: f = √(g/L)/(2π).  L = distance from pivot to the swinging segment's CoM.
+	auto pendulum_length_m = std::max(1e-3f, float(r.stretched_length_m + max_length) * 0.5f); // CoM ~ mid-length
+	r.natural_sway_frequency_Hz = std::sqrt(float(in.environment.gravity_m_s2) / pendulum_length_m) / (2.0f * float(M_PI));
 	
 	return r;
 } 
