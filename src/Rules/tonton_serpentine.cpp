@@ -186,12 +186,24 @@ std::optional<Analysis_Serpentine> ComputeSerpentine(Input const& in, Scratch &s
 	auto frequency_Hz = frequency_base_Hz * glm::mix(0.7f, 1.3f, in.muscle_quality);
 
 	auto wavelength_m = result.lateral_undulation.wavelength_ratio * body_length_m;
-	auto lateral_speed_m_s = wavelength_m * frequency_Hz;
+	auto wave_speed_m_s = wavelength_m * frequency_Hz;
 
-	// Efficiency depends on friction anisotropy and substrate
-	// Better anisotropy = faster movement
-	auto efficiency = glm::clamp(result.friction_anisotropy_ratio / 3.0f, 0.3f, 1.0f);
-	lateral_speed_m_s *= efficiency;
+	// Lateral undulation advances at a fraction of wave speed (slip): snakes typically
+	// achieve a 0.3-0.6 advance ratio on natural ground (Hu et al. 2009). Anisotropy is
+	// the *enabling condition* for thrust: net push -> 0 as friction becomes isotropic.
+	//
+	// Convention (see assignment at top of this function, l.170):
+	//   friction_anisotropy_ratio = lateral_friction_coef / forward_friction_coef
+	//   == 1.0  -> ISOTROPIC (no directional preference, no net thrust)
+	//   >  1.0  -> anisotropic (lateral grip exceeds forward sliding -> thrust possible)
+	// The spec's nominal form `0.3 + 0.3*(ratio-1)` floors at 0.3 when ratio==1, which
+	// contradicts the physical requirement (thrust must vanish at isotropy). Instead use
+	// a form that is 0 at ratio==1 and saturates toward 0.6 as anisotropy grows:
+	//   advance_ratio = 0.6 * (1 - 1/ratio)
+	// Guard ratio against <=0 to avoid divide-by-zero.
+	float aniso = std::max(result.friction_anisotropy_ratio, 1.0f);
+	float advance_ratio = glm::clamp(0.6f * (1.0f - 1.0f / aniso), 0.0f, 0.6f);
+	auto lateral_speed_m_s = wave_speed_m_s * advance_ratio;
 
 	result.lateral_undulation_speed_m_s = lateral_speed_m_s;
 
