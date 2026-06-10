@@ -99,7 +99,7 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 
 	// Humeral rotation (moles, golden moles) - highly specialized
 	// Indicated by very powerful forelimbs relative to body size
-	auto relative_limb_strength = max_forelimb_force / (s.physical.body_mass_kg * 9.81f);
+	auto relative_limb_strength = max_forelimb_force / (s.physical.body_mass_kg * in.environment.gravity_m_s2);
 	if(relative_limb_strength > 0.5f && avg_forelimb_area > 0.0f)
 	{
 		// Check if body is cylindrical (fineness ratio < 5 = stocky digger)
@@ -142,12 +142,19 @@ std::optional<Analysis_Digging> TonTon::ComputeDigging(Input const& in, Scratch 
 	// Effective digging force
 	result.soil_force_N = max_forelimb_force * forelimb_count;
 
-	// Volume excavated per stroke
-	auto cross_section_m2 = s.physical.cross_sectional_area_m2;
-	auto volume_per_stroke = cross_section_m2 * stroke_length_m;
+	// Digging advance rate from P = F * v against soil penetration resistance.
+	auto cross_section_m2 = std::max(1e-4f, float(s.physical.cross_sectional_area_m2));
 
-	// Digging speed = (volume per stroke) * (frequency) / (tunnel cross-section)
-	result.max_dig_speed_m_s = (volume_per_stroke * stroke_frequency_Hz) / cross_section_m2;
+	// Soil penetration resistance: force needed to advance the tunnel face one metre.
+	//   F_soil = soil_resistance_Pa * tunnel_area.  Advance rate set by available power:
+	//   v = P_dig / F_soil, capped by the limb's kinematic stroke rate (stroke_len*freq).
+	const float soil_resistance_Pa = 50000.0f; // compacted soil ~50 kPa penetration resistance
+	float soil_resistance_force_N = soil_resistance_Pa * cross_section_m2;          // [Pa]*[m^2] = [N]
+	float stroke_speed    = stroke_length_m * stroke_frequency_Hz;                 // [m/s] kinematic stroke rate
+	float dig_power_W     = float(max_forelimb_force) * stroke_speed;              // F*v of the stroke = [W]
+	float power_limited_v = dig_power_W / std::max(1e-3f, soil_resistance_force_N);// [W]/[N] = [m/s]
+	float kinematic_v     = stroke_speed;
+	result.max_dig_speed_m_s = velocity_m_s(std::min(power_limited_v, kinematic_v));
 
 	// Method-specific adjustments
 	switch(result.method)
@@ -251,24 +258,19 @@ std::optional<Analysis_Constriction> TonTon::ComputeConstriction(Input const& in
 	// Constriction uses axial muscles in a ring around prey
 	//auto body_cross_section = s.physical.cross_sectional_area_m2;
 
-	// Constriction pressure = (muscle stress) × (muscle fraction) × (coil overlap factor)
-	// Multiple coils increase pressure
 	auto body_diameter_m = s.physical.cross_sectional_diameter_m();
-	auto typical_coils = std::max<float>(3.0f, float(s.physical.body_length_m / (M_PI * body_diameter_m)));
-	typical_coils = std::min(typical_coils, 12.0f); // Cap at ~12 coils
 
-	// Each coil adds pressure, but with diminishing returns
-	auto coil_efficiency = 0.7f; // Subsequent coils less effective
-	auto effective_coils = 1.0f + (typical_coils - 1.0f) * coil_efficiency;
+	// Laplace's law for a cylindrical wrap: P = σ · (t / r)
+	//   σ = muscle tension stress, t = body-wall thickness, r = coil radius.
+	// Coil COUNT does not raise local pressure — it raises total grip force/coverage.
+	float wall_thickness_m = std::max(1e-3f, float(body_diameter_m) * 0.15f); // muscle layer ~15% of diameter
+	float coil_radius_m    = std::max(1e-3f, float(body_diameter_m) * 0.5f);
+	result.max_squeeze_pressure_Pa = pressure_Pa(muscle_stress_Pa * 0.15f * (wall_thickness_m / coil_radius_m));
 
-	// Squeeze pressure from muscle stress distributed over prey surface
-	result.max_squeeze_pressure_Pa = muscle_stress_Pa * effective_coils * 0.15f; // ~15% efficiency
-
-	// Empirical data: Python constriction reaches ~30 kPa (Boback et al. 2012)
-	// Adjust our calculation to match empirical range
+	// Safety net only (not the answer): empirical pythons ~30 kPa.
 	result.max_squeeze_pressure_Pa = std::clamp<pressure_Pa>(
 		result.max_squeeze_pressure_Pa,
-		5000.0f,   // Min: 5 kPa (weak constrictors)
+		1000.0f,   // Min: 1 kPa (weak constrictors)
 		60000.0f   // Max: 60 kPa (exceptional constrictors, >2× python)
 	);
 
