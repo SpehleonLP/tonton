@@ -359,7 +359,20 @@ glm::dmat3 limb_inertia = metrics.GetInertia(shoulder_pos, input.body_density())
 
 ## Testing Approach
 
-No formal test suite exists. Validation is via:
+A GTest plausibility suite (`tonton-tests`, built in the `tonton-example` outer
+repo from `tests/tonton_plausibility_tests.cpp` + `tests/tonton_geometry_tests.cpp`)
+loads the sample models and checks output against empirical biology. Build and run:
+```bash
+cmake --build tonton-example/build --target tonton-tests
+tonton-example/build/tonton-tests
+```
+Two families: `Invariants.*`/`Physics.*`/`Geometry.*` (universal sanity — masses,
+realistic speeds, gravity/energy scaling) and `Species.*` (per-animal biology).
+**Goal is physical accuracy, not a green suite** — a `Species.*` red can mean a
+genuine rule bug, an over-/under-estimate worth surfacing, OR an inaccurate input
+model (e.g. a sample's geometry/bone-naming yielding the wrong clade or morphology).
+Diagnose which before "fixing"; never mask a non-physical intermediate just to pass.
+Also validate via:
 1. Known animal comparisons (e.g., dragonfly metrics in README)
 2. Physics sanity checks (positive masses, realistic speeds)
 3. Allometric scaling laws (body size relationships)
