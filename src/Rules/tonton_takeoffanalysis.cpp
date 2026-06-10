@@ -22,6 +22,13 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
         return result;
     }
 
+    // K4: zero/negative mass is degenerate (divides weight, power-to-weight, accel below).
+    if (output.physical.body_mass_kg <= 0) {
+        result.mode = TakeoffMode::IMPOSSIBLE;
+        result.confidence = 0.0f;
+        return result;
+    }
+
     const auto& aerial = output.aerial.value();
     const auto body_mass_kg = output.physical.body_mass_kg;
     const auto weight_N = body_mass_kg * in.environment.gravity_m_s2;
@@ -33,11 +40,12 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     
     result.max_instantaneous_lift_N = T::EstimateMaxLift(aerial, body_mass_kg, air_density);
     result.max_instantaneous_thrust_N = T::EstimateMaxThrust(aerial, body_mass_kg, air_density);
-    
-    // Net vertical force (thrust contributes ~70% vertically during takeoff)
-    result.net_vertical_force_N = result.max_instantaneous_lift_N + 
-                                  result.max_instantaneous_thrust_N * 0.7f;
-    
+
+    // Split the vertical force into a lift component and a jet/reaction-thrust component
+    // (thrust contributes ~70% vertically during takeoff).
+    force_N lift_component_N = result.max_instantaneous_lift_N;
+    force_N thrust_component_N = result.max_instantaneous_thrust_N * 0.7f;
+
     // Apply ground effect bonus (height = max leg length, or 0.5m fallback)
     length_m ground_height_m = 0.5f;
     if (output.terrestrial.has_value()) {
@@ -46,7 +54,10 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
         }
     }
     result.ground_effect_bonus = T::GroundEffectBonus(aerial.wing_span_m, ground_height_m);
-    result.net_vertical_force_N *= result.ground_effect_bonus;
+    // K3: ground effect augments LIFT only (image-vortex effect reduces induced drag);
+    // it does not amplify the jet/reaction thrust term.
+    lift_component_N *= result.ground_effect_bonus;
+    result.net_vertical_force_N = lift_component_N + thrust_component_N;
     
     result.vertical_acceleration_m_s2 = (result.net_vertical_force_N - weight_N) / body_mass_kg;
     result.force_margin_percent = ((result.net_vertical_force_N / weight_N) - 1.0f) * 100.0f;
@@ -57,9 +68,18 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     
     result.power_to_weight_W_kg = output.metabolic.available_muscle_power_W / body_mass_kg;
    
-    // Estimate power needed for takeoff (hovering-like initially)
-    auto takeoff_power_needed_W = aerial.hovering_power_W;
-    result.takeoff_power_fraction = float(takeoff_power_needed_W) / float(output.metabolic.available_muscle_power_W);
+    // Estimate power needed for takeoff (hovering-like initially).
+    // K1: compare mechanical-to-mechanical. Per tonton_aerial.cpp, hovering_power_W is
+    // METABOLIC (mechanical / efficiency), while metabolic.available_muscle_power_W is the
+    // MECHANICAL muscle output capacity (~200-400 W/kg, see tonton_metabolic.cpp). The old
+    // code divided metabolic by mechanical (off by ~1/efficiency). Convert the metabolic
+    // hovering requirement back to mechanical (efficiency) before forming the fraction.
+    // NOTE: keep roughly in sync with the muscle efficiency tonton_aerial.cpp uses to
+    // convert hover mechanical->metabolic (currently ~0.10-0.23); a mismatch skews the round-trip.
+    const float muscle_efficiency = 0.20f;  // representative flapping-flight value (range 0.10-0.23)
+    power_W takeoff_power_needed_W = aerial.hovering_power_W * muscle_efficiency;  // -> mechanical
+    result.takeoff_power_fraction = float(takeoff_power_needed_W) /
+                                    std::max(1e-3f, float(output.metabolic.available_muscle_power_W));
     
     // ========================================================================
     // CONSTRAINT CHECKS
@@ -170,9 +190,10 @@ inline force_N TakeoffAnalysis::EstimateMaxLift(const Analysis_Aerial& aerial,
     }
     tip_velocity /= aerial.wings.size();  // Average
     
-    // Dynamic pressure from tip velocity
-    
-    pressure_Pa dynamic_pressure = 0.5f * air_density * (tip_velocity * tip_velocity);
+    // Dynamic pressure from tip velocity.
+    // K2: velocity grows linearly to the tip, so the mean of v^2 over the wing span
+    // = v_tip^2 / 3 (blade-element). Using tip v^2 over the whole area overestimates ~3x.
+    pressure_Pa dynamic_pressure = 0.5f * air_density * (tip_velocity * tip_velocity) / 3.0f;
     
     // Total lift from all wings
     force_N max_lift_N = max_CL_power_stroke * dynamic_pressure * aerial.wing_area_m2;
@@ -242,14 +263,17 @@ inline velocity_m_s TakeoffAnalysis::RequiredJumpVelocity(const Analysis_Aerial&
     // Otherwise, need to gain enough height/time for wings to build lift
     // Target: reach min flight speed or buy enough time for wing acceleration
 
-	velocity_m_s wing_tip_speed = aerial.wings[0].wing_tip_velocity(aerial.wingbeat_frequency_Hz);
+    // K4: guard wings[0] and the 1/f used below; without wings/beat there is no
+    // wing-driven forward accel, so no meaningful jump-assist velocity is defined.
+    if (aerial.wings.empty() || aerial.wingbeat_frequency_Hz <= 0) return velocity_m_s(0.0f);
+    velocity_m_s wing_tip_speed = aerial.wings[0].wing_tip_velocity(aerial.wingbeat_frequency_Hz);
 
- //   float lift_deficit_N = weight_N - max_lift_N;
- 
-	// Forward thrust ≈ some fraction of wing tip momentum per beat
-	// Very rough estimate: 10-20% of tip speed translates to forward acceleration per wingbeat period
-	time_s wingbeat_period = 1.0f / aerial.wingbeat_frequency_Hz;
-	acceleration_m_s2 forward_accel = (wing_tip_speed * 0.15f) / wingbeat_period;
+    //   float lift_deficit_N = weight_N - max_lift_N;
+
+    // Forward thrust ≈ some fraction of wing tip momentum per beat
+    // Very rough estimate: 10-20% of tip speed translates to forward acceleration per wingbeat period
+    time_s wingbeat_period = 1.0f / aerial.wingbeat_frequency_Hz;
+    acceleration_m_s2 forward_accel = (wing_tip_speed * 0.15f) / wingbeat_period;
 
     time_s time_needed_s = std::max(time_s(0.3f), aerial.min_flight_speed_m_s / forward_accel);
 
