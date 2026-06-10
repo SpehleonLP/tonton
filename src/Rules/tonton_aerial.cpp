@@ -236,11 +236,6 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // Pennycuick (1996) SI constant K ≈ 1.08, modulated by scaling strategy.
     auto K_pennycuick = 1.08f * (0.8f + 0.4f * in.scaling_strategy);
 
-    // For underwater propulsion: use thrust-based "effective loading"
-    // when actual wing loading → 0 due to buoyancy
-    auto min_loading_N_m2 = (body_mass_kg * 0.1f * real_g) / total_wing_area_m2;
-    auto effective_loading_N_m2 = std::max(r.wing_loading_N_m2, min_loading_N_m2);
-
     // Blend between insect and bird frequency models based on regime
     auto compute_base_frequency = [&](float regime) -> freq_Hz {
         freq_Hz insect_freq = insect_allometric_frequency(body_mass_kg);
@@ -256,7 +251,7 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 
     // Velocity from frequency via Strouhal constraint
     auto compute_strouhal_velocity = [&](freq_Hz f, float regime) -> velocity_m_s {
-        angle_rad cruise_amplitude = 1.05f;  // ~60° peak-to-peak
+        angle_rad cruise_amplitude = 1.05f;  // ~60° single-sided (strouhal_velocity doubles for peak-to-peak)
         return strouhal_velocity(f, cruise_amplitude, total_wing_span_m / 2.0f,
                                  regime_strouhal(regime));
     };
@@ -295,7 +290,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // BEAT AMPLITUDE (morphological adaptation)
     // ============================================================================
 
-    // Cruise: ~60° p2p for efficiency, Hover: ~140° p2p for lift generation
+    // Single-sided amplitudes — Cruise: ~60° for efficiency, Hover: ~140° for lift generation
+    // (doubled to peak-to-peak where Strouhal / stroke-length require it)
     angle_rad cruise_amplitude_rad = 1.05f;
     angle_rad hover_amplitude_rad = 2.44f;
     angle_rad base_beat_amplitude_rad = glm::mix(cruise_amplitude_rad, hover_amplitude_rad,

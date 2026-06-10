@@ -541,8 +541,6 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 		area_m2 tendon_area_m2 = avg_leg_cs_m2 * 0.05f; // Tendons ~5% of limb cross-section
 		auto spring_stiffness = (tendon_modulus_Pa * tendon_area_m2) / avg_leg_length_m;
 
-		// Frogs achieve ~70-90% efficiency (lower than insects)
-		auto efficiency = 0.80f;
 		// Cuticle/tendon strain ε≈0.03 (insect cuticle); x = ε·L.
 		auto spring_extension_m = avg_leg_length_m * 0.03f;
 		elastic_storage_J = 0.5f * spring_stiffness * spring_extension_m * spring_extension_m;
