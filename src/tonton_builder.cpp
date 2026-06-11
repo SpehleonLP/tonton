@@ -1152,6 +1152,36 @@ std::vector<TonTon::Builder_Appendage> TonTon::Builder::BuilderCommand::GetAppen
 		
 		r[i].contact = GetContact(r[i].root, r[i].tip);
 		r[i].surface = GetSurface(r[i].root, r[i].tip, skinnedMesh.skin->memo()->GetAllChildrenOfRoot(r[i].root));
+
+		// --- Geometry-based wing detection ---------------------------------
+		// A flight membrane carries no "wing" bone name: in a bat it is the
+		// arm + greatly-elongated finger bones with skin stretched between
+		// them, and the semantic layer (names only) can never see it. Detect
+		// it from shape instead. A membrane is an extremely thin, broad sheet:
+		// calibrated across the sample models, insect and bat wings sit at a
+		// thickness-to-chord ratio ~0.001 with face-area / cross-section ~100,
+		// an order of magnitude past the next-thinnest real limb (frog ~0.009).
+		// This is the SHEET regime; streamlined foils (fish fin, bird/penguin
+		// flipper) are far thicker (~0.05-0.08, the real-airfoil band) and are
+		// deliberately NOT caught here -- distinguishing those from a leg needs
+		// more than thinness. The DIGIT requirement separates the finger-borne
+		// flight membrane from a bat's equally-thin leg/tail uropatagium.
+		{
+			float face_area = float(r[i].surface.area);
+			float thickness = face_area > 1e-9f ? float(r[i].volume) / face_area : 0.f;
+			float chord     = float(r[i].surface.chord);
+			float max_cs    = float(r[i].maxCrossSection);
+			float t_over_c  = chord  > 1e-9f  ? thickness / chord  : 1.f;
+			float area_cs   = max_cs > 1e-12f ? face_area / max_cs : 0.f;
+
+			bool thin_sheet      = (t_over_c < 0.003f) && (area_cs > 30.f);
+			bool digit_supported = HasFlag(r[i].semantic_flags, SF::DIGIT);
+
+			if(thin_sheet && digit_supported && !HasFlag(r[i].semantic_flags, SF::WING))
+			{
+				r[i].semantic_flags = r[i].semantic_flags | SF::WING;
+			}
+		}
 	}
 	
 	uint32_t current_gait_group = 0;
