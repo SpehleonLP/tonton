@@ -5,6 +5,8 @@
 #include "tonton_units.hpp"
 #include "tonton_analysis.h"
 
+#include <optional>
+
 namespace TonTon {
 
 struct Output;
@@ -64,6 +66,20 @@ struct LaunchFacts {
 
 // The dispatch itself: pure, total over every TakeoffMode, no Output in sight.
 LaunchPlan PlanLaunch(const LaunchFacts& facts);
+
+// The WIRING, exposed separately from the dispatch it feeds. `nullopt` when the
+// creature has no aerial analysis at all.
+//
+// Splitting the adapter out is not decoration. While the only way to reach it
+// was through PlanLaunch(Output, ...), every test that checked the entry point
+// against PlanLaunch(*out, in, v) compared two values that had BOTH travelled
+// through this function -- so swapping `required_jump_velocity_m_s` with
+// `available_jump_velocity_m_s`, clearing `can_use_water_taxi`, or replacing
+// `in.gravity_m_s2` with a hardcoded 9.81 all left the suite green. A field can
+// only be pinned against a source that does not share its bug, and that source
+// has to be the test body reading `Output` itself.
+std::optional<LaunchFacts> MakeLaunchFacts(
+	const Output& analysis, const MyopicInput& in, float airspeed_m_s);
 
 // Thin adapter: reads the facts out of `Output` and defers. `airspeed_m_s` must
 // be AIRSPEED, never ground speed (see LaunchFacts).

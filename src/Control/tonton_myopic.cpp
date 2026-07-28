@@ -173,6 +173,10 @@ MyopicOutput ComputeMyopicControl(
 		out.required_jump_velocity_m_s = plan.required_jump_velocity_m_s;
 		out.jump_direction             = plan.jump_direction;
 		out.jump_feasible              = plan.jump_feasible;
+		// Both of these were derived and then dropped on the floor. See the
+		// contract notes at MyopicOutput::required_drop_m and ::launch_feasible.
+		out.required_drop_m            = plan.required_drop_m;
+		out.launch_feasible            = plan.feasible;
 
 		if (plan.accelerate_along_heading) {
 			// COMMAND THE SPEED THE LAUNCH ACTUALLY REQUIRES.
@@ -191,6 +195,23 @@ MyopicOutput ComputeMyopicControl(
 			// along the heading -- airspeed_along = v_ground_along - wind_along
 			// -- so reaching airspeed R needs ground speed R + wind_along. A
 			// headwind (wind_along < 0) shortens the run, with no special case.
+			//
+			// A headwind stronger than the whole requirement drives `required`
+			// negative: the creature is already at flight speed standing still.
+			// std::max hands the speed channel straight back to the caller.
+			//
+			// TODO(follow-up): readiness and this floor measure different things,
+			// and in a pure CROSSWIND they disagree. Readiness is |v - w| >= R, a
+			// MAGNITUDE; the floor uses dot(wind, forward), an ALONG-HEADING
+			// component. A standing bat in a 10 m/s crosswind therefore reports
+			// transition_readiness = 1.0 (measured: airspeed 12.72 against a 7.867
+			// requirement) while this floor still asks for the full 7.867 of
+			// ground speed. Each half is self-consistent with the pre-existing
+			// magnitude definition of readiness, which this module did not
+			// introduce. The physical answer is that birds TURN INTO THE WIND
+			// before a takeoff run -- a steering behaviour belonging to whatever
+			// picks target_position, for which this module has no channel.
+			// Recorded, not built.
 			float required = plan.required_airspeed_m_s;
 			if (frame == SpeedFrame::GROUND) {
 				required += glm::dot(input.medium_velocity_m_s, forward);
@@ -211,11 +232,25 @@ MyopicOutput ComputeMyopicControl(
 	cmd.angle_error_rad   = hold_heading ? 0.f : angle_error;
 	cmd.current_speed_m_s = mode_speed;
 	// The launch requirement is a FLOOR under the caller's own wish, not a
-	// replacement for it: dropping back to env->max_speed the instant readiness
-	// hit 1 would command a brake below flight speed and oscillate. When the
-	// floor exceeds the gait's top speed, Steer's `suggest_gait_change` fires --
-	// which is how the caller learns that THIS gait cannot reach flight speed,
-	// instead of watching readiness stall silently.
+	// replacement for it.
+	//
+	// NOT because of an oscillation at readiness 1: that cannot happen. The floor
+	// is applied whenever `plan.accelerate_along_heading` is set, and for
+	// RUNNING_TAKEOFF that flag depends only on the substrate
+	// (tonton_launch.cpp:79) -- it stays true after readiness reaches 1, so the
+	// floor never releases and there is nothing to drop back from. An earlier
+	// version of this comment argued from that scenario; it was wrong.
+	//
+	// The real reason is the other direction. The launch says how fast the
+	// creature must go AT LEAST; it says nothing about how fast it may go. A
+	// caller chasing prey down the runway, or wanting margin over the stall,
+	// legitimately asks for MORE than flight speed, and `std::max` is what lets
+	// that number survive. Replacing rather than flooring would silently cap
+	// every launching creature at exactly its stall speed.
+	//
+	// When the floor exceeds the gait's top speed, Steer's `suggest_gait_change`
+	// fires -- which is how the caller learns that THIS gait cannot reach flight
+	// speed, instead of watching readiness stall silently.
 	cmd.desired_speed_m_s = std::max(
 		launch_speed_floor,
 		(input.desired_speed_m_s >= 0.f ? input.desired_speed_m_s

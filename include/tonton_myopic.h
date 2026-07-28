@@ -107,6 +107,17 @@ struct MyopicOutput {
 	// limit / no authority") is the least-wrong reading in the existing
 	// convention; there is no separate "not applicable" value and inventing a
 	// sentinel here is the very thing MODE_UNAVAILABLE exists to avoid.
+	//
+	// TODO(follow-up): `stability` does not currently ORDER correctly across
+	// those two situations. MODE_UNAVAILABLE reads exactly 0, while a nominal,
+	// successfully completing takeoff run reads -12.6 (batto, gait 0) to -327929
+	// (dragonfly, gait 0) -- driven by u_speed = ground_speed/gait_max_speed
+	// (~13.6 during a launch run, which is the adjudicated division of labour) and
+	// by the degenerate tau_linear recorded at tonton_envelope.cpp. So a caller
+	// keyed on `stability` sees "a mode you do not have" scoring strictly better
+	// than "a textbook takeoff". Each half is individually adjudicated; it is
+	// their INTERACTION that is new, and fixing it means deciding what the scale
+	// means below 0 rather than adjusting either half.
 	float stability{1.f};
 	float speed_headroom{1.f};
 	float turn_headroom{1.f};
@@ -122,6 +133,27 @@ struct MyopicOutput {
 	float          transition_readiness{0.f}; // [0,1]; meaningful when target != mode
 	BlockingReason blocking_reason{BlockingReason::NONE};
 	float          touchdown_speed_m_s{0.f};  // aerial only
+
+	// How far this creature must FALL to reach flight speed: h = v_stall^2/(2g).
+	// Populated whenever a launch plan exists at all (target_mode == AERIAL and
+	// mode != AERIAL); 0 when gravity is 0, where no drop converts into airspeed.
+	//
+	// It is a readout, not a command -- this module has no vertical channel. But
+	// without it a CLIFF_LAUNCH creature's caller learns only
+	// blocking_reason == NEEDS_ELEVATION and has no way to find out HOW MUCH
+	// elevation, which makes the reason unactionable: the number was derived,
+	// lived in LaunchPlan, and reached nobody.
+	float required_drop_m{0.f};
+
+	// Whether the launch is possible AT ALL from here, as distinct from ready
+	// NOW. These are genuinely two facts, and blocking_reason carries only the
+	// second: a RUNNING_TAKEOFF creature reports NEEDS_RUNWAY_SPEED both while it
+	// is accelerating down a perfectly good runway (readiness rising, feasible)
+	// and while it stands on a perch it can never take off from (readiness pinned
+	// at 0, not feasible). A caller that cannot tell those apart will either give
+	// up on a run that was about to succeed or keep accelerating forever.
+	// Meaningless (false) unless target_mode == AERIAL and mode != AERIAL.
+	bool launch_feasible{false};
 
 	// Descriptive only. The caller owns all jump timing: a jump has a crouch
 	// pre-animation, so no single frame is the right one to apply an impulse.

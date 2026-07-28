@@ -18,10 +18,34 @@ BlockingReason FirstFailedConstraint(const LaunchFacts& f)
 	return BlockingReason::TAKEOFF_IMPOSSIBLE;
 }
 
-// A launch that pushes off the substrate needs a substrate that pushes back.
-// Open water bears neither a leg thrust nor a standing wingbeat, unless the
-// analysis flagged this creature as one of the water-taxiing flyers.
-bool SubstrateBearsWeight(const LaunchFacts& f)
+// TWO different demands on the substrate, deliberately NOT one predicate.
+//
+// They were one, gated on `can_use_water_taxi`, and that overloaded the flag.
+// `Analysis_TakeoffAnalysis::can_use_water_taxi` is set from
+// `output.aquatic.has_value()` (tonton_takeoffanalysis.cpp:133) and its
+// documented meaning is "run on water surface (pelicans)": a RUNNING takeoff in
+// which the wings already carry most of the weight and the feet only skim. That
+// is not evidence about anything else the legs can do.
+
+// A leg thrust needs GROUND REACTION -- the substrate must return a whole-body
+// impulse over a few tens of milliseconds. Open water cannot, and no flag TonTon
+// computes says otherwise: `can_use_water_taxi` describes a running takeoff, not
+// a standing jump, and a pelican pattering across a lake is no evidence that its
+// legs could launch it from one. There is no field in the analysis layer that
+// speaks to leg thrust against a non-solid substrate, so the honest answer is a
+// flat refusal rather than a flag borrowed from a different behaviour.
+bool SubstrateAcceptsLegThrust(const LaunchFacts& f)
+{
+	return f.substrate != Substrate::WATER;
+}
+
+// A standing wingbeat asks far less: the substrate only has to SUPPORT the
+// creature's weight while the wings spool up. No impulse, no ground reaction --
+// buoyancy will do. But only a creature that can operate from the surface at all
+// is ever floating there, and `can_use_water_taxi` (i.e. "this animal has an
+// aquatic section") is the only such fact available. Here the flag is being used
+// for what it actually measures.
+bool SubstrateSupportsStandingWingbeat(const LaunchFacts& f)
 {
 	return f.substrate != Substrate::WATER || f.can_use_water_taxi;
 }
@@ -38,6 +62,23 @@ LaunchPlan PlanLaunch(const LaunchFacts& f)
 	p.required_jump_velocity_m_s = f.required_jump_velocity_m_s;
 	p.jump_direction             = glm::vec3(0.f, 1.f, 0.f);
 
+	// The drop that converts HEIGHT INTO AIRSPEED: falling h reaches
+	// v = sqrt(2gh), so clearing the stall speed needs h = v_stall^2/(2g).
+	//
+	// Computed for EVERY takeoff mode, not just CLIFF_LAUNCH. It is pure
+	// kinematics of the creature and the world -- the takeoff classification does
+	// not enter it -- and it is just as actionable for a RUNNING_TAKEOFF bat that
+	// happens to be standing on a ledge. Gating a fact on a classification it does
+	// not depend on only made it unreachable. (It used to be assigned
+	// takeoff_run_distance_m, which tonton_analysis.h:236 documents as "Required
+	// runway length": a horizontal distance in a field named for a vertical one.)
+	//
+	// At g <= 0 there is nothing to fall through and no drop can be derived, so
+	// report 0 rather than divide.
+	p.required_drop_m = (f.gravity_m_s2 > 0.f && f.required_airspeed_m_s > 0.f)
+		? (f.required_airspeed_m_s * f.required_airspeed_m_s) / (2.f * f.gravity_m_s2)
+		: 0.f;
+
 	// A required jump velocity of exactly 0 means the analysis never computed
 	// one -- `required <= available` is trivially true there, which reported
 	// every creature with a jumping section as cleared for a jump launch
@@ -52,7 +93,7 @@ LaunchPlan PlanLaunch(const LaunchFacts& f)
 	case TM::VERTICAL_LAUNCH:
 		// Pure wing power -- but the creature is still standing on something
 		// while it spools up, and open water is not something.
-		p.feasible  = SubstrateBearsWeight(f);
+		p.feasible  = SubstrateSupportsStandingWingbeat(f);
 		p.readiness = p.feasible ? 1.f : 0.f;
 		if (!p.feasible) p.blocking_reason = BlockingReason::NEEDS_SOLID_SUBSTRATE;
 		break;
@@ -60,7 +101,7 @@ LaunchPlan PlanLaunch(const LaunchFacts& f)
 	case TM::JUMP_LAUNCH:
 		// Descriptive only: the caller plays the crouch and applies the
 		// delta-v at whatever frame its animation says.
-		if (!SubstrateBearsWeight(f)) {
+		if (!SubstrateAcceptsLegThrust(f)) {
 			p.blocking_reason = BlockingReason::NEEDS_SOLID_SUBSTRATE;
 		} else if (!jump_quantified) {
 			p.blocking_reason = BlockingReason::JUMP_REQUIREMENT_UNKNOWN;
@@ -86,17 +127,8 @@ LaunchPlan PlanLaunch(const LaunchFacts& f)
 	}
 
 	case TM::CLIFF_LAUNCH:
-		// The drop is what converts HEIGHT INTO AIRSPEED: falling h reaches
-		// v = sqrt(2gh), so clearing the stall speed needs h = v_stall^2/(2g).
-		// This used to report takeoff_run_distance_m, which tonton_analysis.h:236
-		// documents as "Required runway length" -- a horizontal distance
-		// reported in a field named for a vertical one. At g <= 0 there is
-		// nothing to fall through and no drop can be derived, so report 0
-		// rather than divide.
-		p.required_drop_m = (f.gravity_m_s2 > 0.f && f.required_airspeed_m_s > 0.f)
-			? (f.required_airspeed_m_s * f.required_airspeed_m_s)
-			  / (2.f * f.gravity_m_s2)
-			: 0.f;
+		// required_drop_m is set above, for every mode. This arm only decides
+		// whether the creature is standing anywhere it can use it.
 		p.feasible  = (f.substrate == Substrate::CLIFF_EDGE);
 		p.readiness = p.feasible ? 1.f : 0.f;
 		if (!p.feasible) p.blocking_reason = BlockingReason::NEEDS_ELEVATION;
@@ -119,13 +151,10 @@ LaunchPlan PlanLaunch(const LaunchFacts& f)
 	return p;
 }
 
-LaunchPlan PlanLaunch(const Output& analysis, const MyopicInput& in, float airspeed_m_s)
+std::optional<LaunchFacts> MakeLaunchFacts(
+	const Output& analysis, const MyopicInput& in, float airspeed_m_s)
 {
-	if (!analysis.aerial.has_value()) {
-		LaunchPlan p;
-		p.blocking_reason = BlockingReason::NO_AERIAL_ANALYSIS;
-		return p;
-	}
+	if (!analysis.aerial.has_value()) return std::nullopt;
 
 	const auto& aerial = *analysis.aerial;
 	const auto& t = aerial.takeoff;
@@ -146,7 +175,18 @@ LaunchPlan PlanLaunch(const Output& analysis, const MyopicInput& in, float airsp
 	f.aspect_ratio_ok            = t.constraints.aspect_ratio_ok;
 	f.leg_strength_ok            = t.constraints.leg_strength_ok;
 
-	return PlanLaunch(f);
+	return f;
+}
+
+LaunchPlan PlanLaunch(const Output& analysis, const MyopicInput& in, float airspeed_m_s)
+{
+	std::optional<LaunchFacts> f = MakeLaunchFacts(analysis, in, airspeed_m_s);
+	if (!f.has_value()) {
+		LaunchPlan p;
+		p.blocking_reason = BlockingReason::NO_AERIAL_ANALYSIS;
+		return p;
+	}
+	return PlanLaunch(*f);
 }
 
 } // namespace TonTon
