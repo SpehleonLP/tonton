@@ -13,6 +13,17 @@ namespace {
 // of ~8000 rad/s, in the case this constant replaced).
 constexpr float kSpeedEpsilon = 1e-3f;
 
+// Negligible-magnitude guard for DIMENSIONLESS quantities (a cosine, a ratio).
+// Separate from kSpeedEpsilon on purpose: this codebase carries compile-time
+// dimensional analysis, and comparing a speed guard against a cosine is exactly
+// the category error those Quantity types exist to prevent -- the numbers being
+// equal today is a coincidence, not a relationship.
+constexpr float kUnitEpsilon = 1e-3f;
+
+// Heading error below which there is nothing to steer. An ANGLE, so again a
+// distinct constant rather than a bare literal at the use site.
+constexpr float kAngleEpsilon = 1e-4f;
+
 // Framerate-correct exponential slew. This exact form is why the 2025 PD
 // attempt failed and this one does not: alpha depends on dt, so 16 Hz and
 // 120 Hz reach the same place in the same wall-clock time. Never replace it
@@ -73,14 +84,15 @@ float MaxBankAngle(const AerialAuthority& a, float speed)
 // max_pitch_rate_rad_s is never populated by the analysis layer (0 for every
 // sample), and a decision built on it would be a decision built on nothing.
 //
-// out_phi_rad is SIGNED by the heading error, so a renderer can use it directly
-// and a reversal rolls back through wings-level instead of teleporting.
+// out_phi_max_rad is the load-factor bank CEILING at this speed (unsigned), not
+// a target: the caller derives the signed target from the turn actually
+// demanded, so that a gentle turn is a gentle bank.
 TurnStrategy ChooseStrategy(const AerialAuthority& a, float angle_error_rad,
-                            float speed, float gravity, float& out_phi_rad)
+                            float speed, float gravity, float& out_phi_max_rad)
 {
 	const float err = std::fabs(angle_error_rad);
-	out_phi_rad = 0.f;
-	if (err < 1e-4f) return TurnStrategy::YAW; // wings level; nothing to decide
+	out_phi_max_rad = 0.f;
+	if (err < kAngleEpsilon) return TurnStrategy::YAW; // wings level; nothing to decide
 
 	const float yaw_rate = float(a.max_yaw_rate);
 	const float t_yaw = (yaw_rate > 0.f) ? err / yaw_rate
@@ -105,10 +117,24 @@ TurnStrategy ChooseStrategy(const AerialAuthority& a, float angle_error_rad,
 	}
 
 	if (t_bank < t_yaw) {
-		out_phi_rad = std::copysign(phi_max, angle_error_rad);
+		out_phi_max_rad = phi_max;
 		return TurnStrategy::BANK;
 	}
 	return TurnStrategy::YAW;
+}
+
+// Lateral acceleration a flat (skidding, yaw-only) turn can actually be paid
+// for. A yawed turn is the WEAKEST lateral-force mechanism a flyer has, but it
+// is not free: the sideways force still has to come out of the same
+// aerodynamic budget the load factor describes. n^2 = 1 + (a_lat/g)^2 (the
+// vertical component still supports the weight), so a_lat = g*sqrt(n^2 - 1).
+// Without this cross-check max_yaw_rate is an unbacked promise, and the whole
+// point of the speed-dependent load factor -- do not permit a turn you cannot
+// hold -- is defeated on the one axis most likely to be commanded.
+float LateralAccelBudget(const AerialAuthority& a, float speed, float gravity)
+{
+	const float n = LoadFactorAtSpeed(a, speed);
+	return gravity * std::sqrt(std::max(0.f, n * n - 1.f));
 }
 
 // Demand/capacity ratio for a minimum-speed mode (stall in air, sharks,
@@ -163,30 +189,82 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// applies; it must never appear inside an arithmetic result.
 	const float speed = std::fabs(cmd.current_speed_m_s);
 
-	// omega_max is only meaningful once a turning budget applies; it stays 0
-	// when none does, which downstream stability accounting reads as "no
-	// turning-authority ratio to report" rather than a fabricated bound.
+	// Does ANY turn-rate limit apply this frame? Below kSpeedEpsilon none
+	// does: every mechanism modelled here (ground centripetal budget, banked
+	// turn, the lateral-force budget behind a yawed turn) is a moving-frame
+	// constraint, and a standing animal pivots on the spot. This is a separate
+	// question from HOW BIG the limit is -- conflating the two is what let a
+	// zero-authority creature read as unconstrained (see u_turn below).
+	const bool turn_limited = (speed > kSpeedEpsilon);
+
+	// Stopping-angle bound. Computed up front because under BANK it now shapes
+	// the bank TARGET rather than the delivered rate. See the long note at its
+	// second use for why the divisor is max(tau, dt).
+	const float tau = float(env.tau_linear);
+	const float turn_stop_bound = cmd.angle_error_rad / std::max(tau, dt);
+
+	// Greedy: if the error can be erased this frame, erase exactly it;
+	// otherwise go flat out. This is the pre-slew *demand* -- it is allowed
+	// to be dt-dependent because it is only a target the slew approaches,
+	// never the delivered value.
+	const float greedy = cmd.angle_error_rad / dt;
+
+	// Turn authority (a magnitude) about whichever axis is actually in use.
+	// Meaningful only when turn_limited; 0 while limited means "this mode can
+	// genuinely not turn at all", NOT "unconstrained".
 	float omega_max = 0.f;
-	if (speed > kSpeedEpsilon) {
+	if (turn_limited) {
 		omega_max = float(env.max_lateral_accel) / speed;
 	}
 
 	// --- Bank vs. yaw -----------------------------------------------------
 	// For a flyer the ground-reaction budget above is the wrong model: the
-	// turn rate available is set by which AXIS is being used, and by how far
-	// the creature has actually rolled so far. Replace omega_max accordingly.
+	// turn rate available is set by which AXIS is being used. Replace
+	// omega_max accordingly, and under BANK make the bank angle the single
+	// source of truth for the turn.
 	TurnStrategy strategy = TurnStrategy::GROUND;
+	bool  turn_follows_bank = false;
+	float banked_turn_rate  = 0.f;
 	if (env.aerial.has_value()) {
 		const AerialAuthority& a = *env.aerial;
 
-		float phi_target = 0.f;
+		float phi_max = 0.f;
 		strategy = ChooseStrategy(a, cmd.angle_error_rad, speed,
-		                          cmd.gravity_m_s2, phi_target);
-		// A yawing (or wings-level) creature is rolling back OUT of any bank
-		// it still carries; ChooseStrategy already returns phi_target == 0
-		// for that case, so the slew below washes the bank out at the same
-		// rate it rolled in.
+		                          cmd.gravity_m_s2, phi_max);
 
+		float phi_target = 0.f;
+		if (strategy == TurnStrategy::BANK) {
+			// ChooseStrategy only returns BANK when phi_max > 0, speed >
+			// kSpeedEpsilon and gravity > 0, so this division is safe.
+			omega_max = cmd.gravity_m_s2 * std::tan(phi_max) / speed;
+
+			// Run the usual demand machinery -- greedy, clamped by authority,
+			// then bounded by the stopping-angle rule -- but spend its answer
+			// on a BANK ANGLE rather than on a turn rate. omega = g tan(phi)/v
+			// inverts to phi = atan(omega v / g). Signed by the demand, so a
+			// reversal has to roll back through wings-level.
+			float omega_desired = std::clamp(greedy, -omega_max, omega_max);
+			omega_desired = ClampTowardZero(omega_desired, turn_stop_bound);
+			phi_target = std::clamp(
+				std::atan(omega_desired * speed / cmd.gravity_m_s2),
+				-phi_max, phi_max);
+		} else if (turn_limited) {
+			// A flat/skidding yawed turn is available immediately and does not
+			// need any roll-in -- but it is not free. It still has to fit
+			// inside the lateral-force budget the load factor allows at this
+			// airspeed; max_yaw_rate on its own is a nominal figure, not a
+			// bound that anything pays for.
+			omega_max = std::min(
+				float(a.max_yaw_rate),
+				LateralAccelBudget(a, speed, cmd.gravity_m_s2) / speed);
+		}
+		// (Below kSpeedEpsilon, omega_max stays 0 and turn_limited is false:
+		// no limit applies, exactly as for a standing ground animal.)
+
+		// A yawing (or wings-level) creature is rolling back OUT of any bank
+		// it still carries; phi_target is 0 for that case, so the slew below
+		// washes the bank out at the same rate it rolled in.
+		//
 		// Roll-in is a process. Slew the bank toward its target at the roll
 		// rate -- this IS the aerial angular time constant, no estimator
 		// needed. rate * dt makes it framerate-correct by construction.
@@ -195,41 +273,43 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 		                              -max_droll, max_droll);
 		state.bank_angle_rad += dphi;
 
-		if (strategy == TurnStrategy::YAW) {
-			// Yaw is available immediately and does not depend on airspeed or
-			// on how far the creature has rolled.
-			omega_max = float(a.max_yaw_rate);
-		} else if (speed > kSpeedEpsilon) {
-			// Turn rate available at the bank angle ACHIEVED SO FAR, not at
-			// the target: mid-roll-in the creature genuinely cannot turn as
-			// hard as it eventually will. omega_max is a magnitude; the sign
-			// of the turn comes from the error, via the demand below.
-			omega_max = std::fabs(cmd.gravity_m_s2
-			                      * std::tan(state.bank_angle_rad) / speed);
-		} else {
-			omega_max = 0.f; // banking is a moving-frame constraint
+		// The turn rate whenever the creature is CARRYING a bank: a kinematic
+		// consequence of the bank ACHIEVED, not an independently commanded
+		// channel. A banked flyer is turning, necessarily and in the direction
+		// it is banked; there is no such thing as a 60-degree bank holding a
+		// straight line. Deliberately neither slewed nor clamped toward zero --
+		// it is an output, not a command, and clamping it was what produced ~15
+		// frames of "banked but flying straight" during a reversal.
+		//
+		// The condition is the BANK, not the strategy. Strategy YAW with a
+		// residual bank is exactly the roll-OUT of a banked turn, and the same
+		// contradiction lives there: measured at 120 Hz, the heading error
+		// landed inside kAngleEpsilon, ChooseStrategy said YAW, and a flyer
+		// still rolled to 0.316 rad reported turn_rate == 0 for 38 consecutive
+		// frames -- a framerate-dependent artefact as well as a physical
+		// impossibility. Below kAngleEpsilon of bank the flyer is wings level
+		// and the yaw command governs, unchanged; the two branches meet
+		// continuously there because g*tan(phi)/v -> 0 with phi.
+		turn_follows_bank = turn_limited
+		                 && std::fabs(state.bank_angle_rad) > kAngleEpsilon;
+		if (turn_follows_bank) {
+			banked_turn_rate =
+				cmd.gravity_m_s2 * std::tan(state.bank_angle_rad) / speed;
 		}
 	}
 
-	// Greedy: if the error can be erased this frame, erase exactly it;
-	// otherwise go flat out. This is the pre-slew *demand* -- it is allowed
-	// to be dt-dependent because it is only a target the slew approaches,
-	// never the delivered value.
-	const float greedy = cmd.angle_error_rad / dt;
 	float turn_demand = greedy;
-	if (omega_max > 0.f) {
+	if (turn_limited) {
+		// Clamp even when omega_max == 0. That case means the mode has no turn
+		// authority at all while moving, and the honest delivered rate is
+		// zero. Skipping the clamp there (the old `if (omega_max > 0)`) made
+		// zero authority read as NO LIMIT, and a flyer with no yaw and no roll
+		// pirouetted at the anti-overshoot bound, 6.28 rad/s.
 		turn_demand = std::clamp(turn_demand, -omega_max, omega_max);
 	}
 
 	const float turn_alpha = SlewAlpha(dt, float(env.tau_linear));
 	const float turn_rate_slewed = Approach(state.prev_turn_rate_rad_s, turn_demand, turn_alpha);
-	// Store the unclamped slew value, not the clamped output: clamping is a
-	// property of what we deliver this frame, not of the animal's actual
-	// angular momentum. Storing the clamped value would reset momentum to
-	// zero the instant the bound bites (e.g. the target crossing the
-	// creature's nose), forcing counter-steer to restart from a standstill
-	// instead of from where the slew actually is.
-	state.prev_turn_rate_rad_s = turn_rate_slewed;
 
 	// Stopping-angle bound: a rate w decaying with slew time constant tau
 	// sweeps approximately w*tau before it dies out, so non-overshoot
@@ -252,19 +332,32 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	//
 	// TWO ROLES, deliberately kept separable (see the u_turn comment below for
 	// the other half):
-	//  1. ANTI-OVERSHOOT CLAMP on the delivered rate, immediately below. This
-	//     role depends only on the error, tau and dt -- never on omega_max --
-	//     so it is completely unaffected by the bank/yaw choice above. Making
-	//     omega_max a bank quantity cannot destabilise the clamp.
-	//  2. NUMERATOR OF u_turn, the turn channel's demand/capacity ratio. Only
-	//     the DENOMINATOR (omega_max) changed in this task, so u_turn's meaning
-	//     sharpened from "fraction of the ground centripetal budget" to
-	//     "fraction of the authority available about the axis actually being
-	//     used, at the bank achieved so far". Both readings answer the same
-	//     question; the second is simply the truthful one for a flyer.
-	const float tau = float(env.tau_linear);
-	const float turn_stop_bound = cmd.angle_error_rad / std::max(tau, dt);
-	const float turn_rate = ClampTowardZero(turn_rate_slewed, turn_stop_bound);
+	//  1. ANTI-OVERSHOOT BOUND. Under YAW and GROUND it clamps the delivered
+	//     rate directly, immediately below. Under BANK it instead bounds the
+	//     bank TARGET (above), because there the delivered rate is not a
+	//     command at all. Either way the role depends only on the error, tau
+	//     and dt -- never on omega_max.
+	//  2. NUMERATOR OF u_turn, the turn channel's demand/capacity ratio: the
+	//     rate the creature wants to sustain, against the authority available
+	//     about the axis actually in use.
+	//
+	// Storing the UNCLAMPED slew value in state, not the clamped output:
+	// clamping is a property of what we deliver this frame, not of the
+	// animal's actual angular momentum. Storing the clamped value would reset
+	// momentum to zero the instant the bound bites (e.g. the target crossing
+	// the creature's nose), forcing counter-steer to restart from a standstill
+	// instead of from where the slew actually is.
+	float turn_rate;
+	if (turn_follows_bank) {
+		turn_rate = banked_turn_rate;
+		// Keep the slew's memory on the physically delivered rate, so a later
+		// switch to YAW (or to GROUND) starts from where the creature actually
+		// is rather than from an abandoned parallel command history.
+		state.prev_turn_rate_rad_s = turn_rate;
+	} else {
+		turn_rate = ClampTowardZero(turn_rate_slewed, turn_stop_bound);
+		state.prev_turn_rate_rad_s = turn_rate_slewed;
+	}
 
 	// --- Speed ------------------------------------------------------------
 	const float speed_error = cmd.desired_speed_m_s - cmd.current_speed_m_s;
@@ -291,15 +384,35 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	const float u_speed = (float(env.max_speed) > 0.f)
 		? cmd.current_speed_m_s / float(env.max_speed) : 0.f;
 
-	// omega_max is 0 when no turning budget applies at all (see above): at
-	// near-zero speed there is no centripetal budget to be a fraction of, so
-	// u_turn reports 0 (idle) rather than dividing by a fabricated denominator.
+	// Two DIFFERENT reasons the authority can be zero, which must not read the
+	// same way:
+	//  - No turning limit applies at all (speed below kSpeedEpsilon). There is
+	//    no capacity to be a fraction of, so the honest reading is "not
+	//    applicable": 0, idle.
+	//  - A limit applies and the capacity is genuinely zero: a moving creature
+	//    whose mode cannot turn (no yaw authority and no roll authority; a
+	//    ground envelope with no lateral budget). Any nonzero demand there is
+	//    unmeetable, and reporting idle was the bug -- the reviewer measured
+	//    turn_headroom = +1.0 on a flyer that cannot turn at all.
 	//
-	// For a flyer omega_max is now the BANK/YAW authority rather than the
-	// ground centripetal budget, so this ratio reads "how much more turn than
-	// the chosen axis can currently deliver" -- including, mid-roll-in, the
-	// perfectly real fact that a creature that has not finished rolling cannot
-	// yet turn as hard as it has been asked to.
+	// The demand/capacity ratio diverges as capacity -> 0, so the exactly-zero
+	// case needs a finite reading. Taken by analogy with StallRatio's sub-floor
+	// branch: "one, plus the fraction of the demand that cannot be met", which
+	// at zero capacity is 1 + 1 = 2 -- unambiguously past the limit, finite, and
+	// the same worst-case number the stall channel reports at a standstill.
+	// KNOWN WART, deliberate: at exactly zero capacity this reads 2 while an
+	// arbitrarily small nonzero capacity reads arbitrarily large, so the
+	// sequence is not monotone at that single point. Both alternatives are
+	// worse -- infinity poisons every downstream consumer of `stability`, and
+	// capping the whole branch would destroy the "how badly" resolution the
+	// saturated readings (18.16 near stall, 5.0 on the ground fixture) carry.
+	//
+	// For a flyer omega_max is the BANK/YAW authority rather than the ground
+	// centripetal budget, so this ratio reads "how much more turn than the
+	// chosen axis can deliver". Under BANK the denominator is the authority at
+	// phi_max, i.e. what the flyer can hold once rolled in -- roll-in lag is a
+	// property of the trajectory, visible in turn_rate, and folding it into a
+	// saturation metric would report every roll-in as an emergency.
 	//
 	// The numerator is deliberately turn_stop_bound, not turn_demand and not
 	// the delivered turn_rate:
@@ -317,8 +430,14 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	//    it is already computed above for the anti-overshoot clamp, and --
 	//    critically -- it is NOT clamped to omega_max, so u_turn can exceed 1
 	//    exactly when the demanded turn genuinely exceeds available authority.
-	const float u_turn = (omega_max > 0.f)
-		? std::fabs(turn_stop_bound) / omega_max : 0.f;
+	float u_turn = 0.f;
+	if (turn_limited) {
+		if (omega_max > 0.f) {
+			u_turn = std::fabs(turn_stop_bound) / omega_max;
+		} else if (std::fabs(turn_stop_bound) > 0.f) {
+			u_turn = 2.f; // zero capacity, nonzero demand: nothing can be met
+		}
+	}
 
 	// Minimum-speed modes (stall in air, sharks, serpentine undulation floor).
 	// See StallRatio for the convention and for why the sub-floor branch is a
@@ -332,7 +451,7 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	if (env.aerial.has_value()) {
 		// cos is even, so the signed bank angle needs no fabs here.
 		const float cos_phi = std::cos(state.bank_angle_rad);
-		if (cos_phi > kSpeedEpsilon && float(env.aerial->stall_speed) > 0.f) {
+		if (cos_phi > kUnitEpsilon && float(env.aerial->stall_speed) > 0.f) {
 			effective_min_speed =
 				float(env.aerial->stall_speed) / std::sqrt(cos_phi);
 		}
