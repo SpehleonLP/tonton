@@ -131,6 +131,46 @@ TurnStrategy ChooseStrategy(const AerialAuthority& a, float angle_error_rad,
 // Without this cross-check max_yaw_rate is an unbacked promise, and the whole
 // point of the speed-dependent load factor -- do not permit a turn you cannot
 // hold -- is defeated on the one axis most likely to be commanded.
+//
+// THE APPARENT GRAVITY-PROPORTIONALITY IS AN ILLUSION -- do not "fix" it.
+// The explicit `gravity` factor makes this read as though a low-gravity world
+// buys a proportionally weaker turn, and a synthetic fixture that sweeps g
+// while holding stall_speed FIXED will duly measure a ~560x collapse as
+// g -> 0. That is a fixture artefact. In the real pipeline stall_speed is
+// produced by the analysis run AT THAT WORLD'S GRAVITY, and level flight
+// (L = W) gives v_s^2 = 2mg / (rho * S * CL_max), i.e. v_s ~ sqrt(g). Feed that
+// through and the gravity cancels out of the lift term exactly:
+//
+//     n(v)      = (v / v_s)^2                    ~  v^2 / g
+//     a_lift    = g * n(v) = g * v^2 / v_s^2      =  rho * S * CL_max * v^2 / (2m)
+//
+// a_lift -- the total lift acceleration the wing can generate at this airspeed
+// -- is GRAVITY-INDEPENDENT, as it must be: lift does not care what the planet
+// weighs. That is the invariant, and it is exact.
+//
+// What gravity actually sets is how much of that lift is already spent holding
+// the creature up. Resolving the steady level turn exactly:
+//
+//     a_lat = g * sqrt(n^2 - 1) = sqrt(a_lift^2 - g^2)
+//
+// so the lateral budget RISES smoothly as g falls, toward a_lift itself at
+// g -> 0 (all of the lift becomes available sideways). The common shorthand
+// "a_lat is gravity-independent" is only the high-n limit of this. Measured on
+// the pinning test (v = 10, v_s = 8 at 1 g, scaled as sqrt(g)):
+//
+//     g = 9.81  a_lift = 15.328  a_lat = 11.783
+//     g = 3.71  a_lift = 15.328  a_lat = 14.873
+//     g = 1.62  a_lift = 15.328  a_lat = 15.242
+//
+// Monotone, bounded, a factor of 1.3 across a 6x change in gravity -- not a
+// cliff, and in the physically correct direction. Any future "blend" or "floor"
+// bolted on to smooth the g -> 0 region would be a fudge factor papering over
+// a fixture that forgot to scale v_s.
+//
+// The `gravity > 0` guards at the call sites are therefore NOT a lever on turn
+// strength; they handle the genuine degeneracy at EXACTLY zero g, where
+// v_s -> 0 makes n unbounded and a_lat = g * sqrt(n^2 - 1) becomes 0 * inf.
+// Pinned by MyopicBank.LiftAccelIsGravityInvariantWhenStallSpeedScales.
 float LateralAccelBudget(const AerialAuthority& a, float speed, float gravity)
 {
 	const float n = LoadFactorAtSpeed(a, speed);
@@ -300,9 +340,40 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 		// still rolled to 0.316 rad reported turn_rate == 0 for 38 consecutive
 		// frames -- a framerate-dependent artefact as well as a physical
 		// impossibility. Below kAngleEpsilon of bank the flyer is wings level
-		// and the yaw command governs, unchanged; the two branches meet
-		// continuously there because g*tan(phi)/v -> 0 with phi.
+		// and the yaw command governs, unchanged.
+		//
+		// The bank owns the turn only WHERE IT CAN PRODUCE ONE. At zero gravity
+		// g*tan(phi)/v is identically 0 for every bank, so without the
+		// `gravity > 0` conjunct a flyer that had settled into a bank and was
+		// then handed g = 0 would have its whole yaw command discarded in
+		// favour of a hard zero for the entire roll-out (measured: 41
+		// consecutive frames of exactly zero turn rate on a flyer rolled to
+		// 1.02 rad with 4.0 rad/s of yaw available). That is the very
+		// contradiction this predicate exists to remove, just with the sign of
+		// the absurdity flipped. Banking is a way of SPENDING lift against
+		// weight; with no weight there is nothing to spend and the bank is
+		// merely a pose, so yaw governs -- consistent with the same
+		// `gravity > 0` guard in ChooseStrategy and in the yaw budget above.
+		//
+		// CONTINUITY, precisely. As |phi| falls through kAngleEpsilon the
+		// bank-derived term does go to zero continuously, but the yaw command it
+		// REPLACES does not: crossing the threshold swaps one for the other, so
+		// the delivered rate steps by up to one slew increment (bounded by
+		// alpha * yaw_demand, alpha = 1 - exp(-dt/tau), hence shrinking with
+		// dt). Measured on the dragonfly fixture across 2e-6 rad of bank
+		// (9.9e-5 -> 1.01e-4), turn rate stepping from the yaw command to the
+		// bank's 2.5e-4 rad/s:
+		//
+		//     dt = 1/16   step 0.907    dt = 1/60    step 0.264
+		//     dt = 1/30   step 0.512    dt = 1/120   step 0.134
+		//
+		// i.e. exactly alpha * yaw_demand, halving with dt as it must. The
+		// trajectory still converges, but this is a SEAM, not a smooth join --
+		// an earlier version of this comment claimed the branches "meet
+		// continuously", which is true of the bank term alone and false of the
+		// delivered rate.
 		turn_follows_bank = turn_limited
+		                 && cmd.gravity_m_s2 > 0.f
 		                 && std::fabs(state.bank_angle_rad) > kAngleEpsilon;
 		if (turn_follows_bank) {
 			banked_turn_rate =
@@ -359,6 +430,20 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// momentum to zero the instant the bound bites (e.g. the target crossing
 	// the creature's nose), forcing counter-steer to restart from a standstill
 	// instead of from where the slew actually is.
+	// KNOWN LIMITATION, and not a conservative one: a yawed turn and a banked
+	// turn do not COMPOSE. While a residual bank owns the turn the yaw command
+	// is discarded outright, where physically both contribute up to the lateral
+	// force budget. The sign is right -- a flyer at 1.047 rad (60 deg) of bank
+	// genuinely cannot stop turning -- but the magnitude of the loss is real.
+	// Measured on the albatross fixture settled right at 1.0472 rad and then
+	// commanded a LEFT 0.3 rad turn with 2.0 rad/s of yaw available: 41 frames
+	// (0.68 s, the whole roll-out) turning the WRONG way at up to 1.07 rad/s
+	// while every bit of that opposing yaw is discarded, driving the error from
+	// -0.30 rad out to -0.59 rad before it recovers. It is strictly better than
+	// the pre-G1 behaviour (which reported a hard zero turn rate on a banked
+	// flyer), but it is two thirds of a second of LOST AUTHORITY, not
+	// conservatism -- do not size Task 6 as though the error here were on the
+	// safe side. A combined lateral-force model is the honest fix.
 	float turn_rate;
 	if (turn_follows_bank) {
 		turn_rate = banked_turn_rate;
