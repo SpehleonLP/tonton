@@ -30,17 +30,29 @@ acceleration_m_s2 AccelFromPower(power_W available, mass_kg mass, velocity_m_s a
 }
 
 // Load-factor limit, derived two independent ways and cross-checked:
-//   - force budget:   n = L_max / W
+//   - aerodynamic (V-n) budget: level flight at v needs CL such that lift = W,
+//     so at v the wing can generate at most (v/v_stall)^2 times its own weight
+//     in lift before it stalls. n_aero = (v/v_stall)^2, evaluated at cruise.
 //   - stated radius:  a coordinated turn of radius r at speed v needs
 //                     tan(phi) = v^2 / (g*r), and n = 1/cos(phi)
 // Taking the min keeps us honest. A large disagreement is a diagnostic about
 // the analysis, not about the controller.
-float LoadFactorLimit(const Analysis_Aerial& a, mass_kg mass, float gravity_m_s2)
+//
+// NOT used here: Analysis_TakeoffAnalysis::max_instantaneous_lift_N. Despite the
+// name it is a *hover* figure — EstimateMaxLift (tonton_takeoffanalysis.cpp:177)
+// builds it from flapping tip velocity alone, with no forward-airspeed term. For
+// the bat sample it comes out at 7.99 N against 18.7 N of weight, i.e. "cannot
+// hover", which is true of most bats and says nothing about turning at 11.9 m/s.
+// Feeding it into a cruise load-factor budget yields n < 1, which the floor below
+// silently converts to n = 1 and hence to max_lateral_accel = 0 — a flyer that
+// cannot turn. See the task-4 notes; this is a deviation from the plan's formula.
+float LoadFactorLimit(const Analysis_Aerial& a, mass_kg, float gravity_m_s2)
 {
-	float n_force = 1.f;
-	const float weight_N = float(mass) * gravity_m_s2;
-	if (weight_N > 0.f && float(a.takeoff.max_instantaneous_lift_N) > 0.f) {
-		n_force = float(a.takeoff.max_instantaneous_lift_N) / weight_N;
+	float n_aero = 1.f;
+	const float v_stall = float(a.min_flight_speed_m_s);
+	if (v_stall > 0.f && float(a.cruise_speed_m_s) > 0.f) {
+		const float ratio = float(a.cruise_speed_m_s) / v_stall;
+		n_aero = ratio * ratio;
 	}
 
 	float n_radius = 1.f;
@@ -51,7 +63,7 @@ float LoadFactorLimit(const Analysis_Aerial& a, mass_kg mass, float gravity_m_s2
 		n_radius = std::sqrt(1.f + tan_phi * tan_phi); // = 1/cos(atan(tan_phi))
 	}
 
-	const float n = std::min(n_force, n_radius);
+	const float n = std::min(n_aero, n_radius);
 	return (n >= 1.f && std::isfinite(n)) ? n : 1.f;
 }
 
