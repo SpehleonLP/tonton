@@ -41,6 +41,15 @@ acceleration_m_s2 AccelFromPower(power_W surplus, mass_kg mass, velocity_m_s at_
 	return surplus / (mass * at_speed);
 }
 
+// A mode with no usable acceleration is not a usable envelope: every downstream
+// consumer divides by it (tau_linear here, the turn slew in Steer). Report
+// absence rather than handing back an inf/NaN envelope. Written as !(x > 0) so
+// NaN, for which every comparison is false, is rejected too.
+bool UsableAccel(acceleration_m_s2 a)
+{
+	return (float(a) > 0.f) && std::isfinite(float(a));
+}
+
 // Load-factor limit, derived two independent ways and cross-checked:
 //   - aerodynamic (V-n) budget: level flight at v needs CL such that lift = W,
 //     so at v the wing can generate at most (v/v_stall)^2 times its own weight
@@ -156,12 +165,7 @@ std::optional<Envelope> ExtractEnvelope(
 		                             a.cruise_speed_m_s);
 		e.max_brake = e.max_accel;
 
-		// A mode with no usable acceleration is not a usable envelope: every
-		// downstream consumer divides by it (tau, slew). Report absence rather
-		// than an inf/NaN envelope.
-		if (!(float(e.max_accel) > 0.f) || !std::isfinite(float(e.max_accel))) {
-			return std::nullopt;
-		}
+		if (!UsableAccel(e.max_accel)) return std::nullopt;
 
 		AerialAuthority auth;
 		auth.max_roll_rate  = a.max_roll_rate_rad_s;
@@ -197,9 +201,132 @@ std::optional<Envelope> ExtractEnvelope(
 		e.tau_linear = a.cruise_speed_m_s / e.max_accel;
 		return e;
 	}
-	default:
-		return std::nullopt; // later tasks fill in the remaining modes
+	case LocomotionMode::AQUATIC: {
+		if (!analysis.aquatic.has_value()) return std::nullopt;
+		const auto& a = *analysis.aquatic;
+
+		Envelope e;
+		e.max_speed = a.burst_speed_m_s;
+		// requires_constant_motion (sharks, tuna) is just a min_speed inside
+		// the mode's own envelope -- not a transition constraint. It is 0 for a
+		// creature that can hold station.
+		e.min_speed = a.min_swim_speed_m_s;
+
+		// The MECHANICAL SURPLUS, exactly as the aerial arm above: what the
+		// muscles can put out mechanically, minus what steady cruising already
+		// spends. The plan fed metabolic.max_rate_W in here; that is a
+		// whole-organism METABOLIC rate, inflated by 1/eta relative to any
+		// mechanical figure and, being the total, not free to change speed with.
+		// swim_power_mechanical_W is the cruise cost tonton_aquatic.cpp already
+		// derives (available_muscle_power_W * 0.08) and now exports.
+		const float surplus_W = std::max(0.f,
+			float(analysis.metabolic.available_muscle_power_W)
+			- float(a.swim_power_mechanical_W));
+		e.max_accel = AccelFromPower(power_W{surplus_W},
+		                             analysis.physical.body_mass_kg,
+		                             a.cruise_speed_m_s);
+		if (!UsableAccel(e.max_accel)) return std::nullopt;
+
+		// A conservative FLOOR on deceleration, not a derivation. Water does
+		// brake a swimmer for free, so the true figure is thrust + drag and is
+		// strictly larger than this -- but Analysis_Aquatic's drag_coefficient
+		// applies to the streamlined cruise attitude, not to a fish flaring its
+		// fins to stop, so the honest drag term is not available here. Using
+		// max_accel understates braking; it never overstates it.
+		e.max_brake = e.max_accel;
+
+		e.min_turn_radius = a.min_turning_radius_m;
+		e.max_lateral_accel = LateralBudget(e.max_accel, e.max_speed, e.min_turn_radius);
+		e.tau_linear = a.cruise_speed_m_s / e.max_accel;
+		return e;
 	}
+
+	case LocomotionMode::SERPENTINE: {
+		if (!analysis.serpentine.has_value()) return std::nullopt;
+		const auto& s = *analysis.serpentine;
+
+		Envelope e;
+		// Serpentine has a narrow band: undulation speed is close to both the
+		// floor and the ceiling, so the envelope is deliberately tight and
+		// stability drops fast when demands exceed it.
+		e.max_speed = s.lateral_undulation_speed_m_s;
+
+		// KNOWN GAP, shipped deliberately (adjudicated): the 0.5 factor is a
+		// placeholder. Nothing in Analysis_Serpentine states a minimum
+		// undulation speed, and a snake that stops undulating simply stops.
+		e.min_speed = s.lateral_undulation_speed_m_s * 0.5f;
+
+		// KNOWN GAP, shipped deliberately (adjudicated): the 1-second divisor is
+		// a placeholder for a MISSING QUANTITY, not a tuning constant.
+		// Analysis_Serpentine exposes no acceleration, no power, and -- checked
+		// against the header -- no undulation FREQUENCY either. Its
+		// Analysis_BodyWave carries wavelength_ratio and amplitude_ratio only;
+		// the frequency tonton_serpentine.cpp:186 computes is never exported
+		// (Rectilinear::frequency_Hz and SideWinding::frequency_Hz belong to
+		// those other gaits and are both optional). With a frequency this would
+		// be speed*f, the same honest form the brachiation arm below uses.
+		e.max_accel = s.lateral_undulation_speed_m_s / time_s{1.f};
+		if (!UsableAccel(e.max_accel)) return std::nullopt;
+		e.max_brake = e.max_accel;
+
+		// SENTINEL: 0 means "this mode states no radius constraint", NOT "can
+		// turn infinitely tightly". Analysis_Serpentine has no turning-radius
+		// field. LateralBudget is the only consumer of min_turn_radius and
+		// treats <= 0 by falling through to the acceleration budget, so the
+		// sentinel can neither divide by zero nor fabricate an infinite bound.
+		e.min_turn_radius = length_m{0.f}; // a snake turns by undulating
+		e.max_lateral_accel = LateralBudget(e.max_accel, e.max_speed, e.min_turn_radius);
+		e.tau_linear = s.lateral_undulation_speed_m_s / e.max_accel;
+		return e;
+	}
+
+	case LocomotionMode::CLIMBING: {
+		if (!analysis.climbing.has_value()) return std::nullopt;
+		const auto& c = *analysis.climbing;
+
+		Envelope e;
+		e.max_speed = c.max_climb_speed_m_s;
+		e.min_speed = velocity_m_s{0.f};   // a climber can hang motionless
+
+		// KNOWN GAP, shipped deliberately (adjudicated): same missing quantity
+		// as SERPENTINE above. Analysis_Climbing exposes a speed, an angle and
+		// a set of substrate booleans -- no acceleration, power or stride rate.
+		e.max_accel = c.max_climb_speed_m_s / time_s{1.f};
+		if (!UsableAccel(e.max_accel)) return std::nullopt;
+		e.max_brake = e.max_accel;   // a climber stops by gripping
+
+		// SENTINEL, as in the serpentine arm: no radius constraint is stated.
+		e.min_turn_radius = length_m{0.f};
+		e.max_lateral_accel = LateralBudget(e.max_accel, e.max_speed, e.min_turn_radius);
+		e.tau_linear = c.max_climb_speed_m_s / e.max_accel;
+		return e;
+	}
+
+	case LocomotionMode::BRACHIATION: {
+		if (!analysis.brachiation.has_value()) return std::nullopt;
+		const auto& b = *analysis.brachiation;
+
+		Envelope e;
+		e.max_speed = b.max_swing_speed_m_s;
+		e.min_speed = velocity_m_s{0.f};   // a brachiator can hang motionless
+		// A brachiator changes speed once per swing; the swing frequency is a
+		// real measured quantity here, unlike terrestrial stride frequency. So
+		// this arm, alone among the three non-fluid ones, needs no placeholder.
+		e.max_accel = b.max_swing_speed_m_s * b.swing_frequency_Hz;
+		if (!UsableAccel(e.max_accel)) return std::nullopt;
+		e.max_brake = e.max_accel;
+
+		// SENTINEL, as in the serpentine arm: no radius constraint is stated.
+		e.min_turn_radius = length_m{0.f};
+		e.max_lateral_accel = LateralBudget(e.max_accel, e.max_speed, e.min_turn_radius);
+		e.tau_linear = b.max_swing_speed_m_s / e.max_accel;
+		return e;
+	}
+	}
+	// No `default:` above, deliberately: adding a LocomotionMode must be a
+	// compile error here rather than a silent nullopt. This line is reached only
+	// via a cast from outside the enum's value set.
+	return std::nullopt;
 }
 
 } // namespace TonTon

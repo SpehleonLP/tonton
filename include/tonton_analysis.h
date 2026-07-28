@@ -400,6 +400,12 @@ struct Analysis_Aquatic  {
 	velocity_m_s burst_speed_m_s{};
 	velocity_m_s min_swim_speed_m_s{};         // to maintain lift/control
 
+	// Mechanical (pre-efficiency) power that steady cruising costs -- the
+	// aquatic analogue of Analysis_Aerial::flapping_power_mechanical_W. It is
+	// NOT Analysis_Metabolic::max_rate_W, which is a whole-organism METABOLIC
+	// rate and must never be fed to a P = F*v derivation.
+	power_W swim_power_mechanical_W{};
+
 	// Hydrodynamics
 	lift_N_per_m lift_per_meter_swam_N{};      // For negatively buoyant animals
 	velocity_m_s sink_rate_m_s{};              // How fast they sink when stationary

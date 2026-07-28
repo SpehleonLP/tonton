@@ -43,8 +43,8 @@ struct SteerResult {
 	float turn_headroom{1.f};
 	bool  suggest_gait_change{false};
 
-	TurnStrategy strategy{TurnStrategy::GROUND};
-	float bank_angle_rad{0}; // signed; 0 for GROUND and for wings-level YAW
+	TurnStrategy strategy{TurnStrategy::LATERAL};
+	float bank_angle_rad{0}; // signed; 0 for LATERAL and for wings-level YAW
 };
 
 SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cmd);

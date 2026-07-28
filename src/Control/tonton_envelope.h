@@ -27,7 +27,12 @@ struct Envelope {
 	acceleration_m_s2 max_accel{};
 	acceleration_m_s2 max_brake{};
 	acceleration_m_s2 max_lateral_accel{};  // turn-rate budget; omega = a_lat / v
-	length_m          min_turn_radius{};    // 0 = can pivot in place
+	// SENTINEL at 0: "this mode states no radius constraint", not "can turn
+	// infinitely tightly". SERPENTINE, CLIMBING and BRACHIATION always report 0
+	// because their analysis sections have no turning-radius field at all.
+	// LateralBudget (tonton_envelope.cpp) is the only consumer and short-circuits
+	// on <= 0, so the sentinel can neither divide by zero nor fabricate a bound.
+	length_m          min_turn_radius{};
 	time_s            tau_linear{};         // slew time constant
 	std::optional<AerialAuthority> aerial{};
 };

@@ -731,6 +731,10 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		.cruise_speed_m_s = cruise_speed_m_s * std::exp2(in.mana.air),
 		.burst_speed_m_s = burst_speed_m_s * std::exp2(in.mana.air),
 		.min_swim_speed_m_s = min_swim_speed_m_s,
+		// Export the mechanical cruise power this function already derived, so
+		// consumers do not have to substitute a metabolic rate for it. Purely
+		// additive: nothing above reads it back.
+		.swim_power_mechanical_W = swim_power_W,
 		.lift_per_meter_swam_N = lift_per_meter_N,
 		.sink_rate_m_s = sink_rate_m_s,
 		.reynolds_number = reynolds,

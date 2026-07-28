@@ -47,13 +47,20 @@ enum class BlockingReason : uint8_t {
 };
 
 // How the creature is turning THIS frame.
-//  GROUND - ground reaction / centripetal budget (no aerial authority present).
-//  YAW    - flat turn about the yaw axis: available instantly, usually weak.
-//  BANK   - rolled turn: must be rolled into first, then delivers far more
-//           turn rate, and loads the wings (see the load-factor stall coupling).
+//  LATERAL - the turn is paid for out of the mode's own lateral acceleration
+//            budget (Envelope::max_lateral_accel), whatever the creature is
+//            pushing against: ground, rock, branch or water. It means "not a
+//            banked or yawed AERIAL turn" and says nothing about the substrate.
+//            It was spelled GROUND, which a caller reading `strategy` on a
+//            swimming shark would have taken as a claim about the seabed. Only
+//            AERIAL envelopes carry an AerialAuthority, so AQUATIC, SERPENTINE,
+//            CLIMBING and BRACHIATION all report LATERAL.
+//  YAW     - flat turn about the yaw axis: available instantly, usually weak.
+//  BANK    - rolled turn: must be rolled into first, then delivers far more
+//            turn rate, and loads the wings (see the load-factor stall coupling).
 // Public because MyopicOutput reports it: a caller that cannot see the strategy
 // cannot roll the mesh, which would make the whole bank model invisible.
-enum class TurnStrategy : uint8_t { GROUND, YAW, BANK };
+enum class TurnStrategy : uint8_t { LATERAL, YAW, BANK };
 
 // All members are plain floats with units in their names so the engine can
 // fill this in without depending on TonTon's Quantity system.
@@ -127,7 +134,7 @@ struct MyopicOutput {
 	// achieved (signed; right-banked is right-turning). The caller needs both to
 	// roll the mesh -- a banked flyer rendered wings-level is the whole Task 5
 	// model made invisible.
-	TurnStrategy strategy{TurnStrategy::GROUND};
+	TurnStrategy strategy{TurnStrategy::LATERAL};
 	float        bank_angle_rad{0.f};
 
 	float          transition_readiness{0.f}; // [0,1]; meaningful when target != mode

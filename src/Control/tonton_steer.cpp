@@ -287,7 +287,7 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// turn rate available is set by which AXIS is being used. Replace
 	// omega_max accordingly, and under BANK make the bank angle the single
 	// source of truth for the turn.
-	TurnStrategy strategy = TurnStrategy::GROUND;
+	TurnStrategy strategy = TurnStrategy::LATERAL;
 	bool  turn_follows_bank = false;
 	float banked_turn_rate  = 0.f;
 	if (env.aerial.has_value()) {
@@ -439,7 +439,7 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// whenever tau is non-positive, since dt is always > 0 here.
 	//
 	// This is ROLE 1 ONLY (see the split at the declaration): the anti-overshoot
-	// bound. Under YAW and GROUND it clamps the delivered rate directly,
+	// bound. Under YAW and LATERAL it clamps the delivered rate directly,
 	// immediately below. Under BANK it instead bounds the bank TARGET (above),
 	// because there the delivered rate is not a command at all. Either way it
 	// depends only on the error, tau and dt -- never on omega_max. Role 2, the
@@ -469,7 +469,7 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	if (turn_follows_bank) {
 		turn_rate = banked_turn_rate;
 		// Keep the slew's memory on the physically delivered rate, so a later
-		// switch to YAW (or to GROUND) starts from where the creature actually
+		// switch to YAW (or to LATERAL) starts from where the creature actually
 		// is rather than from an abandoned parallel command history.
 		state.prev_turn_rate_rad_s = turn_rate;
 	} else {
