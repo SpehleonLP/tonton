@@ -1,4 +1,5 @@
 #include "Control/tonton_launch.h"
+#include "Control/tonton_envelope.h"
 #include "tonton_analysis.h"
 #include <algorithm>
 
@@ -89,6 +90,44 @@ LaunchPlan PlanLaunch(const LaunchFacts& f)
 		&& f.has_jump_analysis
 		&& f.required_jump_velocity_m_s <= f.available_jump_velocity_m_s;
 
+	// THE DESTINATION HAS TO EXIST. Checked before the mode dispatch, because it
+	// is not a property of any one takeoff mode: it does not matter how the
+	// creature gets airborne if the module cannot control it once it is.
+	//
+	// `f.can_sustain_flight` mirrors ExtractEnvelope(AERIAL) exactly. Without
+	// this gate the planner classified on `analysis.aerial.has_value()` while
+	// ExtractEnvelope additionally demanded a usable speed band and a positive
+	// mechanical power surplus, and nothing reconciled them: batto.glb was driven
+	// to exactly its 7.867 m/s stall speed, reported readiness 1.0 and
+	// launch_feasible true, and then -- the instant the caller did what it was
+	// told -- got MODE_UNAVAILABLE, an error the module itself produced.
+	//
+	// The fix is here and NOT in ExtractEnvelope: the surplus gate is adjudicated
+	// and correct, and batto's negative surplus (152.6 W available, 280.1 W
+	// required) is honest propagation of the known Species.Bat clade defect.
+	// Making ExtractEnvelope permissive would hide that; refusing the launch
+	// reports it.
+	//
+	// The descriptive fields above (required airspeed/drop/jump) are still
+	// populated: they remain true facts about the creature, and a caller
+	// diagnosing WHY the launch is refused wants to see them.
+	//
+	// PRECEDENCE: TM::IMPOSSIBLE is exempt, and speaks first. Its arm names the
+	// constraint that failed (WING_LOADING, POWER_LOADING, ...), which is a
+	// STRICTLY MORE SPECIFIC diagnosis of the same fact -- "cannot get airborne,
+	// and here is which number said so". CANNOT_SUSTAIN_FLIGHT exists for the
+	// case the classification does NOT cover: a takeoff the analysis considers
+	// achievable (batto is RUNNING_TAKEOFF, with all four constraint flags true)
+	// into a flight envelope that does not exist. Measured: penguin.glb in air
+	// keeps reporting WING_LOADING, which is what a caller can act on.
+	if (!f.can_sustain_flight && f.mode != TM::IMPOSSIBLE) {
+		p.feasible  = false;
+		p.readiness = 0.f;
+		p.accelerate_along_heading = false;
+		p.blocking_reason = BlockingReason::CANNOT_SUSTAIN_FLIGHT;
+		return p;
+	}
+
 	switch (f.mode) {
 	case TM::VERTICAL_LAUNCH:
 		// Pure wing power -- but the creature is still standing on something
@@ -141,12 +180,26 @@ LaunchPlan PlanLaunch(const LaunchFacts& f)
 		break;
 
 	case TM::IMPOSSIBLE:
-	default:
 		p.feasible  = false;
 		p.readiness = 0.f;
 		p.blocking_reason = FirstFailedConstraint(f);
 		break;
 	}
+	// No `default:` above, deliberately, matching ExtractEnvelope
+	// (tonton_envelope.cpp) and SpeedFrameOf (tonton_myopic.cpp): adding a
+	// TakeoffMode must be a compile error here rather than being silently
+	// classified as IMPOSSIBLE. Enforced by -Werror=switch on the `tonton`
+	// target (CMakeLists.txt) -- the omitted `default:` alone does NOT enforce
+	// it, since the project otherwise builds with no -Wall and no -Werror.
+	//
+	// This arm used to read `case TM::IMPOSSIBLE: default:`, which defeated that
+	// convention on the one switch of the three where a wrong classification is
+	// silently plausible: a brand-new takeoff mode would have been reported as
+	// physically impossible, complete with a confident named constraint.
+	//
+	// A TakeoffMode outside the enum's value set (only reachable via a cast)
+	// falls through to the default-constructed plan: not feasible, readiness 0,
+	// blocking_reason NONE.
 
 	return p;
 }
@@ -170,6 +223,12 @@ std::optional<LaunchFacts> MakeLaunchFacts(
 		? float(analysis.jumping->takeoff_velocity_m_s) : 0.f;
 	f.substrate                  = in.substrate;
 	f.can_use_water_taxi         = t.can_use_water_taxi;
+	// The reconciliation itself: ask the SAME function the steering layer will
+	// ask, with the same gravity, rather than re-deriving the predicate here
+	// where the two could drift apart again. `gait` is not read by the AERIAL
+	// arm, so 0 is not a choice.
+	f.can_sustain_flight = ExtractEnvelope(
+		analysis, LocomotionMode::AERIAL, 0, in.gravity_m_s2).has_value();
 	f.wing_loading_ok            = t.constraints.wing_loading_ok;
 	f.power_loading_ok           = t.constraints.power_loading_ok;
 	f.aspect_ratio_ok            = t.constraints.aspect_ratio_ok;

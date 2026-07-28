@@ -44,6 +44,30 @@ enum class BlockingReason : uint8_t {
 	// while standing) and the creature is in open water, which bears neither --
 	// unless the analysis flagged it as a water-taxiing flyer.
 	NEEDS_SOLID_SUBSTRATE,
+
+	// The creature HAS an Analysis_Aerial section, but the aerial envelope it
+	// produces is not one this module can control: no usable speed band, or no
+	// mechanical power surplus over the cost of level flight
+	// (ExtractEnvelope, src/Control/tonton_envelope.cpp).
+	//
+	// This is deliberately a THIRD reading, distinct from both of its
+	// neighbours, because a caller has to act differently on each:
+	//   NO_AERIAL_ANALYSIS      - not a flyer at all; never plan a takeoff.
+	//   CANNOT_SUSTAIN_FLIGHT   - shaped like a flyer, but this creature at this
+	//                             gravity cannot hold level flight. Do not run
+	//                             it down a runway; it will reach flight speed
+	//                             and there will be nothing there.
+	//   MODE_UNAVAILABLE        - the caller asked for a mode that does not
+	//                             exist for this creature: a caller error.
+	//
+	// Without it the launch planner cleared a takeoff (readiness 1.0,
+	// launch_feasible true) into a mode ExtractEnvelope then refused to control,
+	// so a caller doing exactly what it was told got MODE_UNAVAILABLE -- an
+	// error code the module itself had produced. Measured on batto.glb, which
+	// has a NEGATIVE mechanical surplus (152.6 W available against 280.1 W
+	// required); that is honest propagation of the known Species.Bat clade
+	// defect, not something to be relaxed away in ExtractEnvelope.
+	CANNOT_SUSTAIN_FLIGHT,
 };
 
 // How the creature is turning THIS frame.
@@ -128,6 +152,22 @@ struct MyopicOutput {
 	float stability{1.f};
 	float speed_headroom{1.f};
 	float turn_headroom{1.f};
+
+	// "The speed being asked for exceeds what THIS GAIT can deliver -- try a
+	// faster one." Meaningful ONLY for LocomotionMode::TERRESTRIAL, the one mode
+	// with a gait concept (the one arm that reads MyopicInput::current_gait);
+	// always false for every other mode.
+	//
+	// It used to be computed unconditionally, so a dragonfly in AERIAL and a
+	// shark in AQUATIC were both told to change gait during a launch run --
+	// uninterpretable, since neither caller has a gait to change, and carrying
+	// no information beyond `speed_headroom < 0`.
+	//
+	// KNOWN OVERLOAD, on terrestrial envelopes: it means both "you asked for
+	// more than this gait can do" and "this gait cannot reach flight speed"
+	// (the launch floor at ComputeMyopicControl). Both are genuinely "this gait
+	// is not enough", so they share the flag; a caller needing to tell them
+	// apart reads target_mode.
 	bool  suggest_gait_change{false};
 
 	// Which mechanism produced the turn this frame, and the bank angle actually

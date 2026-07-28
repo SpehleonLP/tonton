@@ -58,6 +58,19 @@ struct LaunchFacts {
 	Substrate substrate{Substrate::GROUND};
 	bool      can_use_water_taxi{false};
 
+	// Does an AERIAL Envelope actually exist for this creature at this gravity?
+	//
+	// The launch planner used to gate on `analysis.aerial.has_value()` alone,
+	// while ExtractEnvelope additionally requires a usable speed band AND a
+	// positive mechanical power surplus. Nothing reconciled the two predicates,
+	// so the planner could clear a takeoff into a mode the steering layer then
+	// refused to control (see BlockingReason::CANNOT_SUSTAIN_FLIGHT). This is
+	// that reconciliation, carried as a FACT so the dispatch stays pure and the
+	// gate is exercisable without an Output.
+	//
+	// Defaults to false so a hand-built LaunchFacts must state it deliberately.
+	bool can_sustain_flight{false};
+
 	bool wing_loading_ok{false};
 	bool power_loading_ok{false};
 	bool aspect_ratio_ok{false};

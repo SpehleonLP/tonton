@@ -144,8 +144,30 @@ std::optional<Envelope> ExtractEnvelope(
 		                          : t.max_sprint_speed_m_s;
 		e.min_speed       = velocity_m_s{0.f};
 		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
+		// Minimum cost of transport: the speed a walking animal actually holds.
+		// Independent of `gait` on purpose -- optimal_speed_m_s is a whole-animal
+		// figure, and picking a faster gait is a statement about the CEILING, not
+		// about where the animal settles when nothing is asked of it.
+		e.cruise_speed    = t.optimal_speed_m_s;
+		e.has_gaits       = true;   // the one mode with gaits; see Envelope::has_gaits
 		e.max_accel       = t.max_acceleration_m_s2;
-		e.max_brake       = t.max_acceleration_m_s2; // legs brake with the same grip budget
+		// A GRIP BUDGET, not a fraction of one. Legs brake with exactly the
+		// friction they accelerate with -- there is no separate braking figure in
+		// Analysis_Terrestrial and inventing a coefficient here would be a
+		// fabricated constant. Pinned by
+		// MyopicEnvelope.TerrestrialBrakeIsTheSameGripBudgetAsAccel, which asserts
+		// EQUALITY: this line survived a mutation to `* 0.1f` with all 99 tests
+		// green, the aquatic arm having a matching pin and this one having none.
+		e.max_brake       = t.max_acceleration_m_s2;
+		// The invariant every OTHER arm already carried. AERIAL, AQUATIC,
+		// SERPENTINE, CLIMBING and BRACHIATION all gate on UsableAccel; this arm
+		// -- the earliest written -- did not, and it is a statement about what an
+		// Envelope IS, exactly as UsableSpeedBand is (see the note there). With
+		// max_acceleration_m_s2 == 0 alongside optimal_speed_m_s == 0,
+		// tau_linear = 0/0 = NaN propagates through std::max(NaN, dt) into
+		// turn_stop_bound and out to `stability`. No sample trips it today; the
+		// asymmetry was the defect.
+		if (!UsableAccel(e.max_accel)) return std::nullopt;
 		e.min_turn_radius = t.min_turning_radius_m;
 		e.max_lateral_accel = LateralBudget(e.max_accel, e.max_speed, e.min_turn_radius);
 
@@ -171,6 +193,17 @@ std::optional<Envelope> ExtractEnvelope(
 		// CLAUDE.md). The consequence is a large-magnitude `stability` for small
 		// creatures -- framerate-independent since the u_turn split, but still
 		// large.
+		//
+		// The NUMERATOR is optimal_speed_m_s, NOT max_speed. tau is "how long
+		// this animal takes to get up to the speed it habitually travels at",
+		// and it must not change when the caller selects a different gait -- the
+		// slew rate, the anti-overshoot bound and u_turn's numerator all key on
+		// it, so a gait switch would silently retime the whole controller.
+		// Measured: substituting max_speed is a 3x change at gallop and left all
+		// 99 tests green (TerrestrialInvariants asserts only tau > 0 && finite).
+		// Pinned by MyopicEnvelope.TerrestrialTauMatchesClosedForm, the analogue
+		// of AerialMaxAccelMatchesClosedForm which caught the same mutation on
+		// the aerial arm immediately.
 		e.tau_linear = t.optimal_speed_m_s / t.max_acceleration_m_s2;
 		return e;
 	}
@@ -182,6 +215,7 @@ std::optional<Envelope> ExtractEnvelope(
 		e.max_speed = a.max_flight_speed_m_s;
 		e.min_speed = a.min_flight_speed_m_s;   // stall at n = 1
 		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
+		e.cruise_speed = a.cruise_speed_m_s;    // the speed it flies at, not the ceiling
 
 		// Accelerating power is the MECHANICAL SURPLUS: what the muscles can put
 		// out mechanically, minus what level flight at cruise already consumes.
@@ -206,12 +240,40 @@ std::optional<Envelope> ExtractEnvelope(
 		auth.n_max = LoadFactorLimit(a, gravity_m_s2);
 		e.aerial = auth;
 
-		// a_lat = g*tan(phi_max) = g*sqrt(n_max^2 - 1)
-		// TODO(task-5): this is identically 0 when gravity_m_s2 == 0 for ANY
-		// n_max -- banking trades weight for centripetal force, so it is
-		// undefined without weight. TonTon explicitly supports low/zero-gravity
-		// worlds, so a zero-g flyer needs a different lateral model (direct
-		// thrust-vectoring / wing side-force), not this one.
+		// PUBLISHED SUMMARY, NOT A CONTROL INPUT. Read this before changing
+		// either of the next two fields, or before acting on a TODO here.
+		//
+		// `max_lateral_accel` and `min_turn_radius` on an AERIAL envelope reach
+		// NO consumer inside this module. Steer sets
+		// omega_max = max_lateral_accel/speed at tonton_steer.cpp:282 and then
+		// unconditionally overwrites it whenever env.aerial.has_value() -- in the
+		// BANK arm from g*tan(phi_max)/v, in the YAW arm from max_yaw_rate
+		// cross-checked against the lateral budget -- and the only path that
+		// takes neither arm is speed <= kSpeedEpsilon, where turn_limited is
+		// false and omega_max stays 0 regardless. Nothing reads min_turn_radius
+		// for an aerial envelope at all (LateralBudget is its sole consumer and
+		// this arm does not call it).
+		//
+		// They are computed anyway, and kept, because Envelope is a published
+		// type: they are the honest one-number summaries of this flyer's turn
+		// performance for an external consumer (a UI, a planner, a designer's
+		// spreadsheet), and they are pinned by
+		// MyopicEnvelope.AerialLoadFactorMatchesClosedForm.
+		//
+		// The value Steer actually flies is the SPEED-DEPENDENT one, recomputed
+		// every frame from n(v) = (v/v_stall)^2 (LoadFactorAtSpeed /
+		// LateralAccelBudget, tonton_steer.cpp). These fields are its cruise-time
+		// snapshot. Do not "wire them up": at any speed other than cruise they
+		// are the wrong number, which is the whole reason Steer stopped using
+		// them.
+		//
+		// a_lat = g*tan(phi_max) = g*sqrt(n_max^2 - 1). Identically 0 at
+		// gravity_m_s2 == 0 for any n_max, since banking trades weight for
+		// centripetal force and is undefined without weight. The TODO for that
+		// used to live here, which made it unactionable -- changing this line
+		// changes nothing a creature does. The zero-gravity BEHAVIOUR lives in
+		// the three `gravity > 0` guards in Steer; the TODO now lives with them,
+		// at the head of Steer's aerial section.
 		const float lat = gravity_m_s2 * std::sqrt(std::max(0.f, auth.n_max * auth.n_max - 1.f));
 		e.max_lateral_accel = acceleration_m_s2{lat};
 
@@ -242,6 +304,9 @@ std::optional<Envelope> ExtractEnvelope(
 		// creature that can hold station.
 		e.min_speed = a.min_swim_speed_m_s;
 		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
+		// max_speed above is the ANAEROBIC BURST speed, which no animal holds:
+		// a shark defaulted to 20.29 m/s where it cruises at 2.53 (8.0x).
+		e.cruise_speed = a.cruise_speed_m_s;
 
 		// NOT the same operation as the aerial arm above, despite the shape.
 		//
@@ -301,6 +366,15 @@ std::optional<Envelope> ExtractEnvelope(
 		e.min_speed = s.lateral_undulation_speed_m_s * 0.5f;
 		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 
+		// ONE CHARACTERISTIC SPEED. Analysis_Serpentine states the lateral
+		// undulation speed and nothing else -- there is no separate cruise, and
+		// a snake's undulation IS its cruise -- so cruise_speed EQUALS max_speed
+		// here. That equality is the honest reading of the analysis, not a
+		// placeholder: it says "when nothing is asked of it, this snake
+		// undulates", which is exactly right. (The floor beneath it is the
+		// adjudicated 0.5f placeholder above; the ceiling is not.)
+		e.cruise_speed = s.lateral_undulation_speed_m_s;
+
 		// KNOWN GAP, shipped deliberately (adjudicated): the 1-second divisor is
 		// a placeholder for a MISSING QUANTITY, not a tuning constant.
 		// Analysis_Serpentine exposes no acceleration, no power, and -- checked
@@ -334,6 +408,15 @@ std::optional<Envelope> ExtractEnvelope(
 		e.min_speed = velocity_m_s{0.f};   // a climber can hang motionless
 		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 
+		// ONE CHARACTERISTIC SPEED, as in the serpentine arm: Analysis_Climbing
+		// states a max climb speed, an angle and substrate booleans -- no cruise.
+		// So cruise_speed EQUALS max_speed. Unlike the two fluid modes above,
+		// that is not obviously the right physical answer (a climber ambling up a
+		// trunk is surely slower than one fleeing), but the analysis states no
+		// second number and inventing a fraction of the first would be exactly
+		// the fabricated constant this codebase refuses. Recorded as a gap.
+		e.cruise_speed = c.max_climb_speed_m_s;
+
 		// KNOWN GAP, shipped deliberately (adjudicated): same missing quantity
 		// as SERPENTINE above. Analysis_Climbing exposes a speed, an angle and
 		// a set of substrate booleans -- no acceleration, power or stride rate.
@@ -356,6 +439,10 @@ std::optional<Envelope> ExtractEnvelope(
 		e.max_speed = b.max_swing_speed_m_s;
 		e.min_speed = velocity_m_s{0.f};   // a brachiator can hang motionless
 		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
+		// ONE CHARACTERISTIC SPEED, as in the serpentine and climbing arms:
+		// Analysis_Brachiation states a max swing speed and a swing frequency,
+		// no cruise. So cruise_speed EQUALS max_speed. Same gap as CLIMBING.
+		e.cruise_speed = b.max_swing_speed_m_s;
 		// A brachiator changes speed once per swing; the swing frequency is a
 		// real measured quantity here, unlike terrestrial stride frequency. So
 		// this arm, alone among the three non-fluid ones, needs no placeholder.

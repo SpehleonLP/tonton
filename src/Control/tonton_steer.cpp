@@ -107,8 +107,9 @@ TurnStrategy ChooseStrategy(const AerialAuthority& a, float angle_error_rad,
 	// zero-g flyer degrades to YAW. That is the honest answer for THIS model:
 	// banking works by tilting the weight vector, and with no weight there is
 	// nothing to tilt. A zero-g flyer needs a different lateral model (direct
-	// thrust vectoring / wing side force), which is out of scope here; see the
-	// matching note at tonton_envelope.cpp.
+	// thrust vectoring / wing side force), which is out of scope here. One of
+	// the three guards collected in the TODO(zero-g lateral model) at the head
+	// of Steer's aerial section.
 	if (phi_max > 0.f && roll_rate > 0.f && speed > kSpeedEpsilon && gravity > 0.f) {
 		const float omega_bank = gravity * std::tan(phi_max) / speed;
 		if (omega_bank > 0.f) {
@@ -227,6 +228,13 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// entirely rather than evaluated against a fabricated denominator.
 	// kSpeedEpsilon (file scope) is a pure guard deciding whether the limit
 	// applies; it must never appear inside an arithmetic result.
+	//
+	// THE ONE SPEED. SteerCommand::current_speed_m_s is documented non-negative
+	// (see tonton_steer.h); this fabs makes that reading uniform rather than
+	// leaving each channel free to disagree, which is what it used to do -- the
+	// turn and stall channels took the magnitude while u_speed and speed_error
+	// took the signed value. Every channel below reads `speed`, never
+	// cmd.current_speed_m_s.
 	const float speed = std::fabs(cmd.current_speed_m_s);
 
 	// Does ANY turn-rate limit apply this frame? Below kSpeedEpsilon none
@@ -287,6 +295,39 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// turn rate available is set by which AXIS is being used. Replace
 	// omega_max accordingly, and under BANK make the bank angle the single
 	// source of truth for the turn.
+	//
+	// NOTE: this REPLACES the omega_max computed just above from
+	// env.max_lateral_accel, on every path a flyer can take. BANK overwrites it
+	// from g*tan(phi_max)/v; YAW overwrites it from max_yaw_rate cross-checked
+	// against the speed-dependent lateral budget; and the only path taking
+	// neither is speed <= kSpeedEpsilon, where turn_limited is false and
+	// omega_max is 0 anyway. So Envelope::max_lateral_accel and
+	// Envelope::min_turn_radius are NOT control inputs for an aerial envelope --
+	// they are a published cruise-time summary for an external consumer. The
+	// matching note is at their derivation in tonton_envelope.cpp; do not wire
+	// them in here, because at any speed other than cruise they are the wrong
+	// number.
+	//
+	// TODO(zero-g lateral model): THIS is where zero-gravity behaviour actually
+	// lives -- three `gravity > 0` guards, in ChooseStrategy (t_bank stays
+	// infinite, so a zero-g flyer degrades to YAW), in the YAW branch below (the
+	// lateral-force cross-check is skipped and max_yaw_rate stands alone), and
+	// in `turn_follows_bank` (a carried bank stops owning the turn). Each is
+	// individually right for THIS model: banking works by tilting the weight
+	// vector, so a_lat = g*sqrt(n^2-1) is identically 0 at g = 0 for every n, and
+	// applying it would say a zero-g flyer cannot turn at all -- the formula
+	// being undefined without a weight vector, not a bound.
+	//
+	// What is missing is a model that DERIVES a zero-g lateral authority: direct
+	// thrust vectoring, or wing side-force, neither of which the analysis layer
+	// exposes. Until one exists, a zero-g flyer falls back to bare max_yaw_rate
+	// with no force budget behind it. TonTon explicitly supports low- and
+	// zero-gravity settings (see the Titan dragonfly in README.md), so this is a
+	// real gap and not a hypothetical.
+	//
+	// This TODO used to sit on the `max_lateral_accel` derivation in
+	// tonton_envelope.cpp, where acting on it would have changed nothing a
+	// creature does, because Steer overwrites that field.
 	TurnStrategy strategy = TurnStrategy::LATERAL;
 	bool  turn_follows_bank = false;
 	float banked_turn_rate  = 0.f;
@@ -326,8 +367,9 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 			// turn at all -- but that is the FORMULA being undefined without a
 			// weight vector, not a physical bound. A wing or tail generates
 			// side force whether or not anything is falling. So at g <= 0 the
-			// budget is unknown and max_yaw_rate stands alone, matching the
-			// TODO(task-5) at tonton_envelope.cpp:157 for the banked case.
+			// budget is unknown and max_yaw_rate stands alone. This is one of the
+			// three `gravity > 0` guards collected in the
+			// TODO(zero-g lateral model) at the head of this section.
 			omega_max = float(a.max_yaw_rate);
 			if (cmd.gravity_m_s2 > 0.f) {
 				omega_max = std::min(
@@ -478,7 +520,9 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	}
 
 	// --- Speed ------------------------------------------------------------
-	const float speed_error = cmd.desired_speed_m_s - cmd.current_speed_m_s;
+	// `speed`, not cmd.current_speed_m_s: see the magnitude note at its
+	// declaration and the convention in tonton_steer.h.
+	const float speed_error = std::fabs(cmd.desired_speed_m_s) - speed;
 	const float greedy_accel = speed_error / dt;
 	const float accel_demand = std::clamp(greedy_accel,
 	                                      -float(env.max_brake),
@@ -499,8 +543,12 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// --- Stability --------------------------------------------------------
 	// Three pure demand/capacity ratios; the worst one wins. 1 = idle,
 	// 0 = at a limit, negative = past it. No weights, nothing to tune.
+	// `speed` (the magnitude), not cmd.current_speed_m_s: a signed reading here
+	// made a negative speed report a NEGATIVE u_speed, i.e. strictly more
+	// comfortable than idle, on the same frame the turn and stall channels were
+	// counting it as positive speed. See tonton_steer.h.
 	const float u_speed = (float(env.max_speed) > 0.f)
-		? cmd.current_speed_m_s / float(env.max_speed) : 0.f;
+		? speed / float(env.max_speed) : 0.f;
 
 	// Two DIFFERENT reasons the authority can be zero, which must not read the
 	// same way:
@@ -588,7 +636,23 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	r.bank_angle_rad  = state.bank_angle_rad;
 	// Deliberately NOT clamping desired speed to the gait: the stability
 	// metric communicates the problem and the external gait selector decides.
-	r.suggest_gait_change = cmd.desired_speed_m_s > float(env.max_speed);
+	//
+	// SCOPED TO MODES THAT HAVE GAITS. `env.has_gaits` is true for TERRESTRIAL
+	// alone -- the only arm that reads MyopicInput::current_gait, and the only
+	// analysis section with anything gait-shaped in it. This was computed
+	// unconditionally, so a dragonfly in AERIAL and a shark in AQUATIC both
+	// reported "change gait" during a launch run: not an action either caller
+	// can take, and for a gaitless mode the flag carries no information that
+	// `speed_headroom < 0` does not already carry exactly.
+	//
+	// CONTRACT, for a terrestrial envelope: "the speed being asked for exceeds
+	// what THIS GAIT can deliver -- try a faster one". It remains overloaded
+	// between two situations that are both genuinely that (a caller asking for
+	// more than the gait can do, and a launch floor the gait cannot reach), which
+	// is recorded and not addressed here; what it no longer does is fire for a
+	// mode with no gait to change to.
+	r.suggest_gait_change = env.has_gaits
+	                     && cmd.desired_speed_m_s > float(env.max_speed);
 	return r;
 }
 

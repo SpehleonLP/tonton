@@ -259,10 +259,32 @@ MyopicOutput ComputeMyopicControl(
 	// When the floor exceeds the gait's top speed, Steer's `suggest_gait_change`
 	// fires -- which is how the caller learns that THIS gait cannot reach flight
 	// speed, instead of watching readiness stall silently.
+	//
+	// THE `< 0` DEFAULT IS CRUISE, NOT MAX. tonton_myopic.h documents
+	// `desired_speed_m_s < 0` as "controller picks cruise" and the approved spec
+	// says the same; this substituted env->max_speed, which is a different
+	// promise entirely. Measured over 200 s at 60 Hz on defaults: a shark held
+	// 20.29 m/s -- its ANAEROBIC BURST ceiling -- against a 2.53 m/s cruise,
+	// 8.0x, indefinitely. Worse, u_speed = v/max_speed was then identically 1 on
+	// every model, so `stability` read exactly 0 for a creature doing nothing
+	// unusual, colliding with the two other meanings 0 already carries (the
+	// adjudicated MODE_UNAVAILABLE reading, and a genuine limit) -- and on
+	// defaults the spurious one was the modal reading.
+	//
+	// Envelope::cruise_speed is populated by every arm from a speed the analysis
+	// layer already states (optimal_speed_m_s / cruise_speed_m_s / the mode's one
+	// characteristic speed); nothing is derived here.
+	//
+	// The fallback to max_speed survives only for a degenerate envelope with no
+	// stated cruise at all. That cannot happen through ExtractEnvelope -- every
+	// arm sets it -- but Envelope is a public-ish struct that tests and future
+	// callers build by hand, and commanding 0 m/s would look like a deliberate
+	// stop rather than a missing field.
+	const float cruise = (float(env->cruise_speed) > 0.f) ? float(env->cruise_speed)
+	                                                      : float(env->max_speed);
 	cmd.desired_speed_m_s = std::max(
 		launch_speed_floor,
-		(input.desired_speed_m_s >= 0.f ? input.desired_speed_m_s
-		                                : float(env->max_speed)));
+		(input.desired_speed_m_s >= 0.f ? input.desired_speed_m_s : cruise));
 	cmd.dt_s          = input.dt_s;
 	cmd.gravity_m_s2  = input.gravity_m_s2;
 
