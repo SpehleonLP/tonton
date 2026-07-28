@@ -341,6 +341,7 @@ struct Analysis_Aerial {
 	omega_rad_s max_yaw_rate_rad_s{}; 
 	
 	power_W flapping_power_W{};            // Metabolic power for forward flight
+	power_W flapping_power_mechanical_W{}; // Mechanical (pre-efficiency) power for forward flight
 	power_W hovering_power_W{};            // Metabolic power for hovering
 			
 	// Relative efficiency (0-1, higher = better strategy for this animal)

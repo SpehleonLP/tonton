@@ -501,6 +501,10 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 
 	// Report metabolic power for forward flight (raw Watts, universally meaningful)
 	r.flapping_power_W = metabolic_power_W;
+	// Also report the mechanical (pre-efficiency) figure. Consumers that need a
+	// power *budget* (surplus available to accelerate) must compare like with
+	// like against mechanical muscle output, not against metabolic intake.
+	r.flapping_power_mechanical_W = mechanical_power_W;
 
 	// Flapping capability: compare MECHANICAL power (apples to apples)
 	// available_power_W is muscle mechanical output capacity
