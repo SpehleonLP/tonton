@@ -20,42 +20,70 @@ float Approach(float prev, float demand, float alpha)
 	return prev + (demand - prev) * alpha;
 }
 
+// Clamp `value` into [0, bound] or [bound, 0], matching bound's sign. Used to
+// pin a delivered rate/accel so it cannot cross past the point it is meant to
+// approach.
+float ClampTowardZero(float value, float bound)
+{
+	return (bound >= 0.f) ? std::clamp(value, 0.f, bound)
+	                      : std::clamp(value, bound, 0.f);
+}
+
 } // namespace
 
 SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cmd)
 {
 	const float dt = (cmd.dt_s > 0.f) ? cmd.dt_s : 1.f / 60.f;
 
+	// NOTE: tau_linear is deliberately reused here for the angular (turn)
+	// channel as well as the linear (accel) channel -- there is no separate
+	// angular time constant yet. A `tau_angular` may follow in a later task
+	// once a mode supplies one; until then this is a known simplification,
+	// not an oversight.
+
 	// --- Turn -------------------------------------------------------------
-	// Turn rate available at THIS speed. omega = a_lat / v, so a standing
-	// animal pivots freely and a fast one is grip-limited. The guard keeps
-	// v = 0 finite without introducing a tunable: it only bounds the demand,
-	// which the greedy step below bounds again anyway.
+	// Turn rate available at THIS speed. omega = a_lat / v: a fast animal is
+	// grip-limited by its centripetal budget. At v = 0 there is no
+	// centripetal requirement at all -- a standing animal pivots on the
+	// spot -- so the lateral-accel limit does not apply and is skipped
+	// entirely rather than evaluated against a fabricated denominator.
+	// kSpeedEpsilon is a pure guard deciding whether the limit applies; it
+	// must never appear inside an arithmetic result.
+	constexpr float kSpeedEpsilon = 1e-3f;
 	const float speed = std::fabs(cmd.current_speed_m_s);
-	const float omega_max = (speed > 1e-3f)
-		? float(env.max_lateral_accel) / speed
-		: float(env.max_lateral_accel) / 1e-3f;
 
 	// Greedy: if the error can be erased this frame, erase exactly it;
-	// otherwise go flat out. This cannot overshoot, by construction.
+	// otherwise go flat out. This is the pre-slew *demand* -- it is allowed
+	// to be dt-dependent because it is only a target the slew approaches,
+	// never the delivered value.
 	const float greedy = cmd.angle_error_rad / dt;
-	const float turn_demand = std::clamp(greedy, -omega_max, omega_max);
+	float turn_demand = greedy;
+	if (speed > kSpeedEpsilon) {
+		const float omega_max = float(env.max_lateral_accel) / speed;
+		turn_demand = std::clamp(turn_demand, -omega_max, omega_max);
+	}
 
 	const float turn_alpha = SlewAlpha(dt, float(env.tau_linear));
-	float turn_rate = Approach(state.prev_turn_rate_rad_s, turn_demand, turn_alpha);
+	const float turn_rate_slewed = Approach(state.prev_turn_rate_rad_s, turn_demand, turn_alpha);
+	// Store the unclamped slew value, not the clamped output: clamping is a
+	// property of what we deliver this frame, not of the animal's actual
+	// angular momentum. Storing the clamped value would reset momentum to
+	// zero the instant the bound bites (e.g. the target crossing the
+	// creature's nose), forcing counter-steer to restart from a standstill
+	// instead of from where the slew actually is.
+	state.prev_turn_rate_rad_s = turn_rate_slewed;
 
-	// Safety clamp: the slew carries momentum from previous frames, so once
-	// the error has shrunk, a still-high slewed rate can carry PAST zero
-	// error this frame -- the exact overshoot the 2025 PD attempt produced.
-	// `greedy` (== error / dt) is the rate that exactly zeroes the CURRENT
-	// error in this frame; never let the delivered rate exceed it, and never
-	// let it flip past zero. This uses only values already in scope -- no
-	// new tunable, just the same greedy bound applied after the slew instead
-	// of only before it.
-	if (greedy >= 0.f) turn_rate = std::clamp(turn_rate, 0.f, greedy);
-	else                turn_rate = std::clamp(turn_rate, greedy, 0.f);
-
-	state.prev_turn_rate_rad_s = turn_rate;
+	// Stopping-angle bound: a rate w decaying with slew time constant tau
+	// sweeps approximately w*tau before it dies out, so non-overshoot
+	// requires |w| <= |error| / tau. This is dt-free -- it comes entirely
+	// from the Envelope and the current error -- unlike clamping to
+	// error/dt, which keeps the error trajectory dt-independent but makes
+	// the delivered *signal* itself discontinuous at a rate that scales as
+	// O(1/dt) (framerate-dependent jerk for anything downstream that
+	// differentiates the output). Tighter than error/dt whenever dt < tau.
+	const float tau = float(env.tau_linear);
+	const float turn_stop_bound = (tau > 0.f) ? (cmd.angle_error_rad / tau) : greedy;
+	const float turn_rate = ClampTowardZero(turn_rate_slewed, turn_stop_bound);
 
 	// --- Speed ------------------------------------------------------------
 	const float speed_error = cmd.desired_speed_m_s - cmd.current_speed_m_s;
@@ -65,14 +93,15 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	                                       float(env.max_accel));
 
 	const float accel_alpha = SlewAlpha(dt, float(env.tau_linear));
-	float accel = Approach(state.prev_accel_m_s2, accel_demand, accel_alpha);
+	const float accel_slewed = Approach(state.prev_accel_m_s2, accel_demand, accel_alpha);
+	// Same reasoning as the turn channel: keep the slew's own momentum in
+	// state, clamp only the value handed back to the caller.
+	state.prev_accel_m_s2 = accel_slewed;
 
-	// Same overshoot guard as the turn channel: never deliver more
-	// acceleration than exactly zeroes the current speed error this frame.
-	if (greedy_accel >= 0.f) accel = std::clamp(accel, 0.f, greedy_accel);
-	else                      accel = std::clamp(accel, greedy_accel, 0.f);
-
-	state.prev_accel_m_s2 = accel;
+	// Same stopping-distance bound as the turn channel, applied to speed
+	// error instead of heading error.
+	const float accel_stop_bound = (tau > 0.f) ? (speed_error / tau) : greedy_accel;
+	const float accel = ClampTowardZero(accel_slewed, accel_stop_bound);
 
 	SteerResult r;
 	r.turn_rate_rad_s = turn_rate;

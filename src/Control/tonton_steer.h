@@ -2,7 +2,6 @@
 #define TONTON_STEER_H
 
 #include "Control/tonton_envelope.h"
-#include <glm/vec3.hpp>
 
 // NOTE: tonton_analysis.h must never be included here or in tonton_steer.cpp.
 // Steer operates only on Envelope. This is what makes drowning-in-data
