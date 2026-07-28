@@ -651,8 +651,11 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// more than the gait can do, and a launch floor the gait cannot reach), which
 	// is recorded and not addressed here; what it no longer does is fire for a
 	// mode with no gait to change to.
+	// fabs for the same reason speed_error takes it: desired_speed_m_s is
+	// documented non-negative, and reading one field two ways inside one
+	// function is the exact defect the magnitude convention exists to remove.
 	r.suggest_gait_change = env.has_gaits
-	                     && cmd.desired_speed_m_s > float(env.max_speed);
+	                     && std::fabs(cmd.desired_speed_m_s) > float(env.max_speed);
 	return r;
 }
 

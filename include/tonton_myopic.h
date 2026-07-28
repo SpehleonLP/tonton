@@ -149,6 +149,18 @@ struct MyopicOutput {
 	// than "a textbook takeoff". Each half is individually adjudicated; it is
 	// their INTERACTION that is new, and fixing it means deciding what the scale
 	// means below 0 rather than adjusting either half.
+	//
+	// A SECOND, SEPARATE COLLISION WITH 0, for the same reason. Giving
+	// `desired_speed_m_s < 0` makes the controller pick the mode's cruise speed,
+	// and for three modes plus one gait the analysis states only ONE
+	// characteristic speed, so cruise == max and u_speed is identically 1:
+	//   SERPENTINE (eel 0.4136 m/s), CLIMBING (treefrog 0.1053), BRACHIATION,
+	//   and TERRESTRIAL at gait 0, whose ceiling IS optimal_speed_m_s.
+	// Those creatures read stability == 0 while doing nothing whatsoever unusual.
+	// Not a defect in this layer -- there is no second number to use, and
+	// fabricating a fraction of the first is exactly what this module refuses --
+	// but a caller keyed on `stability == 0` must not read it as "at a limit"
+	// without also checking `blocking_reason` and the mode.
 	float stability{1.f};
 	float speed_headroom{1.f};
 	float turn_headroom{1.f};
