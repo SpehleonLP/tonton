@@ -24,6 +24,11 @@ struct SteerState {
 struct SteerResult {
 	float turn_rate_rad_s{0};
 	float accel_m_s2{0};
+
+	float stability{1.f};
+	float speed_headroom{1.f};
+	float turn_headroom{1.f};
+	bool  suggest_gait_change{false};
 };
 
 SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cmd);

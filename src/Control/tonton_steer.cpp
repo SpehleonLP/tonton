@@ -52,6 +52,12 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	constexpr float kSpeedEpsilon = 1e-3f;
 	const float speed = std::fabs(cmd.current_speed_m_s);
 
+	// omega_max is only meaningful once a centripetal budget applies (see
+	// the note above kSpeedEpsilon); it stays 0 below the epsilon, which
+	// downstream stability accounting reads as "no turning-authority ratio
+	// to report" rather than a fabricated bound.
+	float omega_max = 0.f;
+
 	// Greedy: if the error can be erased this frame, erase exactly it;
 	// otherwise go flat out. This is the pre-slew *demand* -- it is allowed
 	// to be dt-dependent because it is only a target the slew approaches,
@@ -59,7 +65,7 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	const float greedy = cmd.angle_error_rad / dt;
 	float turn_demand = greedy;
 	if (speed > kSpeedEpsilon) {
-		const float omega_max = float(env.max_lateral_accel) / speed;
+		omega_max = float(env.max_lateral_accel) / speed;
 		turn_demand = std::clamp(turn_demand, -omega_max, omega_max);
 	}
 
@@ -114,9 +120,34 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	const float accel_stop_bound = speed_error / std::max(tau, dt);
 	const float accel = ClampTowardZero(accel_slewed, accel_stop_bound);
 
+	// --- Stability --------------------------------------------------------
+	// Three pure demand/capacity ratios; the worst one wins. 1 = idle,
+	// 0 = at a limit, negative = past it. No weights, nothing to tune.
+	const float u_speed = (float(env.max_speed) > 0.f)
+		? cmd.current_speed_m_s / float(env.max_speed) : 0.f;
+
+	// omega_max is 0 below kSpeedEpsilon (see above): at near-zero speed
+	// there is no centripetal budget to be a fraction of, so u_turn reports
+	// 0 (idle) rather than dividing by a fabricated denominator.
+	const float u_turn = (omega_max > 0.f)
+		? std::fabs(turn_demand) / omega_max : 0.f;
+
+	// Minimum-speed modes (stall in air, sharks, serpentine undulation floor).
+	// Aerial replaces this in Task 5 with a bank-corrected stall speed.
+	const float u_stall = (float(env.min_speed) > 0.f && speed > 1e-3f)
+		? float(env.min_speed) / speed : 0.f;
+
+	const float worst = std::max({u_speed, u_turn, u_stall});
+
 	SteerResult r;
 	r.turn_rate_rad_s = turn_rate;
 	r.accel_m_s2      = accel;
+	r.stability       = 1.f - worst;
+	r.speed_headroom  = 1.f - u_speed;
+	r.turn_headroom   = 1.f - u_turn;
+	// Deliberately NOT clamping desired speed to the gait: the stability
+	// metric communicates the problem and the external gait selector decides.
+	r.suggest_gait_change = cmd.desired_speed_m_s > float(env.max_speed);
 	return r;
 }
 
