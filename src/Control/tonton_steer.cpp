@@ -129,11 +129,35 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// omega_max is 0 below kSpeedEpsilon (see above): at near-zero speed
 	// there is no centripetal budget to be a fraction of, so u_turn reports
 	// 0 (idle) rather than dividing by a fabricated denominator.
+	//
+	// The numerator is deliberately turn_stop_bound, not turn_demand and not
+	// the delivered turn_rate:
+	//  - turn_demand is already clamped to +/-omega_max at the point it is
+	//    computed above, so |turn_demand| <= omega_max always holds and a
+	//    ratio built from it can never exceed 1 -- the turn channel would be
+	//    structurally incapable of driving stability negative, no matter how
+	//    much turn rate is actually being demanded.
+	//  - turn_rate (the delivered, slew-lagged value) reads low immediately
+	//    after a step input even while the *demand* is pegged at the limit,
+	//    hiding exactly the saturation this ratio exists to surface.
+	//  - turn_stop_bound (= angle_error_rad / max(tau, dt)) is the rate the
+	//    creature actually wants to sustain to close the error over its own
+	//    natural time constant. It is dt-free in the normal dt < tau regime,
+	//    it is already computed above for the anti-overshoot clamp, and --
+	//    critically -- it is NOT clamped to omega_max, so u_turn can exceed 1
+	//    exactly when the demanded turn genuinely exceeds available authority.
 	const float u_turn = (omega_max > 0.f)
-		? std::fabs(turn_demand) / omega_max : 0.f;
+		? std::fabs(turn_stop_bound) / omega_max : 0.f;
 
 	// Minimum-speed modes (stall in air, sharks, serpentine undulation floor).
-	// Aerial replaces this in Task 5 with a bank-corrected stall speed.
+	// Note the numerator/denominator convention is inverted relative to
+	// u_speed: u_speed is current/max (over budget once you exceed a
+	// ceiling), u_stall is min/current (over budget once you fall below a
+	// floor). Both read as "1 = at the limit, >1 = past it" despite the
+	// inversion. Aerial replaces this in Task 5 with a bank-corrected stall
+	// speed; the speed > 1e-3f guard here is brief-mandated and carried
+	// forward as-is -- it is known to under-report a stalled creature sitting
+	// at exactly zero speed, deferred to that rewrite rather than patched now.
 	const float u_stall = (float(env.min_speed) > 0.f && speed > 1e-3f)
 		? float(env.min_speed) / speed : 0.f;
 
