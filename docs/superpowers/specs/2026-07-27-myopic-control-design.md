@@ -344,8 +344,11 @@ Supporting tests:
 - **`Bank.*`** — dragonfly yaws, a low-yaw/high-roll creature banks, for the same input.
 - **`Stall.*`** — hard turn near `min_flight_speed` drives stability negative.
 
-**Sample-model caveats.** The Treefrog and Bat samples have no aerial section (see "Known
-limitation" below), so flyer tests key off the **dragonfly**. No sample has albatross-like
+**Sample-model caveats.** Verified 2026-07-27: the **Bat sample does produce a full aerial
+analysis** (wingbeat 10.19 Hz, cruise 11.9 m/s, correctly cannot hover), so it is usable
+for flyer tests alongside the dragonfly — and it is the better `RUNNING_TAKEOFF` /
+`ASSISTED_LAUNCH` candidate of the two. Its only failing assertion is clade (see "Known
+limitation"), which does not affect the envelope. No sample has albatross-like
 low-yaw/high-roll authority, so `Bank.*` uses a synthetic hand-built `Output` — which is
 better anyway, since it tests the decision boundary directly rather than incidentally.
 
@@ -358,19 +361,27 @@ readiness readout.
 
 ## Known limitation, not addressed here
 
-The **Bat** sample produces no aerial analysis because its wing bones are named `hand` —
-which is anatomically correct, since a bat wing *is* a hand. `GetSemanticFlags(Word::hand)`
-yields grasper/forelimb rather than `WING`, so no wing is ever found. Treefrog has a
-related clade misclassification.
+The **Bat** sample fails exactly one assertion, `clade == MAMMALIA`. Its locomotion is
+fine: the geometry-based wing promotion at `tonton_builder.cpp:1156-1184`
+(`thin_sheet && digit_supported → SF::WING`) correctly finds the flight membrane on the
+`Finger-L.00N` chain, which is the only reason any wing is found, since no bone in the
+model is named "wing".
 
-This is a wordlist/robustness problem in the analysis layer, orthogonal to this module,
-and is explicitly **not** in scope. It is recorded because it constrains the test plan
-above, and because the likely direction is worth capturing: semantic flags from bone
-names are *priors*, and TonTon already computes the geometry (silhouette area, tubiness,
-cross-sections) that could promote or override them — a flat, membranous forelimb with
-silhouette area wildly out of proportion to a grasping hand is a wing regardless of its
-name. That would be the "let physics determine what's possible" principle applied to
-classification rather than to locomotion. Separate spec.
+The clade failure is not a weird-naming problem. `MAMMALIA` is inferable from only twelve
+words (`pouch, molar, trunk, jowl, tusk, vibrissa, scut, pad, dewclaw, nail, patagium,
+fur`), and the bat model contains none of them — `Finger`, `Arm`, `Ear`, `Tail`, `Spine`
+is about as standard as vertebrate naming gets. So *standard* naming carries no clade
+signal, and adding more words would not generalise.
+
+The promising direction, for a separate spec: `thin_sheet && digit_supported` is the
+definition of a **patagium**, and `Word::patagium` already returns `CF::MAMMALIA`. The
+geometry detector has already found a patagium and merely declines to say so. Letting that
+branch contribute a clade hint would make morphology feed clade inference the way it
+already feeds locomotion — the CLAUDE.md principle applied to classification. The
+`digit_supported` gate already excludes insects; pterosaurs and dragons would be a genuine
+ambiguity worth thinking about first.
+
+Explicitly **not** in scope for this module.
 
 ## Implementation order
 
