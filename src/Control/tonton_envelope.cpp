@@ -21,6 +21,40 @@ acceleration_m_s2 LateralBudget(acceleration_m_s2 max_accel,
 	return (float(from_radius) < float(max_accel)) ? from_radius : max_accel;
 }
 
+// Analysis_Aerial has no acceleration field, so derive it. P = F*v and F = m*a
+// give a = P/(m*v), evaluated at cruise as a representative figure.
+acceleration_m_s2 AccelFromPower(power_W available, mass_kg mass, velocity_m_s at_speed)
+{
+	if (float(mass) <= 0.f || float(at_speed) <= 0.f) return acceleration_m_s2{0.f};
+	return available / (mass * at_speed);
+}
+
+// Load-factor limit, derived two independent ways and cross-checked:
+//   - force budget:   n = L_max / W
+//   - stated radius:  a coordinated turn of radius r at speed v needs
+//                     tan(phi) = v^2 / (g*r), and n = 1/cos(phi)
+// Taking the min keeps us honest. A large disagreement is a diagnostic about
+// the analysis, not about the controller.
+float LoadFactorLimit(const Analysis_Aerial& a, mass_kg mass, float gravity_m_s2)
+{
+	float n_force = 1.f;
+	const float weight_N = float(mass) * gravity_m_s2;
+	if (weight_N > 0.f && float(a.takeoff.max_instantaneous_lift_N) > 0.f) {
+		n_force = float(a.takeoff.max_instantaneous_lift_N) / weight_N;
+	}
+
+	float n_radius = 1.f;
+	const float r = float(a.min_turning_radius_m);
+	const float v = float(a.cruise_speed_m_s);
+	if (r > 0.f && v > 0.f && gravity_m_s2 > 0.f) {
+		const float tan_phi = (v * v) / (gravity_m_s2 * r);
+		n_radius = std::sqrt(1.f + tan_phi * tan_phi); // = 1/cos(atan(tan_phi))
+	}
+
+	const float n = std::min(n_force, n_radius);
+	return (n >= 1.f && std::isfinite(n)) ? n : 1.f;
+}
+
 } // namespace
 
 std::optional<Envelope> ExtractEnvelope(
@@ -45,6 +79,35 @@ std::optional<Envelope> ExtractEnvelope(
 		// from two numbers the plausibility suite already validates, adding no
 		// new biological claim. See the spec's rejected-pendulum note.
 		e.tau_linear = t.optimal_speed_m_s / t.max_acceleration_m_s2;
+		return e;
+	}
+	case LocomotionMode::AERIAL: {
+		if (!analysis.aerial.has_value()) return std::nullopt;
+		const auto& a = *analysis.aerial;
+
+		Envelope e;
+		e.max_speed = a.max_flight_speed_m_s;
+		e.min_speed = a.min_flight_speed_m_s;   // stall at n = 1
+		e.max_accel = AccelFromPower(a.flapping_power_W,
+		                             analysis.physical.body_mass_kg,
+		                             a.cruise_speed_m_s);
+		e.max_brake = e.max_accel;
+		e.min_turn_radius = a.min_turning_radius_m;
+
+		AerialAuthority auth;
+		auth.max_roll_rate  = a.max_roll_rate_rad_s;
+		auth.max_pitch_rate = a.max_pitch_rate_rad_s;
+		auth.max_yaw_rate   = a.max_yaw_rate_rad_s;
+		auth.stall_speed    = a.min_flight_speed_m_s;
+		auth.cruise_speed   = a.cruise_speed_m_s;
+		auth.n_max = LoadFactorLimit(a, analysis.physical.body_mass_kg, gravity_m_s2);
+		e.aerial = auth;
+
+		// a_lat = g*tan(phi_max) = g*sqrt(n_max^2 - 1)
+		const float lat = gravity_m_s2 * std::sqrt(std::max(0.f, auth.n_max * auth.n_max - 1.f));
+		e.max_lateral_accel = acceleration_m_s2{lat};
+
+		e.tau_linear = a.cruise_speed_m_s / e.max_accel;
 		return e;
 	}
 	default:
