@@ -10,12 +10,9 @@
 
 namespace TonTon {
 
-// How the creature is turning THIS frame.
-//  GROUND - ground reaction / centripetal budget (no aerial authority present).
-//  YAW    - flat turn about the yaw axis: available instantly, usually weak.
-//  BANK   - rolled turn: must be rolled into first, then delivers far more
-//           turn rate, and loads the wings (see the load-factor stall coupling).
-enum class TurnStrategy : uint8_t { GROUND, YAW, BANK };
+// TurnStrategy is declared in tonton_myopic.h (reached via tonton_envelope.h):
+// MyopicOutput has to report it, and the public header must not include this
+// internal one.
 
 struct SteerCommand {
 	float angle_error_rad{0}; // signed, current heading -> desired heading

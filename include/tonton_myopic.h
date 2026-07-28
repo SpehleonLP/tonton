@@ -20,7 +20,23 @@ enum class BlockingReason : uint8_t {
 	NONE, NEEDS_RUNWAY_SPEED, NEEDS_ELEVATION, NEEDS_PERCH,
 	WING_LOADING, POWER_LOADING, ASPECT_RATIO, LEG_STRENGTH,
 	NO_AERIAL_ANALYSIS,
+	// The mode the caller says the creature is CURRENTLY in has no analysis
+	// section, so no envelope exists and no control was computed. This is a
+	// caller error, not a creature limitation, and it deliberately does NOT
+	// live in `stability`: a stability of -1 is a perfectly ordinary reading
+	// for a creature asking for twice the turn it can deliver, so using it as
+	// an error sentinel would make the two indistinguishable.
+	MODE_UNAVAILABLE,
 };
+
+// How the creature is turning THIS frame.
+//  GROUND - ground reaction / centripetal budget (no aerial authority present).
+//  YAW    - flat turn about the yaw axis: available instantly, usually weak.
+//  BANK   - rolled turn: must be rolled into first, then delivers far more
+//           turn rate, and loads the wings (see the load-factor stall coupling).
+// Public because MyopicOutput reports it: a caller that cannot see the strategy
+// cannot roll the mesh, which would make the whole bank model invisible.
+enum class TurnStrategy : uint8_t { GROUND, YAW, BANK };
 
 // All members are plain floats with units in their names so the engine can
 // fill this in without depending on TonTon's Quantity system.
@@ -53,12 +69,27 @@ struct MyopicInput {
 
 struct MyopicOutput {
 	glm::vec3 linear_acceleration_m_s2{0};   // world space
-	glm::vec3 angular_acceleration_rad_s2{0}; // body space
+
+	// A RATE, not an acceleration: Steer's angular channel commands a turn
+	// rate directly (see SteerResult::turn_rate_rad_s). The old name
+	// `angular_acceleration_rad_s2` was a lie about both the dimension and the
+	// quantity, and this codebase carries compile-time dimensional analysis
+	// precisely because that class of mistake is expensive.
+	// Only the world-up (y) component is ever populated: this module is a
+	// heading-plane controller and has no pitch or roll channel.
+	glm::vec3 angular_velocity_rad_s{0};
 
 	float stability{1.f};        // 1 comfortable, 0 at limits, < 0 exceeding
 	float speed_headroom{1.f};
 	float turn_headroom{1.f};
 	bool  suggest_gait_change{false};
+
+	// Which mechanism produced the turn this frame, and the bank angle actually
+	// achieved (signed; right-banked is right-turning). The caller needs both to
+	// roll the mesh -- a banked flyer rendered wings-level is the whole Task 5
+	// model made invisible.
+	TurnStrategy strategy{TurnStrategy::GROUND};
+	float        bank_angle_rad{0.f};
 
 	float          transition_readiness{0.f}; // [0,1]; meaningful when target != mode
 	BlockingReason blocking_reason{BlockingReason::NONE};
@@ -72,10 +103,18 @@ struct MyopicOutput {
 };
 
 // Caller-owned, one per creature. Zero-initialised is a valid cold start.
+//
+// These are exactly the three scalars the steering layer owns, stored in the
+// same form it produced them. They were previously world-space vec3s that the
+// entry point reconstructed each frame, which lost information: a magnitude is
+// unsigned, so a BRAKING creature came back as if it had been accelerating
+// forward just as hard, and the framerate-correct exponential slew -- the whole
+// reason this module works where the 2025 PD attempt did not -- was being fed a
+// sign-flipped history. Keep them scalar; do not "helpfully" re-vectorise.
 struct MyopicState {
-	glm::vec3 prev_linear_accel_m_s2{0};
-	glm::vec3 prev_angular_accel_rad_s2{0};
-	float     bank_angle_rad{0};
+	float prev_turn_rate_rad_s{0}; // signed, about world up
+	float prev_accel_m_s2{0};      // signed, along the heading (negative = braking)
+	float bank_angle_rad{0};       // signed roll achieved so far
 };
 
 MyopicOutput ComputeMyopicControl(
