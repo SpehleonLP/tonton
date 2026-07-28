@@ -254,9 +254,21 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 			// inside the lateral-force budget the load factor allows at this
 			// airspeed; max_yaw_rate on its own is a nominal figure, not a
 			// bound that anything pays for.
-			omega_max = std::min(
-				float(a.max_yaw_rate),
-				LateralAccelBudget(a, speed, cmd.gravity_m_s2) / speed);
+			//
+			// The cross-check only means anything where there is weight to
+			// trade against. At zero gravity a_lat = g*sqrt(n^2-1) is
+			// identically 0 for every n, which would say a zero-g flyer cannot
+			// turn at all -- but that is the FORMULA being undefined without a
+			// weight vector, not a physical bound. A wing or tail generates
+			// side force whether or not anything is falling. So at g <= 0 the
+			// budget is unknown and max_yaw_rate stands alone, matching the
+			// TODO(task-5) at tonton_envelope.cpp:157 for the banked case.
+			omega_max = float(a.max_yaw_rate);
+			if (cmd.gravity_m_s2 > 0.f) {
+				omega_max = std::min(
+					omega_max,
+					LateralAccelBudget(a, speed, cmd.gravity_m_s2) / speed);
+			}
 		}
 		// (Below kSpeedEpsilon, omega_max stays 0 and turn_limited is false:
 		// no limit applies, exactly as for a standing ground animal.)
