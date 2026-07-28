@@ -406,6 +406,19 @@ struct Analysis_Aquatic  {
 	// rate and must never be fed to a P = F*v derivation.
 	power_W swim_power_mechanical_W{};
 
+	// The mechanical power budget tonton_aquatic.cpp allocates to an anaerobic
+	// BURST (available_muscle_power_W * 0.4), and from which burst_speed_m_s is
+	// derived. Exported so a consumer wanting the burst budget does not have to
+	// duplicate the 0.4 literal, and so the acceleration a consumer derives is
+	// consistent with the burst_speed_m_s it is bounded by.
+	//
+	// NOTE both of these are BUDGET ALLOCATIONS of available_muscle_power_W, not
+	// independently-derived hydrodynamic demands. That is the opposite of
+	// Analysis_Aerial::flapping_power_mechanical_W, which is a real aerodynamic
+	// requirement computed without reference to muscle power. See the aquatic
+	// arm of ExtractEnvelope.
+	power_W swim_power_burst_mechanical_W{};
+
 	// Hydrodynamics
 	lift_N_per_m lift_per_meter_swam_N{};      // For negatively buoyant animals
 	velocity_m_s sink_rate_m_s{};              // How fast they sink when stationary

@@ -735,6 +735,12 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 		// consumers do not have to substitute a metabolic rate for it. Purely
 		// additive: nothing above reads it back.
 		.swim_power_mechanical_W = swim_power_W,
+		// The burst budget burst_speed_m_s above is derived from (0.4 of the
+		// muscle power), exported for the same reason: so a consumer wanting the
+		// burst budget does not re-hardcode the 0.4 in a second file, and so an
+		// acceleration derived from it is consistent with the burst_speed_m_s it
+		// is bounded by. Purely additive: nothing above reads it back.
+		.swim_power_burst_mechanical_W = burst_power_W,
 		.lift_per_meter_swam_N = lift_per_meter_N,
 		.sink_rate_m_s = sink_rate_m_s,
 		.reynolds_number = reynolds,

@@ -50,6 +50,34 @@ bool UsableAccel(acceleration_m_s2 a)
 	return (float(a) > 0.f) && std::isfinite(float(a));
 }
 
+// ...and a mode whose floor is at or above its ceiling is not a usable envelope
+// either: every headroom/stability term downstream reads (v - min)/(max - min)
+// or a difference of the two, which an inverted band makes meaningless or
+// sign-flipped. Reported as absence, exactly as UsableAccel does.
+//
+// Applied to EVERY arm rather than only the one arm known to be able to invert
+// it (see below), because it is a statement about what an Envelope IS, not
+// about any one mode's derivation, and a future arm should inherit it for free.
+// Verified against the whole sample set: no existing arm's band is inverted at
+// the default inputs, so this gate changes no current behaviour -- in
+// particular it does not change AERIAL, whose min_speed is a stall speed.
+//
+// The arm that can actually trip it today is AQUATIC: min_swim_speed_m_s is
+// cruise*0.5 and is NOT scaled by exp2(mana.air) at tonton_aquatic.cpp:733,
+// while cruise_speed_m_s and burst_speed_m_s both are. The mana axis is a
+// supported input, so a sufficiently negative mana.air shrinks the ceiling past
+// the fixed floor. That is an upstream inconsistency and is reported as such;
+// this gate only stops a nonsensical envelope from reaching a consumer.
+//
+// Written as !(min < max) so NaN, for which every comparison is false, is
+// rejected too.
+bool UsableSpeedBand(velocity_m_s min_speed, velocity_m_s max_speed)
+{
+	const float lo = float(min_speed), hi = float(max_speed);
+	if (!std::isfinite(lo) || !std::isfinite(hi)) return false;
+	return lo < hi;
+}
+
 // Load-factor limit, derived two independent ways and cross-checked:
 //   - aerodynamic (V-n) budget: level flight at v needs CL such that lift = W,
 //     so at v the wing can generate at most (v/v_stall)^2 times its own weight
@@ -115,6 +143,7 @@ std::optional<Envelope> ExtractEnvelope(
 		            : (gait == 1) ? t.max_sustainable_speed_m_s
 		                          : t.max_sprint_speed_m_s;
 		e.min_speed       = velocity_m_s{0.f};
+		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 		e.max_accel       = t.max_acceleration_m_s2;
 		e.max_brake       = t.max_acceleration_m_s2; // legs brake with the same grip budget
 		e.min_turn_radius = t.min_turning_radius_m;
@@ -152,6 +181,7 @@ std::optional<Envelope> ExtractEnvelope(
 		Envelope e;
 		e.max_speed = a.max_flight_speed_m_s;
 		e.min_speed = a.min_flight_speed_m_s;   // stall at n = 1
+		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 
 		// Accelerating power is the MECHANICAL SURPLUS: what the muscles can put
 		// out mechanically, minus what level flight at cruise already consumes.
@@ -211,16 +241,30 @@ std::optional<Envelope> ExtractEnvelope(
 		// the mode's own envelope -- not a transition constraint. It is 0 for a
 		// creature that can hold station.
 		e.min_speed = a.min_swim_speed_m_s;
+		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 
-		// The MECHANICAL SURPLUS, exactly as the aerial arm above: what the
-		// muscles can put out mechanically, minus what steady cruising already
-		// spends. The plan fed metabolic.max_rate_W in here; that is a
-		// whole-organism METABOLIC rate, inflated by 1/eta relative to any
-		// mechanical figure and, being the total, not free to change speed with.
-		// swim_power_mechanical_W is the cruise cost tonton_aquatic.cpp already
-		// derives (available_muscle_power_W * 0.08) and now exports.
+		// NOT the same operation as the aerial arm above, despite the shape.
+		//
+		// Aerial subtracts a genuine aerodynamic DEMAND: flapping_power_mechanical_W
+		// is derived from wing geometry and airspeed without reference to muscle
+		// power, so it can and does exceed the supply (184% of it for the bat,
+		// which correctly zeroes the surplus and makes the mode absent).
+		//
+		// Aquatic has no such demand figure. BOTH aquatic power numbers are
+		// BUDGET ALLOCATIONS of the same available_muscle_power_W:
+		// swim_power_mechanical_W is 0.08 of it and swim_power_burst_mechanical_W
+		// is 0.4 of it (tonton_aquatic.cpp). Subtracting the 0.08 cruise budget
+		// from the full muscle power would therefore be a fixed 0.92 * supply on
+		// every sample forever -- an expression that can never zero, and one that
+		// silently assumed 2.3x the power budget the burst SPEED bounding this
+		// same envelope was derived from.
+		//
+		// So: spend out of the burst budget the rules layer itself considers
+		// mechanically available, which is the budget max_speed = burst_speed_m_s
+		// comes from. The envelope is then internally consistent -- one budget,
+		// used for both ends of it.
 		const float surplus_W = std::max(0.f,
-			float(analysis.metabolic.available_muscle_power_W)
+			float(a.swim_power_burst_mechanical_W)
 			- float(a.swim_power_mechanical_W));
 		e.max_accel = AccelFromPower(power_W{surplus_W},
 		                             analysis.physical.body_mass_kg,
@@ -255,6 +299,7 @@ std::optional<Envelope> ExtractEnvelope(
 		// placeholder. Nothing in Analysis_Serpentine states a minimum
 		// undulation speed, and a snake that stops undulating simply stops.
 		e.min_speed = s.lateral_undulation_speed_m_s * 0.5f;
+		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 
 		// KNOWN GAP, shipped deliberately (adjudicated): the 1-second divisor is
 		// a placeholder for a MISSING QUANTITY, not a tuning constant.
@@ -287,6 +332,7 @@ std::optional<Envelope> ExtractEnvelope(
 		Envelope e;
 		e.max_speed = c.max_climb_speed_m_s;
 		e.min_speed = velocity_m_s{0.f};   // a climber can hang motionless
+		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 
 		// KNOWN GAP, shipped deliberately (adjudicated): same missing quantity
 		// as SERPENTINE above. Analysis_Climbing exposes a speed, an angle and
@@ -309,6 +355,7 @@ std::optional<Envelope> ExtractEnvelope(
 		Envelope e;
 		e.max_speed = b.max_swing_speed_m_s;
 		e.min_speed = velocity_m_s{0.f};   // a brachiator can hang motionless
+		if (!UsableSpeedBand(e.min_speed, e.max_speed)) return std::nullopt;
 		// A brachiator changes speed once per swing; the swing frequency is a
 		// real measured quantity here, unlike terrestrial stride frequency. So
 		// this arm, alone among the three non-fluid ones, needs no placeholder.
@@ -324,8 +371,13 @@ std::optional<Envelope> ExtractEnvelope(
 	}
 	}
 	// No `default:` above, deliberately: adding a LocomotionMode must be a
-	// compile error here rather than a silent nullopt. This line is reached only
-	// via a cast from outside the enum's value set.
+	// compile error here rather than a silent nullopt. That is enforced by
+	// -Werror=switch on the `tonton` target (CMakeLists.txt) -- the omitted
+	// `default:` alone does NOT make it true, since the project builds with no
+	// -Wall and no -Werror and would otherwise fall straight through to the
+	// return below with zero diagnostics.
+	//
+	// This line is reached only via a cast from outside the enum's value set.
 	return std::nullopt;
 }
 

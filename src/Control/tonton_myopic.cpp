@@ -72,6 +72,14 @@ SpeedFrame SpeedFrameOf(LocomotionMode mode)
 	case LocomotionMode::BRACHIATION:
 		return SpeedFrame::GROUND;
 	}
+	// No `default:` above, deliberately: a new LocomotionMode must be a compile
+	// error here rather than silently inheriting the GROUND frame, which for a
+	// fluid mode is the exact wrong-frame bug this function exists to prevent.
+	// Enforced by -Werror=switch on the `tonton` target (CMakeLists.txt); the
+	// omitted `default:` alone does NOT enforce it, since the project builds
+	// with no -Wall and no -Werror.
+	//
+	// This line is reached only via a cast from outside the enum's value set.
 	return SpeedFrame::GROUND;
 }
 

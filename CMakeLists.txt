@@ -28,6 +28,24 @@ add_library(tonton STATIC
     ${TONTON_HEADERS}
 )
 
+# Make an unhandled enumerator a HARD ERROR, not a silent fall-through.
+#
+# src/Control/tonton_envelope.cpp (ExtractEnvelope) and src/Control/tonton_myopic.cpp
+# (SpeedFrameOf) both deliberately omit `default:` from their switch over
+# LocomotionMode, and both say in a comment that adding a mode is therefore a
+# compile error. Without this flag that claim is simply false: the project builds
+# with plain -std=c++20, no -Wall and no -Werror, so a seventh enumerator compiles
+# with ZERO diagnostics and silently gets `return std::nullopt` and the GROUND
+# speed frame -- the exact silent-wrong-answer outcome the missing `default:`
+# exists to prevent. Even -Wall makes it only a warning.
+#
+# -Werror=switch fires ONLY on a switch over an enum that has no `default:` label
+# and does not name every enumerator, so switches that already carry a `default:`
+# are unaffected by it.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(tonton PRIVATE -Werror=switch)
+endif()
+
 # Set include directories
 target_include_directories(tonton
     PUBLIC
