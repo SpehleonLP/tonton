@@ -114,6 +114,25 @@ std::optional<Envelope> ExtractEnvelope(
 		// tau = characteristic speed / acceleration. Dimensionally a time, built
 		// from two numbers the plausibility suite already validates, adding no
 		// new biological claim. See the spec's rejected-pendulum note.
+		//
+		// TODO(follow-up): this ratio is degenerate for small creatures, and it
+		// is doing a second job it was never derived for.
+		//  (a) DEGENERACY. The dragonfly's 41 m/s^2 of walking acceleration
+		//      against a 3.6 cm/s optimal walk speed gives tau = 0.87 ms.
+		//      Nothing about a dragonfly settles in under a millisecond; the
+		//      ratio is small because the numerator is a walking gait's speed
+		//      while the denominator is a whole-body acceleration, and the two
+		//      are not measured on the same manoeuvre.
+		//  (b) WRONG CHANNEL. Steer reuses tau_linear as the ANGULAR time
+		//      constant (the u_turn numerator, the turn slew). A real angular
+		//      time constant needs rotational inertia and available torque,
+		//      neither of which Envelope carries. Extending Envelope with them
+		//      and deriving tau_angular honestly is the fix.
+		// Deliberately NOT patched with a floor or a bound: a fabricated clamp
+		// would hide the non-physical intermediate rather than remove it (see
+		// CLAUDE.md). The consequence is a large-magnitude `stability` for small
+		// creatures -- framerate-independent since the u_turn split, but still
+		// large.
 		e.tau_linear = t.optimal_speed_m_s / t.max_acceleration_m_s2;
 		return e;
 	}

@@ -27,6 +27,23 @@ enum class BlockingReason : uint8_t {
 	// for a creature asking for twice the turn it can deliver, so using it as
 	// an error sentinel would make the two indistinguishable.
 	MODE_UNAVAILABLE,
+
+	// The analysis classified takeoff as IMPOSSIBLE, but not because any single
+	// named constraint failed -- ClassifyMode (tonton_takeoffanalysis.cpp) also
+	// reaches IMPOSSIBLE from threshold misses with every `*_ok` flag true.
+	// Reporting NONE there described an infeasible plan as unobstructed, which
+	// is uninterpretable for a caller; this says "the analysis says no, and it
+	// did not blame one constraint".
+	TAKEOFF_IMPOSSIBLE,
+	// JUMP_LAUNCH, but Analysis_TakeoffAnalysis::required_jump_velocity_m_s is
+	// exactly 0. That means the analysis never computed the requirement, NOT
+	// that the jump is free -- `required <= available` is trivially true at 0
+	// and would clear a creature for a launch it was never sized for.
+	JUMP_REQUIREMENT_UNKNOWN,
+	// The launch has to push off the substrate (legs, or wings spooling up
+	// while standing) and the creature is in open water, which bears neither --
+	// unless the analysis flagged it as a water-taxiing flyer.
+	NEEDS_SOLID_SUBSTRATE,
 };
 
 // How the creature is turning THIS frame.
@@ -79,7 +96,18 @@ struct MyopicOutput {
 	// heading-plane controller and has no pitch or roll channel.
 	glm::vec3 angular_velocity_rad_s{0};
 
-	float stability{1.f};        // 1 comfortable, 0 at limits, < 0 exceeding
+	// 1 comfortable, 0 at limits, < 0 exceeding.
+	//
+	// On blocking_reason == MODE_UNAVAILABLE these three read 0, not their
+	// defaults: no envelope existed, so no control was computed and the
+	// creature has NO authority on any channel. The defaults said "fully
+	// comfortable on every axis" for a mode the creature does not possess,
+	// which is a reassuring lie to any caller keyed on `stability` -- and
+	// `stability` is exactly the field documented for that use. 0 ("at the
+	// limit / no authority") is the least-wrong reading in the existing
+	// convention; there is no separate "not applicable" value and inventing a
+	// sentinel here is the very thing MODE_UNAVAILABLE exists to avoid.
+	float stability{1.f};
 	float speed_headroom{1.f};
 	float turn_headroom{1.f};
 	bool  suggest_gait_change{false};

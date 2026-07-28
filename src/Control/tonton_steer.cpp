@@ -237,11 +237,36 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// zero-authority creature read as unconstrained (see u_turn below).
 	const bool turn_limited = (speed > kSpeedEpsilon);
 
-	// Stopping-angle bound. Computed up front because under BANK it now shapes
-	// the bank TARGET rather than the delivered rate. See the long note at its
-	// second use for why the divisor is max(tau, dt).
+	// TWO SEPARATE QUANTITIES, deliberately not one. They used to be, and the
+	// sharing made a published diagnostic framerate-proportional.
+	//
+	//  1. turn_stop_bound -- the ANTI-OVERSHOOT BOUND on the rate actually
+	//     delivered. dt belongs in it: see the long note at its use below for
+	//     why max(tau, dt) and not tau alone. Computed up front because under
+	//     BANK it shapes the bank TARGET rather than the delivered rate.
+	//
+	//  2. turn_rate_desired -- "the rate I want to sustain", the numerator of
+	//     u_turn. That is a property of the CREATURE and the ERROR, not of the
+	//     frame time: a heading error closed over the creature's own time
+	//     constant is error/tau whether the caller ticks at 16 Hz or 240 Hz.
+	//     Sharing max(tau, dt) here made stability and turn_headroom scale as
+	//     1/dt for every creature with tau < dt -- measured on the dragonfly
+	//     (tau = 0.87 ms), stability -45.1 at 16 Hz, -172.0 at 60 Hz, -690.8 at
+	//     240 Hz, tracking 1/dt exactly, while the TRAJECTORY it described
+	//     varied by 0.12% over the same range. The number the caller reads must
+	//     not depend on how often it asks.
+	//
+	// Still UNCLAMPED (adjudicated, task 3): u_turn can only exceed 1 -- i.e.
+	// stability can only go negative -- because this numerator is free to
+	// exceed omega_max.
 	const float tau = float(env.tau_linear);
 	const float turn_stop_bound = cmd.angle_error_rad / std::max(tau, dt);
+	// tau <= 0 is degenerate INPUT (tau = optimal_speed/max_accel is positive
+	// for every real envelope), and with no time constant there is no dt-free
+	// rate to state. Fall back to the anti-overshoot bound rather than divide by
+	// zero or invent a horizon.
+	const float turn_rate_desired = (tau > 0.f) ? (cmd.angle_error_rad / tau)
+	                                            : turn_stop_bound;
 
 	// Greedy: if the error can be erased this frame, erase exactly it;
 	// otherwise go flat out. This is the pre-slew *demand* -- it is allowed
@@ -413,16 +438,12 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// also subsumes the old tau<=0 special case for free: max(tau, dt) == dt
 	// whenever tau is non-positive, since dt is always > 0 here.
 	//
-	// TWO ROLES, deliberately kept separable (see the u_turn comment below for
-	// the other half):
-	//  1. ANTI-OVERSHOOT BOUND. Under YAW and GROUND it clamps the delivered
-	//     rate directly, immediately below. Under BANK it instead bounds the
-	//     bank TARGET (above), because there the delivered rate is not a
-	//     command at all. Either way the role depends only on the error, tau
-	//     and dt -- never on omega_max.
-	//  2. NUMERATOR OF u_turn, the turn channel's demand/capacity ratio: the
-	//     rate the creature wants to sustain, against the authority available
-	//     about the axis actually in use.
+	// This is ROLE 1 ONLY (see the split at the declaration): the anti-overshoot
+	// bound. Under YAW and GROUND it clamps the delivered rate directly,
+	// immediately below. Under BANK it instead bounds the bank TARGET (above),
+	// because there the delivered rate is not a command at all. Either way it
+	// depends only on the error, tau and dt -- never on omega_max. Role 2, the
+	// numerator of u_turn, is turn_rate_desired and is dt-free.
 	//
 	// Storing the UNCLAMPED slew value in state, not the clamped output:
 	// clamping is a property of what we deliver this frame, not of the
@@ -511,7 +532,7 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// property of the trajectory, visible in turn_rate, and folding it into a
 	// saturation metric would report every roll-in as an emergency.
 	//
-	// The numerator is deliberately turn_stop_bound, not turn_demand and not
+	// The numerator is deliberately turn_rate_desired, not turn_demand and not
 	// the delivered turn_rate:
 	//  - turn_demand is already clamped to +/-omega_max at the point it is
 	//    computed above, so |turn_demand| <= omega_max always holds and a
@@ -521,17 +542,17 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	//  - turn_rate (the delivered, slew-lagged value) reads low immediately
 	//    after a step input even while the *demand* is pegged at the limit,
 	//    hiding exactly the saturation this ratio exists to surface.
-	//  - turn_stop_bound (= angle_error_rad / max(tau, dt)) is the rate the
+	//  - turn_rate_desired (= angle_error_rad / tau_linear) is the rate the
 	//    creature actually wants to sustain to close the error over its own
-	//    natural time constant. It is dt-free in the normal dt < tau regime,
-	//    it is already computed above for the anti-overshoot clamp, and --
-	//    critically -- it is NOT clamped to omega_max, so u_turn can exceed 1
-	//    exactly when the demanded turn genuinely exceeds available authority.
+	//    natural time constant. It is dt-free at every dt, not merely in the
+	//    dt < tau regime, and -- critically -- it is NOT clamped to omega_max,
+	//    so u_turn can exceed 1 exactly when the demanded turn genuinely
+	//    exceeds available authority.
 	float u_turn = 0.f;
 	if (turn_limited) {
 		if (omega_max > 0.f) {
-			u_turn = std::fabs(turn_stop_bound) / omega_max;
-		} else if (std::fabs(turn_stop_bound) > 0.f) {
+			u_turn = std::fabs(turn_rate_desired) / omega_max;
+		} else if (std::fabs(turn_rate_desired) > 0.f) {
 			u_turn = 2.f; // zero capacity, nonzero demand: nothing can be met
 		}
 	}

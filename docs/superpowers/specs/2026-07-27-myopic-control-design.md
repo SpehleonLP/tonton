@@ -169,15 +169,22 @@ Pure math. Never sees `Output`. Contains the bank/yaw decision and stability.
 
 ```cpp
 struct MyopicState {
-    glm::vec3 prev_linear_accel{0};
-    glm::vec3 prev_angular_accel{0};
-    float     bank_angle_rad{0};
+    float prev_turn_rate_rad_s{0}; // signed, about world up
+    float prev_accel_m_s2{0};      // signed along the heading (negative = braking)
+    float bank_angle_rad{0};       // signed roll achieved so far
 };
 ```
 
 Caller-owned, one per creature. Zero-initialised is a valid cold start. Bank angle is
 state because roll-in is a process, not an instant. `notes.md` assumed a pure function;
 the slew makes that untrue.
+
+These are exactly the three **scalars the steering layer owns**, stored in the same signed
+form it produced them (task-6 correction C2). The earlier world-space `vec3` form was
+wrong twice over: `prev_angular_accel` named an *acceleration* while holding a *rate*, and
+reconstructing the linear term with `glm::length` each frame threw away its sign, feeding
+a braking creature back into the exponential slew as though it had been accelerating
+forward just as hard.
 
 ## Interface
 
