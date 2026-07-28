@@ -2,6 +2,7 @@
 #define TONTON_STEER_H
 
 #include "Control/tonton_envelope.h"
+#include <cstdint>
 
 // NOTE: tonton_analysis.h must never be included here or in tonton_steer.cpp.
 // Steer operates only on Envelope. This is what makes drowning-in-data
@@ -9,16 +10,31 @@
 
 namespace TonTon {
 
+// How the creature is turning THIS frame.
+//  GROUND - ground reaction / centripetal budget (no aerial authority present).
+//  YAW    - flat turn about the yaw axis: available instantly, usually weak.
+//  BANK   - rolled turn: must be rolled into first, then delivers far more
+//           turn rate, and loads the wings (see the load-factor stall coupling).
+enum class TurnStrategy : uint8_t { GROUND, YAW, BANK };
+
 struct SteerCommand {
 	float angle_error_rad{0}; // signed, current heading -> desired heading
 	float current_speed_m_s{0};
 	float desired_speed_m_s{0};
 	float dt_s{1.f / 60.f};
+	// Banking trades weight for centripetal force, so the bank math needs the
+	// local gravity explicitly rather than assuming Earth. TonTon supports
+	// low-gravity worlds; see the zero-g note in Steer().
+	float gravity_m_s2{9.81f};
 };
 
 struct SteerState {
 	float prev_turn_rate_rad_s{0};
 	float prev_accel_m_s2{0};
+	// Roll-in is a process, not an instant: this is the bank angle actually
+	// achieved so far, signed by the direction of the turn. Slewed at the
+	// creature's own max_roll_rate, which IS the aerial angular time constant.
+	float bank_angle_rad{0};
 };
 
 struct SteerResult {
@@ -29,6 +45,9 @@ struct SteerResult {
 	float speed_headroom{1.f};
 	float turn_headroom{1.f};
 	bool  suggest_gait_change{false};
+
+	TurnStrategy strategy{TurnStrategy::GROUND};
+	float bank_angle_rad{0}; // signed; 0 for GROUND and for wings-level YAW
 };
 
 SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cmd);
