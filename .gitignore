@@ -59,3 +59,7 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Superpowers session workspace (SDD ledgers, task briefs, review diffs).
+# Local scratch, never part of the repo.
+.superpowers/
