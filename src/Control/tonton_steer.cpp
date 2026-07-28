@@ -80,9 +80,19 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// error/dt, which keeps the error trajectory dt-independent but makes
 	// the delivered *signal* itself discontinuous at a rate that scales as
 	// O(1/dt) (framerate-dependent jerk for anything downstream that
-	// differentiates the output). Tighter than error/dt whenever dt < tau.
+	// differentiates the output). Tighter than error/dt whenever dt < tau --
+	// but ONLY then: when dt > tau (a coarse frame relative to a fast slew,
+	// e.g. tau=0.025 driven at 16 Hz), error/tau alone permits rate*dt to
+	// exceed the current error, i.e. a real overshoot in one step (measured:
+	// 83% overshoot with 11 sign flips over three frames). Dividing by
+	// max(tau, dt) takes whichever bound is tighter in each regime: dt-free
+	// stopping-angle when dt < tau (where the jerk argument above applies),
+	// hard error/dt non-overshoot when dt > tau (where the slew is already
+	// near pass-through, so the jerk argument doesn't apply anyway). This
+	// also subsumes the old tau<=0 special case for free: max(tau, dt) == dt
+	// whenever tau is non-positive, since dt is always > 0 here.
 	const float tau = float(env.tau_linear);
-	const float turn_stop_bound = (tau > 0.f) ? (cmd.angle_error_rad / tau) : greedy;
+	const float turn_stop_bound = cmd.angle_error_rad / std::max(tau, dt);
 	const float turn_rate = ClampTowardZero(turn_rate_slewed, turn_stop_bound);
 
 	// --- Speed ------------------------------------------------------------
@@ -98,9 +108,10 @@ SteerResult Steer(const Envelope& env, SteerState& state, const SteerCommand& cm
 	// state, clamp only the value handed back to the caller.
 	state.prev_accel_m_s2 = accel_slewed;
 
-	// Same stopping-distance bound as the turn channel, applied to speed
-	// error instead of heading error.
-	const float accel_stop_bound = (tau > 0.f) ? (speed_error / tau) : greedy_accel;
+	// Same stopping-distance bound as the turn channel (see the comment
+	// above turn_stop_bound for why max(tau, dt), not tau alone), applied to
+	// speed error instead of heading error.
+	const float accel_stop_bound = speed_error / std::max(tau, dt);
 	const float accel = ClampTowardZero(accel_slewed, accel_stop_bound);
 
 	SteerResult r;
