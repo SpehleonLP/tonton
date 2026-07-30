@@ -79,13 +79,15 @@ std::string format(const Analysis_Metabolic& m) {
 				"  max_rate_W: %f\n"
 				"  aerobic_scope: %f\n"
 				"  muscle_mass_kg: %f\n"
-				"  available_muscle_power_W: %f\n"
+				"  burst_muscle_power_W: %f\n"
+				"  sustained_muscle_power_W: %f\n"
 				"  is_endotherm: %s\n",
 				float(m.basal_rate_W),
 				float(m.max_rate_W),
 				m.aerobic_scope(),
 				float(m.muscle_mass_kg),
-				float(m.available_muscle_power_W),
+				float(m.burst_muscle_power_W),
+				float(m.sustained_muscle_power_W),
 				m.is_endotherm() ? "true" : "false"
 		);
 		
@@ -362,7 +364,9 @@ std::string format(const Analysis_Aerial& a) {
 				"  speeds (min/cruise/max): {}/{}/{} m/s\n"
 				"  turning radius: {} m\n"
 				"  manuverability (roll/pitch/yaw): {}/{}/{} rad/s\n"
-				"  power (flap/hover): {}/{} W\n",
+				"  power (flap/hover): {}/{} W\n"
+				"  wing_loading_N_m2: {}\n"
+				"  takeoff (mode/force_margin%/power_fraction): {}/{}/{}\n",
 				a.wingbeat_frequency_Hz,
 				a.can_sustain_level_flight ? "yes" : "no",
 				a.can_slow_descent ? "yes" : "no",
@@ -375,7 +379,11 @@ std::string format(const Analysis_Aerial& a) {
 				a.max_pitch_rate_rad_s,
 				a.max_yaw_rate_rad_s,
 				a.flapping_power_W,
-				a.hovering_power_W
+				a.hovering_power_W,
+				a.wing_loading_N_m2,
+				static_cast<int>(a.takeoff.mode),
+				a.takeoff.force_margin_percent,
+				a.takeoff.takeoff_power_fraction
 				);
 	
 	return result;

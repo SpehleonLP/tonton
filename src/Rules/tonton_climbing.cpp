@@ -94,7 +94,8 @@ std::optional<TonTon::Analysis_Climbing>  TonTon::ComputeClimbing(Input const& i
 	auto work_per_stroke_J = body_weight_N * stroke_height_m;
 
 	// Available power from Input::metabolic_efficiency and muscle quality
-	auto muscle_power_W = s.metabolic.available_muscle_power_W * in.climbing_ability;
+	// Sustained: a climb is an ascent, not a lunge.
+	auto muscle_power_W = s.metabolic.sustained_muscle_power_W * in.climbing_ability;
 
 	// Climbing efficiency ~25% (lots of isometric holds)
 	auto climbing_efficiency = 0.25f;

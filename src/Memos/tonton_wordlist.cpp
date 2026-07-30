@@ -884,8 +884,15 @@ TonTon::CladeFlags TonTon::GetCladeFlags(Word word)
 
     // Mammal-specific limb terminals
     case Word::paw:
-    case Word::mitt:
-    case Word::pad: return CF::MAMMALIA;
+    case Word::mitt: return CF::MAMMALIA;
+
+    // NOT `pad`. A pad is a convergent adhesive/cushioning structure, not a
+    // mammalian synapomorphy: treefrogs and geckos are the textbook cases, and
+    // treefrog.glb ("Hand-pad-L") was classified MAMMALIA on this word alone --
+    // which then made an amphibian an ENDOTHERM, since needs_endothermy keys off
+    // the clade. Keep it as SF::TERMINAL (GetSemanticFlags) and let a real
+    // mammal earn MAMMALIA from `paw`, `fur`, `vibrissa` and the rest.
+    case Word::pad: return CF::NONE;
 
     case Word::dewclaw: return CF::MAMMALIA;
 

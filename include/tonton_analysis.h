@@ -126,7 +126,21 @@ struct Analysis_Metabolic {
 	float aerobic_scope() const { return max_rate_W / basal_rate_W; };              // max/basal ratio
 
 	mass_kg muscle_mass_kg{};
-	power_W available_muscle_power_W{};   // ~400 W/kg theoretical max
+
+	// MECHANICAL muscle output. Two distinct quantities -- pick by DURATION, not
+	// by convenience. They differ by 1-2 orders of magnitude on large ectotherms
+	// (100x on a 780 kg shark), so using the wrong one is not a rounding error.
+	//
+	//   burst      -- peak anaerobic output, muscle-limited. Sustainable for
+	//                 seconds. Use for: escape, strikes, jumps, takeoff.
+	//   sustained  -- aerobic-limited: whatever the metabolism can actually fund
+	//                 indefinitely, = min(burst, muscle_efficiency * max_rate_W).
+	//                 Use for: cruise, level flight, steering surplus, recovery.
+	//
+	// INVARIANT: sustained <= burst, and sustained <= max_rate_W. A mechanical
+	// output cannot exceed the metabolism paying for it.
+	power_W burst_muscle_power_W{};       // ~200-400 W/kg of muscle, anaerobic
+	power_W sustained_muscle_power_W{};   // aerobic-limited mechanical power
 
 	// Thermal strategy
 	temp_K body_temperature_K{-1};
@@ -352,6 +366,13 @@ struct Analysis_Aerial {
 	// Flight capability diagnostics (based on muscle power budget)
 	bool can_sustain_level_flight{};  // Sufficient power for sustained flight
 	bool can_slow_descent{};          // Can flutter to slow fall, but not gain altitude
+
+	// Sustained MECHANICAL power a creature must be able to fund to hold level
+	// flight, INCLUDING the reserve `can_sustain_level_flight` requires. This is
+	// the demand side of that test, published so the metabolic pass can interrogate
+	// it: locomotion determines what physiology is required, not the reverse.
+	// Zero when the creature has no wings.
+	power_W level_flight_power_budget_W{};
 			
 	// Steady glide: Lift = Weight
 	float gliding_CL(force_N weight_N, velocity_m_s speed_m_s, density_kg_m3 air_density) const;
@@ -407,13 +428,15 @@ struct Analysis_Aquatic  {
 	power_W swim_power_mechanical_W{};
 
 	// The mechanical power budget tonton_aquatic.cpp allocates to an anaerobic
-	// BURST (available_muscle_power_W * 0.4), and from which burst_speed_m_s is
-	// derived. Exported so a consumer wanting the burst budget does not have to
-	// duplicate the 0.4 literal, and so the acceleration a consumer derives is
-	// consistent with the burst_speed_m_s it is bounded by.
+	// BURST (burst_muscle_power_W * 0.4 -- a recruitment fraction), and from
+	// which burst_speed_m_s is derived. Exported so a consumer wanting the burst
+	// budget does not have to duplicate the 0.4 literal, and so the acceleration
+	// a consumer derives is consistent with the burst_speed_m_s bounding it.
 	//
-	// NOTE both of these are BUDGET ALLOCATIONS of available_muscle_power_W, not
-	// independently-derived hydrodynamic demands. That is the opposite of
+	// NOTE these two draw on DIFFERENT budgets and are not scalar multiples of
+	// each other: cruise spends sustained_muscle_power_W (aerobic-limited),
+	// burst spends burst_muscle_power_W (muscle-limited). Neither is an
+	// independently-derived hydrodynamic demand -- that is the opposite of
 	// Analysis_Aerial::flapping_power_mechanical_W, which is a real aerodynamic
 	// requirement computed without reference to muscle power. See the aquatic
 	// arm of ExtractEnvelope.

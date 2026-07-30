@@ -436,7 +436,9 @@ std::optional<TonTon::Analysis_Jumping>  TonTon::ComputeJumping(Input const& in,
 	if(mechanism == Analysis_Jumping::MechanismType::MUSCLE_DIRECT)
 	{
 		// Direct muscle: fast recovery if aerobic
-		recovery_time_s = time_s(1.0f) + (kinetic_energy_J / s.metabolic.available_muscle_power_W);
+		// Sustained: recovery is repaying an anaerobic debt aerobically, so the
+		// rate is set by what the metabolism can fund, not by peak muscle output.
+		recovery_time_s = time_s(1.0f) + (kinetic_energy_J / s.metabolic.sustained_muscle_power_W);
 	}
 	else if(mechanism == Analysis_Jumping::MechanismType::ELASTIC_CATAPULT)
 	{

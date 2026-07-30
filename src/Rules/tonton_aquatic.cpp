@@ -317,12 +317,14 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 
 	AQUATIC_DBG("Using tail area: " << tail_area_m2 << "m2");
 
-	// Available power for swimming - use metabolic rate, not peak muscle power
-	// Aerobic scope gives sustainable power for cruising
-	// Mechanical efficiency of swimming: ~20-25%
+	// Cruising is by definition sustainable, so it spends from the aerobic-limited
+	// budget. The old expression (0.08 * burst power) was a hand-tuned fudge doing
+	// the aerobic cap's job badly: it scaled with MUSCLE MASS rather than with
+	// metabolism, so a 780 kg shark was credited 4.2 kW of "sustainable" cruise
+	// power against a 521 W total metabolism. sustained_muscle_power_W already
+	// carries the chemical->mechanical efficiency, so no further factor applies.
 	power_W aerobic_power_W = s.metabolic.max_rate_W;
-	auto swim_power_W = s.metabolic.available_muscle_power_W * 0.08f; // 8% for efficient cruising
-//; aerobic_power_W * 0.2f; // 20% mechanical efficiency
+	auto swim_power_W = s.metabolic.sustained_muscle_power_W;
 
 	AQUATIC_DBG("Metabolic: basal=" << s.metabolic.basal_rate_W << "W, aerobic_scope="
 	            << s.metabolic.aerobic_scope << ", aerobic=" << aerobic_power_W
@@ -448,9 +450,11 @@ std::optional<TonTon::Analysis_Aquatic>   TonTon::ComputeAquatic(const Input &in
 	// Cruise is the lower of Strouhal-optimal or power-limited
 	cruise_speed_m_s = std::min(cruise_speed_m_s, power_limited_speed);
 
-	// Burst speed (anaerobic, can use max muscle power for short duration)
-	// Use available muscle power for anaerobic bursts (5-10 seconds)
-	auto burst_power_W = s.metabolic.available_muscle_power_W * 0.4f; // 40% mechanical efficiency for burst
+	// Burst speed (anaerobic, can use max muscle power for short duration).
+	// Correctly reads the burst budget. The 0.4 is a RECRUITMENT fraction -- not
+	// an efficiency, which burst_muscle_power_W already accounts for -- covering
+	// the share of muscle mass driving propulsion during a burst.
+	auto burst_power_W = s.metabolic.burst_muscle_power_W * 0.4f;
 	auto burst_power_limited_speed = cbrt(
 		(2.0f * burst_power_W) / (fluid_density * drag_coefficient * cross_section_m2)
 	);

@@ -40,21 +40,70 @@ TonTon::Scratch::Scratch(Input const& in)
 	// Metabolic rates computed early (after physical, before locomotion)
 	// Locomotion modes need metabolic budget, but metabolic needs clade flags from physical
 	// For multi-clade creatures (pegasus), metabolic blends all clade contributions
+	// Diagnostics emitted from here on describe a PROVISIONAL physiology. If the
+	// feedback pass below replaces it, everything in [pass1_diag, trial_diag) is
+	// erased -- otherwise the log keeps a "cannot sustain level flight" error for
+	// a creature the final analysis says can fly.
+	const size_t pass1_diag = diagnostics.warnings.size();
 	metabolic   = ComputeMetabolic(in, *this);
 
-	terrestrial = ComputeTerrestrial(in, *this);
-	serpentine  = ComputeSerpentine(in, *this);
-	jumping     = ComputeJumping(in, *this);
+	auto ComputeLocomotion = [&]() {
+		terrestrial = ComputeTerrestrial(in, *this);
+		serpentine  = ComputeSerpentine(in, *this);
+		jumping     = ComputeJumping(in, *this);
 
-	aerial      = ComputeAerial(in, *this);
-	aquatic     = ComputeAquatic(in, *this);
+		aerial      = ComputeAerial(in, *this);
+		aquatic     = ComputeAquatic(in, *this);
 
-	climbing    = ComputeClimbing(in, *this);
-	brachiation = ComputeBrachiation(in, *this);
+		climbing    = ComputeClimbing(in, *this);
+		brachiation = ComputeBrachiation(in, *this);
 
-	specialized.digging = ComputeDigging(in, *this);
-	specialized.constriction = ComputeConstriction(in, *this);
+		specialized.digging = ComputeDigging(in, *this);
+		specialized.constriction = ComputeConstriction(in, *this);
+	};
 
+	ComputeLocomotion();
+
+	// ========================================================================
+	// METABOLIC FEEDBACK -- locomotion determines physiology, not the reverse
+	// ========================================================================
+	// Pass 1 above spent a budget derived from clade alone. But an animal's
+	// metabolism is a consequence of what it does for a living: sustained flapping
+	// flight is the most aerobically demanding activity in vertebrates, and no
+	// creature that manages it has a running mammal's aerobic scope.
+	//
+	// So: if a winged creature could not fund level flight out of the pass-1
+	// budget, ask whether a flyer's physiology would cover it. ComputeMetabolic
+	// grants that only up to an empirical ceiling, so "cannot fly" stays a
+	// reachable verdict rather than every creature affording whatever it needs.
+	//
+	// Termination: the only permitted move is an upgrade, and it is applied at
+	// most once, so this runs at most twice and cannot oscillate.
+	if (aerial.has_value() && !aerial->can_sustain_level_flight)
+	{
+		MetabolicDemand demand;
+		demand.sustained_flight_W = float(aerial->level_flight_power_budget_W);
+
+		const size_t trial_diag = diagnostics.warnings.size();
+		auto upgraded = ComputeMetabolic(in, *this, demand);
+
+		if (upgraded.max_rate_W > metabolic.max_rate_W)
+		{
+			// Accepted. Drop pass 1's diagnostics but keep the trial's, which
+			// include the record of why the scope was raised.
+			auto begin = diagnostics.warnings.begin();
+			diagnostics.warnings.erase(begin + pass1_diag, begin + trial_diag);
+
+			metabolic = upgraded;
+			ComputeLocomotion();
+		}
+		else
+		{
+			// Rejected -- no physiology funds this flight. Discard the trial's
+			// diagnostics and keep pass 1, which is the analysis we are returning.
+			diagnostics.warnings.resize(trial_diag);
+		}
+	}
 
 	if(aerial.has_value())
 	{

@@ -1407,10 +1407,17 @@ TonTon::Builder_Chain TonTon::Builder::GetChain(TonTon::Builder::BuilderCommand 
 		
 		accCrossSection += crossSection;
 		accMoment += moment;
-		surface_area= in.skinnedMesh.surfaceArea[j] * in.area_scale[j];
-		length= glm::length(vec);
-		volume= vol;
-		accCentroid= glm::dvec3(in.centroid(j)) * vol;
+		// These four accumulate ALONG the chain -- they were `=` rather than `+=`,
+		// which (since the loop terminates on j == root) left each holding only the
+		// ROOT bone's value. The tell was dimensional: `stretched_length` is the
+		// fully-extended chain and `rest_length` below is the straight-line
+		// root->tip distance, so stretched >= rest by construction -- yet a bat
+		// wing reported stretched 0.10 m (its humerus alone) against a rest length
+		// of ~0.5 m, collapsing its aspect ratio to 0.23.
+		surface_area+= in.skinnedMesh.surfaceArea[j] * in.area_scale[j];
+		length+= glm::length(vec);
+		volume+= vol;
+		accCentroid+= glm::dvec3(in.centroid(j)) * vol;
 		jointsInChain += 1;
 		
 		if(j == root) break;

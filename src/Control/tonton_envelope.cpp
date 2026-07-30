@@ -219,10 +219,12 @@ std::optional<Envelope> ExtractEnvelope(
 
 		// Accelerating power is the MECHANICAL SURPLUS: what the muscles can put
 		// out mechanically, minus what level flight at cruise already consumes.
-		// available_muscle_power_W is documented as mechanical muscle output
-		// (tonton_analysis.h) and tonton_aerial.cpp:333 already uses it that way.
+		// SUSTAINED, not burst: this is the steering envelope for ordinary flight,
+		// and it must agree with the same budget tonton_aerial.cpp used to decide
+		// can_sustain_level_flight -- otherwise the controller would offer
+		// acceleration the flight model already ruled out.
 		const float surplus_W = std::max(0.f,
-			float(analysis.metabolic.available_muscle_power_W)
+			float(analysis.metabolic.sustained_muscle_power_W)
 			- float(a.flapping_power_mechanical_W));
 		e.max_accel = AccelFromPower(power_W{surplus_W},
 		                             analysis.physical.body_mass_kg,
@@ -315,14 +317,14 @@ std::optional<Envelope> ExtractEnvelope(
 		// power, so it can and does exceed the supply (184% of it for the bat,
 		// which correctly zeroes the surplus and makes the mode absent).
 		//
-		// Aquatic has no such demand figure. BOTH aquatic power numbers are
-		// BUDGET ALLOCATIONS of the same available_muscle_power_W:
-		// swim_power_mechanical_W is 0.08 of it and swim_power_burst_mechanical_W
-		// is 0.4 of it (tonton_aquatic.cpp). Subtracting the 0.08 cruise budget
-		// from the full muscle power would therefore be a fixed 0.92 * supply on
-		// every sample forever -- an expression that can never zero, and one that
-		// silently assumed 2.3x the power budget the burst SPEED bounding this
-		// same envelope was derived from.
+		// Aquatic has no such demand figure. Both aquatic power numbers are budget
+		// allocations from the metabolic layer: swim_power_mechanical_W is the
+		// aerobic-limited sustained budget and swim_power_burst_mechanical_W is a
+		// recruitment fraction of the anaerobic burst budget (tonton_aquatic.cpp).
+		// Different budgets, so their difference is a real headroom rather than a
+		// fixed fraction of one supply -- which is what it used to be, back when
+		// cruise was 0.08 of the same number burst took 0.4 of, making the
+		// "surplus" a permanent 0.92 * supply that could never reach zero.
 		//
 		// So: spend out of the burst budget the rules layer itself considers
 		// mechanically available, which is the budget max_speed = burst_speed_m_s

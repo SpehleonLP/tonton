@@ -66,11 +66,12 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     // POWER ANALYSIS
     // ========================================================================
     
-    result.power_to_weight_W_kg = output.metabolic.available_muscle_power_W / body_mass_kg;
+    // BURST: a takeoff is an anaerobic event lasting one to a few wingbeats.
+    result.power_to_weight_W_kg = output.metabolic.burst_muscle_power_W / body_mass_kg;
    
     // Estimate power needed for takeoff (hovering-like initially).
     // K1: compare mechanical-to-mechanical. Per tonton_aerial.cpp, hovering_power_W is
-    // METABOLIC (mechanical / efficiency), while metabolic.available_muscle_power_W is the
+    // METABOLIC (mechanical / efficiency), while metabolic.burst_muscle_power_W is the
     // MECHANICAL muscle output capacity (~200-400 W/kg, see tonton_metabolic.cpp). The old
     // code divided metabolic by mechanical (off by ~1/efficiency). Convert the metabolic
     // hovering requirement back to mechanical (efficiency) before forming the fraction.
@@ -79,14 +80,16 @@ TakeoffAnalysis TakeoffAnalysis_Compute(Input const& in, const Scratch& output) 
     const float muscle_efficiency = 0.20f;  // representative flapping-flight value (range 0.10-0.23)
     power_W takeoff_power_needed_W = aerial.hovering_power_W * muscle_efficiency;  // -> mechanical
     result.takeoff_power_fraction = float(takeoff_power_needed_W) /
-                                    std::max(1e-3f, float(output.metabolic.available_muscle_power_W));
+                                    std::max(1e-3f, float(output.metabolic.burst_muscle_power_W));
     
     // ========================================================================
     // CONSTRAINT CHECKS
     // ========================================================================
     
     result.constraints.wing_loading_ok = aerial.wing_loading_N_m2 < 80.0f;
-    result.constraints.power_loading_ok = result.power_to_weight_W_kg > 50.0f;
+    // Same reasoning as ClassifyMode: ask whether this creature can pay for its
+    // own hover, not whether it clears an absolute W/kg line drawn for birds.
+    result.constraints.power_loading_ok = result.takeoff_power_fraction <= 1.0f;
     
     // Aspect ratio check: high AR (>12) is bad for flapping takeoff
     float avg_aspect_ratio = 0;
@@ -330,17 +333,31 @@ static TakeoffAnalysis::TakeoffMode ClassifyMode(const Scratch& output,
     // ========================================================================
     // VERTICAL LAUNCH: High power, low wing loading
     // ========================================================================
-    if (analysis.power_to_weight_W_kg > 150.0f && 
+    // The gate is "can this animal pay for a hover", which takeoff_power_fraction
+    // already answers per-creature: it is the mechanical hover requirement over
+    // the burst budget, so <= 1 means the power exists.
+    //
+    // This replaces `power_to_weight_W_kg > 150`. An absolute W/kg threshold is
+    // the wrong shape for the question -- power-to-weight is strongly size- and
+    // clade-dependent, so a fixed cutoff encodes one body plan and misjudges the
+    // rest. It failed exactly that way on the dragonfly sample: 74.5 W/kg, so it
+    // missed the gate and fell through to RUNNING_TAKEOFF -- a hovering insect
+    // told it needs a runway -- despite clearing its own force margin by 198x.
+    const bool can_pay_for_hover = analysis.takeoff_power_fraction <= 1.0f;
+
+    if (can_pay_for_hover &&
         aerial.wing_loading_N_m2 < 25.0f &&
         analysis.force_margin_percent > 20.0f) {
         return TakeoffMode::VERTICAL_LAUNCH;
     }
-    
+
     // ========================================================================
-    // JUMP LAUNCH: Good power, wings need assist
+    // JUMP LAUNCH: Wings alone cannot lift it; the legs make up the difference
     // ========================================================================
-    if (analysis.power_to_weight_W_kg > 80.0f &&
-        aerial.wing_loading_N_m2 < 50.0f &&
+    // No power threshold of its own: what DEFINES a jump launch is that hovering
+    // is unaffordable (else it would have launched vertically above) while the
+    // legs supply the missing impulse -- which leg_strength_ok already states.
+    if (aerial.wing_loading_N_m2 < 50.0f &&
         analysis.constraints.leg_strength_ok &&
         analysis.force_margin_percent > 0.0f) {
         return TakeoffMode::JUMP_LAUNCH;

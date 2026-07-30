@@ -5,10 +5,10 @@ namespace TonTon
 {
 struct Input;
 struct Scratch;
-struct Analysis_Metabolic;
 struct Analysis_Behavior;
 
-Analysis_Metabolic    ComputeMetabolic(Input const& in, Scratch & s);
+// ComputeMetabolic is declared in tonton_metabolic.h -- it used to be duplicated
+// here, which became an ambiguous overload once it took a demand argument.
 Analysis_Behavior   ComputeBehavior(Input const& in, Scratch & s);
 
 }

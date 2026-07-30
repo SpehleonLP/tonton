@@ -328,16 +328,13 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     // AVAILABLE POWER (metabolic constraints)
     // ============================================================================
 
-    // Sustained power limited by BOTH muscle capacity AND aerobic metabolism
-    power_W available_power_W;
-    if (s.metabolic.available_muscle_power_W < s.metabolic.max_rate_W) {
-        // Metabolism can support muscle output (small animals/insects)
-        available_power_W = s.metabolic.available_muscle_power_W;
-    } else {
-        // Metabolism is bottleneck (large endotherms)
-        auto sustained_efficiency = 0.20f + 0.05f * in.feather_quality;
-        available_power_W = s.metabolic.max_rate_W * sustained_efficiency;
-    }
+    // Sustained power limited by BOTH muscle capacity AND aerobic metabolism.
+    // This min() used to live here; it now lives in ComputeMetabolic so that
+    // aquatic/climbing/terrestrial get the same treatment instead of reading the
+    // raw burst figure. Same rule, one home. (The efficiency term keys off
+    // metabolic_efficiency rather than feather_quality now -- feather quality is
+    // an aerodynamic property and had no business setting muscle efficiency.)
+    power_W available_power_W = s.metabolic.sustained_muscle_power_W;
 
     // ============================================================================
     // PROFILE DRAG COEFFICIENT (regime-dependent)
@@ -470,7 +467,8 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
     power_W power_required_at_stall_W = aero_power_at_stall_W + inertial_power_at_stall_W;
 
     // Need 50% margin for control authority
-    bool has_power_for_lift = available_power_W >= power_required_at_stall_W * 1.5f;
+    r.level_flight_power_budget_W = power_required_at_stall_W * 1.5f;
+    bool has_power_for_lift = available_power_W >= r.level_flight_power_budget_W;
 
     // --- POWER AT CRUISE SPEED ---
     auto induced_power_cruise_W = induced_power(k_induced, effective_weight_N, rho,
@@ -690,19 +688,52 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 		return glm::dot(axis, I * axis);
     };
 		
-	// Roll/pitch rates limited by wing inertia and control authority
-	auto lift_coeff = 0.5; // rough estimate
-	//auto v_tip_m_s = 2.0 * M_PI * base_frequency_Hz * (total_wing_span_m/2.0) * base_beat_amplitude_rad;
-	
-	// Total force from all wings
-	auto total_wing_force = 0.5 * rho * (r.cruise_speed_m_s*r.cruise_speed_m_s) * (total_wing_area_m2/4.0) * lift_coeff;
-	
-	// Differential control forces (one side/pair vs the other)
-	auto differential_force = total_wing_force * 0.5; // max difference when fully asymmetric
-	
+	// --- CONTROL AUTHORITY AND ROTATIONAL DAMPING ---
+	//
+	// Both the control torque a flyer can produce and the damping that opposes its
+	// rotation are set by the velocity the WING sees, not the velocity the body
+	// travels at. The reference velocity is therefore the resultant of forward
+	// airspeed and the wing's own flapping speed:
+	//
+	//     U_ref = sqrt(V^2 + v_tip^2)
+	//
+	// At high advance ratio v_tip vanishes and this is the fixed-wing case. In
+	// hover V vanishes and what remains is flapping counter-torque: the wing
+	// sweeping into a rotation gains velocity, and drag, while the opposite wing
+	// loses both, so a flapping flyer damps its own rotation using nothing but its
+	// stroke. FCT is why a hovering insect's turn decays inside roughly one
+	// wingbeat with no active control, and it is precisely what the fixed-wing
+	// roll-damping derivative -- which scales with airspeed -- cannot supply.
+	// Ref: Hedrick, Cheng & Deng, Science 324:252-255 (2009).
+	//
+	// Using cruise speed alone, as this did previously, is wrong at both ends: a
+	// hovering animal (V = 0) got ZERO control authority, and with no damping term
+	// at all the "max" rates were torque/I/f -- the angular velocity picked up
+	// after one beat of unopposed torque. That is an increment, not a maximum, and
+	// it keeps growing if you beat twice. It gave a 1.9 kg bat 29 rad/s (1660
+	// deg/s) of roll.
+	auto semi_span_m = total_wing_span_m / 2.0f;
+
+	// Mean wingtip speed: the tip sweeps an arc of Phi*R per half stroke, so
+	// 2*Phi*R per cycle, times f. Mean rather than peak -- damping and
+	// cycle-averaged control torque are both mean-velocity quantities.
+	velocity_m_s v_tip_m_s = semi_span_m * (2.0f * float(base_beat_amplitude_rad) * r.wingbeat_frequency_Hz);
+	velocity_m_s u_ref_m_s = TonTon::sqrt(r.cruise_speed_m_s * r.cruise_speed_m_s
+	                                    + v_tip_m_s * v_tip_m_s);
+
+	auto lift_coeff = 0.5f; // rough estimate
+	auto q_ref = 0.5f * rho * (u_ref_m_s * u_ref_m_s);
+
+	// Cycle-averaged left/right (or fore/aft) force asymmetry a flyer can hold
+	// through a sustained maneuver. 0.125 reproduces the total drive magnitude of
+	// the previous `(area/4) * 0.5` formulation, so the only deliberate increase
+	// here is U_ref replacing cruise speed.
+	constexpr float kDifferentialFraction = 0.125f;
+	auto differential_force = q_ref * total_wing_area_m2 * lift_coeff * kDifferentialFraction;
+
 	// Roll: left vs right wings (moment arm = half wingspan)
-	torque_rad_s2 roll_torque = differential_force * (total_wing_span_m / 2.0);
-		
+	torque_rad_s2 roll_torque = differential_force * semi_span_m;
+
 	// Pitch: fore vs aft wings (moment arm = fore-aft separation)
 	// Compute from gait group centers: wings in different gait groups (e.g. dragonfly fore/aft)
 	// have measurable separation. Single-pair fliers get 0 pitch torque from this.
@@ -721,13 +752,46 @@ std::optional<TonTon::Analysis_Aerial> TonTon::ComputeAerial(Input const& in, Sc
 	}
 	torque_rad_s2 pitch_torque = differential_force * (forewing_aft_separation);
 	
-	// Yaw: typically weaker, dominated by drag forces
-	// Dragonflies use counter-rotation and body drag
-	torque_rad_s2 yaw_torque = differential_force * (total_wing_span_m / 2.0); // rough estimate, typically smaller
+	// Yaw: same moment arm as roll, but sourced from the DRAG differential rather
+	// than the lift differential, so it is smaller by roughly the drag-to-lift
+	// ratio of a flapping wing. The previous code noted "typically smaller" and
+	// then used the roll figure unchanged.
+	constexpr float kYawDragRatio = 0.3f;
+	torque_rad_s2 yaw_torque = differential_force * semi_span_m * kYawDragRatio;
 
-	r.max_roll_rate_rad_s = (roll_torque / GetInertia({0, 0, 1})) / r.wingbeat_frequency_Hz;
-	r.max_pitch_rate_rad_s = (pitch_torque / GetInertia({1, 0, 0})) / r.wingbeat_frequency_Hz;
-	r.max_yaw_rate_rad_s = (yaw_torque / GetInertia({0, 1, 0})) / r.wingbeat_frequency_Hz;
+	// Blade-element damping linearised about U_ref: an element at moment arm y
+	// sees an extra velocity omega*y under rotation, contributing an opposing
+	// drag rho*C_D*U_ref*(omega*y)*dS at arm y. Integrating over the surface,
+	//     N_damp = C_damp * omega,  C_damp = rho * C_D * k2 * U_ref * S * L^2
+	// with k2 ~ 1/3 the second moment of a span-uniform area distribution.
+	constexpr float kWingDragCoeff = 0.4f;   // profile drag of a flapping wing
+	constexpr float kSecondMoment  = 1.0f / 3.0f;
+	auto DampingCoeff = [&](length_m arm) {
+		return rho * (kWingDragCoeff * kSecondMoment) * u_ref_m_s * total_wing_area_m2 * (arm * arm);
+	};
+
+	// A max rate is where drive torque balances damping. Reaching that equilibrium
+	// still takes time, though: omega(t) = omega_eq * (1 - exp(-t/tau)) with
+	// tau = I/C_damp, so within one wingbeat the achievable rate is capped near
+	// (drive/I)*T. That transient branch IS the old formula -- it was not wrong,
+	// it was missing its other half, and it binds for heavy, slow-flapping flyers
+	// whose damping time constant exceeds a beat. Taking the min of the two is a
+	// piecewise fit to the exponential, and makes these "rate reachable within one
+	// wingbeat", which is the semantics the myopic controller actually wants.
+	auto RateLimit = [&](torque_rad_s2 drive, inertia_kgm2 I, length_m arm) -> omega_rad_s {
+		auto c = DampingCoeff(arm);
+		if (float(drive) <= 0.0f || float(I) <= 0.0f) return omega_rad_s{0.0f};
+		omega_rad_s spin_up = (drive / I) / r.wingbeat_frequency_Hz;
+		if (float(c) <= 0.0f) return spin_up;   // no wings, no medium: undamped
+		return std::min(omega_rad_s(drive / c), spin_up);
+	};
+
+	r.max_roll_rate_rad_s  = RateLimit(roll_torque,  GetInertia({0, 0, 1}), semi_span_m);
+	// Pitch damping about the fore/aft wing separation. A single-pair flyer has no
+	// separation and so no pitch torque from this mechanism; its real pitch
+	// authority comes from stroke-plane tilt and tail surfaces, neither modelled.
+	r.max_pitch_rate_rad_s = RateLimit(pitch_torque, GetInertia({1, 0, 0}), forewing_aft_separation);
+	r.max_yaw_rate_rad_s   = RateLimit(yaw_torque,   GetInertia({0, 1, 0}), semi_span_m);
     
     
     // ============================================================================

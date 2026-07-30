@@ -37,7 +37,8 @@ std::string CladeFlagsToString(TonTon::CladeFlags clade) {
 
 } // anonymous namespace
 
-TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s)
+TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s,
+                                                    MetabolicDemand const& demand)
 {
 	auto body_mass_kg = s.physical.body_mass_kg;
 
@@ -69,7 +70,15 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 		}
 	}
 	
-	// Check for functional wings (flight requires high metabolic rate)
+	// Sustained powered flight requires endothermy. Note this is a statement about
+	// POWER, not about taxonomy: it is true of a bat, a bird and a wyvern alike,
+	// and it is why a patagium should contribute a physiological trait rather than
+	// a clade -- the membrane implies sustained flight, and implies nothing at all
+	// about ancestry.
+	//
+	// `demand.sustained_flight_W` is zero on pass 1, so this reduces to the
+	// anatomical shortcut ("it has wings, so presumably it flies") until locomotion
+	// has actually reported a number. On pass 2 the real question gets asked.
 	if (has_wings && HasFlag(clade, CF::CHORDATA)) {
 		needs_endothermy = true;
 	}
@@ -339,9 +348,43 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	power_W basal_rate_W = rmr_coefficient * std::pow(float(body_mass_kg), rmr_exponent);
 
 	// Aerobic scope (max/basal ratio)
-	// Endotherms: 5-15x (typical 10x)
-	// Ectotherms: 2-8x (typical 5x)
+	// Ectotherms:            2-8x  (typical 5x)
+	// Endotherms, running:  7-15x  (typical 10x)
+	// Endotherms, FLYING:  15-30x  -- flapping flight is the most aerobically
+	//   demanding sustained activity in vertebrates. Bats and birds hold 15-25x
+	//   BMR in level flight; hummingbirds exceed 30x. A flat 10x is a running
+	//   mammal's ceiling and cannot fund flight at all.
 	auto aerobic_scope = needs_endothermy ? 10.0f : 5.0f;
+
+	// Locomotion interrogates physiology, rather than physiology being asserted
+	// and locomotion having to live inside it. If level flight demanded more than
+	// a running endotherm's budget funds, ask whether a FLYER's budget would cover
+	// it -- and grant it only if the answer is yes.
+	//
+	// The cap is what keeps this honest. Granting exactly whatever was demanded
+	// would make every creature able to afford whatever it happens to need, which
+	// is unfalsifiable. Capping at the empirical flyer ceiling means "cannot fly"
+	// stays a reachable verdict: a creature whose demand exceeds even 22x BMR is
+	// simply not a flyer, and gets no physiology it cannot justify.
+	// Mechanical-to-metabolic conversion, shared with sustained_muscle_power_W below
+	// so the two cannot drift apart.
+	const float muscle_efficiency = 0.20f + 0.05f * in.metabolic_efficiency;
+
+	constexpr float kFlyerAerobicScope = 22.0f;   // Thomas (1975) bats; Ward et al. birds
+	if (demand.sustained_flight_W > 0.0f && aerobic_scope < kFlyerAerobicScope) {
+		const float funded_at_flyer_scope =
+			float(basal_rate_W) * kFlyerAerobicScope * muscle_efficiency;
+
+		if (demand.sustained_flight_W <= funded_at_flyer_scope) {
+			aerobic_scope = kFlyerAerobicScope;
+			char buf[256];
+			snprintf(buf, sizeof(buf),
+				"Metabolic: sustained flight demands %.3g W mechanical; raised aerobic scope "
+				"%.0fx -> %.0fx (flyer range 15-30x BMR)",
+				demand.sustained_flight_W, 10.0f, kFlyerAerobicScope);
+			s.diagnostics.warnings.push_back({Severity::INFO, buf});
+		}
+	}
 
 	// Maximum metabolic rate
 	auto max_rate_W = basal_rate_W * aerobic_scope;
@@ -359,7 +402,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 	auto muscle_mass_kg = body_mass_kg * muscle_fraction * (0.75f + 0.50f * in.stability_vs_speed);
 
 	// Available muscle power (muscle_mass * power_density)
-	auto available_muscle_power_W = muscle_mass_kg * muscle_power_W_kg;
+	auto burst_muscle_power_W = muscle_mass_kg * muscle_power_W_kg;
 
 	// Temperature regulation zone (for endotherms)
 	temp_K thermal_neutral_zone_min_K = -1.0f;
@@ -430,7 +473,7 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 
 		basal_rate_W *= temp_factor;
 		max_rate_W *= temp_factor;
-		available_muscle_power_W *= power_temp_factor;
+		burst_muscle_power_W *= power_temp_factor;
 	} else {
 		// Endotherm thermal stress warnings
 		float temp_C = float(in.environment.temperature_K) - 273.15f;
@@ -451,11 +494,27 @@ TonTon::Analysis_Metabolic TonTon::ComputeMetabolic(Input const& in, Scratch & s
 		}
 	}
 
+	// ========== SUSTAINED (AEROBIC-LIMITED) MECHANICAL POWER ==========
+	// burst_muscle_power_W above is what the muscle tissue can produce; it says
+	// nothing about whether the animal can pay for it. Sustained output is capped
+	// by the aerobic system: P_mech <= efficiency * P_metabolic.
+	//
+	// Muscle chemical->mechanical efficiency is 20-25% across vertebrates
+	// (Smith et al. 2005; Barclay 2015).
+	//
+	// This cap is not new: tonton_aerial.cpp applied exactly this rule privately
+	// so that flight power checks were honest, while every other locomotion mode
+	// read the raw burst figure. Hoisting it here makes one rule serve all modes.
+	// Computed AFTER the Q10 block so both terms are temperature-adjusted.
+	power_W sustained_muscle_power_W =
+		std::min<power_W>(burst_muscle_power_W, max_rate_W * muscle_efficiency);
+
 	return Analysis_Metabolic{
 		.basal_rate_W = basal_rate_W,
 		.max_rate_W = max_rate_W,
 		.muscle_mass_kg = muscle_mass_kg,
-		.available_muscle_power_W = available_muscle_power_W,
+		.burst_muscle_power_W = burst_muscle_power_W,
+		.sustained_muscle_power_W = sustained_muscle_power_W,
 		.body_temperature_K = needs_endothermy ? body_temperature_K : -1.0f,
 		.thermal_neutral_zone_min_K = thermal_neutral_zone_min_K,
 		.thermal_neutral_zone_max_K = thermal_neutral_zone_max_K
