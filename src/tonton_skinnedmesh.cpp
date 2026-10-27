@@ -77,7 +77,7 @@ counted_ptr<const TonTon::Mesh> TonTon::Mesh::Factory(DoDeeDum::Mesh && m)
 }
 
 counted_ptr<const TonTon::SkinnedMesh> TonTon::SkinnedMesh::Factory(
-		counted_ptr<const Mesh>	mesh, 
+		counted_ptr<const Mesh> const&	mesh, 
 		counted_ptr<const Armature> armature,
 		
 		immutable_array<Cube>		aabb,

@@ -90,7 +90,7 @@ private:
 struct SkinnedMesh
 {
 	static counted_ptr<const SkinnedMesh> Factory(
-		counted_ptr<const Mesh>	mesh, 
+		counted_ptr<const Mesh> const&	mesh, 
 		counted_ptr<const Armature> armature,
 		
 		immutable_array<Cube>		aabb,
